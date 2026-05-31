@@ -1,6 +1,6 @@
 {
   "name": "tldw",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "TLDW (Too Long; Didn't Watch) — send the current YouTube video to Gemini in one keystroke.",
   "private": true,
   "type": "module",
