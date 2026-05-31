@@ -1,0 +1,5 @@
+node_modules/
+dist/
+spike-gemini.js
+.DS_Store
+*.local
