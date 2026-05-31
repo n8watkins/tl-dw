@@ -11,6 +11,8 @@ function cleanTitle(raw?: string): string {
     .trim();
 }
 
+const VERSION = chrome.runtime.getManifest().version;
+
 export function App() {
   const [profiles, setProfiles] = useState<PromptProfile[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -37,6 +39,11 @@ export function App() {
   async function ask() {
     setBusy(true);
     await chrome.runtime.sendMessage({ type: "ASK", profileId: selectedId });
+    window.close();
+  }
+
+  function openOptions() {
+    void chrome.runtime.openOptionsPage();
     window.close();
   }
 
@@ -74,10 +81,17 @@ export function App() {
         Ask Gemini
       </button>
 
-      <p className="hint">
-        Shortcut: <kbd>Alt</kbd>+<kbd>G</kbd>
-        {settings && !settings.autoSubmit ? " · auto-submit off" : ""}
-      </p>
+      <footer>
+        <span className="hint">
+          <kbd>Alt</kbd>+<kbd>G</kbd>
+          {settings && !settings.autoSubmit ? " · auto-submit off" : ""}
+        </span>
+        <button className="options-link" onClick={openOptions}>
+          Settings
+        </button>
+      </footer>
+
+      <div className="version">v{VERSION}</div>
     </div>
   );
 }

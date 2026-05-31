@@ -4,6 +4,7 @@ export type PromptProfile = {
   description?: string;
   promptTemplate: string;
   isDefault?: boolean;
+  isCustomized?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -46,4 +47,7 @@ export type GetPendingMessage = { type: "GET_PENDING" };
 /** Message from the popup requesting an "ask Gemini" run. */
 export type AskMessage = { type: "ASK"; profileId?: string };
 
-export type RuntimeMessage = GetPendingMessage | AskMessage;
+/** Sent from options page after profiles change to sync the context menu. */
+export type RebuildMenuMessage = { type: "REBUILD_MENU" };
+
+export type RuntimeMessage = GetPendingMessage | AskMessage | RebuildMenuMessage;

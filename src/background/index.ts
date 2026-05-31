@@ -112,6 +112,10 @@ chrome.runtime.onMessage.addListener(
       void askGemini(message.profileId).then(() => sendResponse({ ok: true }));
       return true;
     }
+    if (message.type === "REBUILD_MENU") {
+      void rebuildContextMenu().then(() => sendResponse({ ok: true }));
+      return true;
+    }
     if (message.type === "GET_PENDING") {
       const tabId = sender.tab?.id;
       if (tabId === undefined) {

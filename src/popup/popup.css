@@ -88,10 +88,15 @@ select:disabled { opacity: 0.4; cursor: default; }
 .primary:hover:not(:disabled) { background: #6d28d9; }
 .primary:disabled { opacity: 0.4; cursor: default; }
 
+footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .hint {
   font-size: 11px;
   color: #475569;
-  text-align: center;
 }
 
 kbd {
@@ -101,4 +106,24 @@ kbd {
   padding: 1px 4px;
   font-size: 10px;
   font-family: monospace;
+}
+
+.options-link {
+  background: none;
+  border: none;
+  color: #7c3aed;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.options-link:hover { color: #a78bfa; }
+
+.version {
+  font-size: 10px;
+  color: #334155;
+  text-align: right;
+  margin-top: -6px;
 }

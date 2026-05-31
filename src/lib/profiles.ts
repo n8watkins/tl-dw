@@ -135,3 +135,8 @@ Do not invent timestamps, quotes, or moments.`,
     ),
   ];
 }
+
+/** Returns the original template for a built-in profile id, for reset. */
+export function getOriginalTemplate(id: string): string | undefined {
+  return createDefaultProfiles().find((p) => p.id === id)?.promptTemplate;
+}
