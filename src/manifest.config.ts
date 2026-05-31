@@ -6,7 +6,7 @@ export default defineManifest({
   name: "TLDW — Too Long; Didn't Watch",
   version: pkg.version,
   description:
-    "Send the current YouTube video to Gemini in one keystroke (Ctrl+Shift+G).",
+    "Send the current YouTube video to Gemini in one keystroke (Alt+G).",
   action: {
     default_popup: "src/popup/index.html",
     default_title: "TLDW — Ask Gemini about this video",
@@ -25,13 +25,13 @@ export default defineManifest({
   commands: {
     "ask-gemini": {
       suggested_key: {
-        default: "Ctrl+Shift+G",
+        default: "Alt+G",
         mac: "Command+Shift+G",
       },
       description: "Ask Gemini about the current YouTube video",
     },
   },
-  permissions: ["storage", "tabs"],
+  permissions: ["storage", "tabs", "contextMenus"],
   host_permissions: [
     "https://www.youtube.com/*",
     "https://youtube.com/*",

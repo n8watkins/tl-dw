@@ -3,6 +3,7 @@ import { isYouTubeVideoUrl } from "../lib/constants";
 import { addHistoryEntry } from "../lib/history";
 import {
   ensureSeeded,
+  getProfiles,
   getSettings,
   resolveProfile,
   setPendingPrompt,
@@ -10,8 +11,39 @@ import {
 } from "../lib/storage";
 import type { RuntimeMessage, VideoContext } from "../types";
 
+const MENU_ROOT = "tldw-root";
+
+/** Rebuild the right-click toolbar menu to reflect the current profiles. */
+async function rebuildContextMenu(): Promise<void> {
+  await chrome.contextMenus.removeAll();
+
+  const profiles = await getProfiles();
+  if (profiles.length === 0) return;
+
+  chrome.contextMenus.create({
+    id: MENU_ROOT,
+    title: "Ask Gemini with...",
+    contexts: ["action"],
+  });
+
+  for (const profile of profiles) {
+    chrome.contextMenus.create({
+      id: profile.id,
+      parentId: MENU_ROOT,
+      title: profile.name,
+      contexts: ["action"],
+    });
+  }
+}
+
 chrome.runtime.onInstalled.addListener(() => {
-  void ensureSeeded();
+  void ensureSeeded().then(() => rebuildContextMenu());
+});
+
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId !== MENU_ROOT) {
+    void askGemini(info.menuItemId as string);
+  }
 });
 
 /** Clean YouTube's tab title: drop unread "(3) " prefix and " - YouTube". */

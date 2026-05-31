@@ -75,7 +75,7 @@ export function App() {
       </button>
 
       <p className="hint">
-        Shortcut: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>
+        Shortcut: <kbd>Alt</kbd>+<kbd>G</kbd>
         {settings && !settings.autoSubmit ? " · auto-submit off" : ""}
       </p>
     </div>
