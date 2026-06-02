@@ -56,6 +56,8 @@ npm run build
 
 Use `npm run build:copy` when you want to rebuild and copy without incrementing the version.
 
+If the build or Windows copy step fails, `npm run build` restores the package version files to their previous contents.
+
 ## Chrome Install
 
 1. Open `chrome://extensions`.

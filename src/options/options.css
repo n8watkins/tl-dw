@@ -568,6 +568,7 @@ textarea { min-height: 220px; font-family: "JetBrains Mono", "Fira Code", ui-mon
 .about-hero {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 18px;
   background: linear-gradient(135deg, #1a0533 0%, #0d1a3a 100%);
   border: 1px solid var(--border);
@@ -606,6 +607,12 @@ textarea { min-height: 220px; font-family: "JetBrains Mono", "Fira Code", ui-mon
   font-size: 13px;
   color: var(--muted);
   font-family: monospace;
+}
+
+@media (max-width: 640px) {
+  .about-version {
+    margin-left: 0;
+  }
 }
 
 .about-grid {
