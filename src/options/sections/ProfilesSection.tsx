@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { PromptProfile, Settings } from "../../types";
 import { getProfiles, getSettings, setProfiles, setSettings } from "../../lib/storage";
-import { createDefaultProfiles, getOriginalTemplate } from "../../lib/profiles";
+import { getOriginalTemplate } from "../../lib/profiles";
 
 function newProfile(): PromptProfile {
   const now = new Date().toISOString();
