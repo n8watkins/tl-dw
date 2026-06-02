@@ -7,7 +7,7 @@ export function SetupSection() {
     <div>
       <div className="section-header">
         <h1 className="section-title">Setup</h1>
-        <p className="section-desc">Get TLDW working in under two minutes.</p>
+        <p className="section-desc">Get TL;DW working in under two minutes.</p>
       </div>
 
       <div className="steps">
@@ -15,7 +15,7 @@ export function SetupSection() {
           <div className="step-num">Step 1</div>
           <div className="step-title">Open a YouTube video</div>
           <div className="step-body">
-            Navigate to any YouTube watch page or Short. TLDW detects the video
+            Navigate to any YouTube watch page or Short. TL;DW detects the video
             automatically — no clicking required.
           </div>
         </div>
@@ -23,7 +23,7 @@ export function SetupSection() {
           <div className="step-num">Step 2</div>
           <div className="step-title">Press Alt+G</div>
           <div className="step-body">
-            TLDW builds your default prompt, opens a new Gemini tab, and
+            TL;DW builds your default prompt, opens a new Gemini tab, and
             auto-submits. The answer starts generating immediately.
           </div>
         </div>
@@ -65,7 +65,7 @@ export function SetupSection() {
         <div className="shortcut-info">
           <div className="shortcut-label">Right-click toolbar icon</div>
           <div className="shortcut-sub">
-            Right-click the TLDW icon in Chrome's toolbar to pick a specific
+            Right-click the TL;DW icon in Chrome's toolbar to pick a specific
             profile without opening the popup.
           </div>
         </div>
@@ -91,7 +91,7 @@ export function SetupSection() {
         </div>
         <div className="tip">
           <strong>Works on Shorts too</strong>
-          TLDW detects both youtube.com/watch and youtube.com/shorts pages. The
+          TL;DW detects both youtube.com/watch and youtube.com/shorts pages. The
           same shortcut and profiles work on both.
         </div>
         <div className="tip">
@@ -106,7 +106,7 @@ export function SetupSection() {
         </div>
         <div className="tip">
           <strong>Search history is private</strong>
-          TLDW saves the prompt you sent, never the Gemini response. Everything
+          TL;DW saves the prompt you sent, never the Gemini response. Everything
           stays in Chrome's local storage — no servers, no accounts.
         </div>
       </div>

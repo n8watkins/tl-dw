@@ -11,7 +11,7 @@ const WINDOWS_DEST = "/mnt/c/Users/natha/Projects/Tools/tldw";
 const src = path.resolve(import.meta.dirname, "../dist");
 
 if (!fs.existsSync(src)) {
-  console.error("[tldw] dist/ not found — did the build succeed?");
+  console.error("[tl;dw] dist/ not found — did the build succeed?");
   process.exit(1);
 }
 
@@ -24,9 +24,9 @@ try {
   execSync(`rsync -a --delete "${src}/" "${WINDOWS_DEST}/"`, {
     stdio: "inherit",
   });
-  console.log(`[tldw] Copied dist/ -> ${WINDOWS_DEST}`);
+  console.log(`[tl;dw] Copied dist/ -> ${WINDOWS_DEST}`);
 } catch {
   // rsync not available — fall back to cp
   execSync(`cp -r "${src}/." "${WINDOWS_DEST}/"`, { stdio: "inherit" });
-  console.log(`[tldw] Copied dist/ -> ${WINDOWS_DEST} (cp fallback)`);
+  console.log(`[tl;dw] Copied dist/ -> ${WINDOWS_DEST} (cp fallback)`);
 }

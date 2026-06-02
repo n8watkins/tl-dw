@@ -3,13 +3,26 @@ import pkg from "../package.json";
 
 export default defineManifest({
   manifest_version: 3,
-  name: "TLDW — Too Long; Didn't Watch",
+  name: "TL;DW",
+  short_name: "TL;DW",
   version: pkg.version,
   description:
-    "Send the current YouTube video to Gemini in one keystroke (Alt+G).",
+    "Too Long; Didn't Watch for YouTube. Send the current video to Gemini in one keystroke.",
+  icons: {
+    16: "icons/tl-dw-16.png",
+    32: "icons/tl-dw-32.png",
+    48: "icons/tl-dw-48.png",
+    128: "icons/tl-dw-128.png",
+  },
   action: {
     default_popup: "src/popup/index.html",
-    default_title: "TLDW — Ask Gemini about this video",
+    default_title: "TL;DW — Ask Gemini about this video",
+    default_icon: {
+      16: "icons/tl-dw-16.png",
+      32: "icons/tl-dw-32.png",
+      48: "icons/tl-dw-48.png",
+      128: "icons/tl-dw-128.png",
+    },
   },
   options_ui: {
     page: "src/options/index.html",

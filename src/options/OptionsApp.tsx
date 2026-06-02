@@ -15,6 +15,8 @@ const NAV: { id: NavItem; label: string; icon: string }[] = [
   { id: "about",    label: "About",    icon: "◉" },
 ];
 
+const ICON_URL = chrome.runtime.getURL("icons/tl-dw-48.png");
+
 export function OptionsApp() {
   const [active, setActive] = useState<NavItem>("setup");
 
@@ -22,8 +24,11 @@ export function OptionsApp() {
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-logo">
-          <span className="logo-text">TLDW</span>
-          <span className="logo-sub">Too Long; Didn't Watch</span>
+          <img className="sidebar-icon" src={ICON_URL} alt="" />
+          <div>
+            <span className="logo-text">TL;DW</span>
+            <span className="logo-sub">Too Long; Didn't Watch</span>
+          </div>
         </div>
         <nav>
           {NAV.map((item) => (

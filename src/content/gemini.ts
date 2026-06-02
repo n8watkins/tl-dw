@@ -115,9 +115,9 @@ function showToast(text: string): void {
 async function fallbackToClipboard(prompt: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(prompt);
-    showToast("TLDW: couldn't auto-fill — prompt copied, paste it to send.");
+    showToast("TL;DW: couldn't auto-fill — prompt copied, paste it to send.");
   } catch {
-    showToast("TLDW: couldn't auto-fill Gemini. Open the popup to copy the prompt.");
+    showToast("TL;DW: couldn't auto-fill Gemini. Open the popup to copy the prompt.");
   }
 }
 

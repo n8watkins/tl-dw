@@ -117,7 +117,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label">Gemini URL</div>
             <div className="setting-sub">
-              The URL TLDW opens for Gemini. Only change this if Google moves
+              The URL TL;DW opens for Gemini. Only change this if Google moves
               Gemini to a different address.
             </div>
           </div>

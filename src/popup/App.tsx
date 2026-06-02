@@ -12,6 +12,7 @@ function cleanTitle(raw?: string): string {
 }
 
 const VERSION = chrome.runtime.getManifest().version;
+const ICON_URL = chrome.runtime.getURL("icons/tl-dw-32.png");
 
 export function App() {
   const [profiles, setProfiles] = useState<PromptProfile[]>([]);
@@ -50,8 +51,11 @@ export function App() {
   return (
     <div className="tldw">
       <header>
-        <span className="logo">TLDW</span>
-        <span className="tag">Too Long; Didn't Watch</span>
+        <img className="brand-icon" src={ICON_URL} alt="" />
+        <div>
+          <span className="logo">TL;DW</span>
+          <span className="tag">Too Long; Didn't Watch</span>
+        </div>
       </header>
 
       {onVideo ? (
@@ -59,7 +63,7 @@ export function App() {
           {cleanTitle(tab?.title)}
         </p>
       ) : (
-        <p className="empty">Open a YouTube video to use TLDW.</p>
+        <p className="empty">Open a YouTube video to use TL;DW.</p>
       )}
 
       <label className="field">

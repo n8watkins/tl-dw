@@ -1,11 +1,15 @@
 export function AboutSection() {
   const version = chrome.runtime.getManifest().version;
+  const iconUrl = chrome.runtime.getURL("icons/tl-dw-128.png");
 
   return (
     <div>
       <div className="about-hero">
-        <div className="about-logo">TLDW</div>
-        <div className="about-tagline">Too Long; Didn't Watch</div>
+        <img className="about-icon" src={iconUrl} alt="" />
+        <div>
+          <div className="about-logo">TL;DW</div>
+          <div className="about-tagline">Too Long; Didn't Watch</div>
+        </div>
         <span className="about-version">v{version}</span>
       </div>
 
@@ -14,11 +18,11 @@ export function AboutSection() {
           <div className="card-title">What it does</div>
           <div className="card-desc">
             <p style={{ marginBottom: 10 }}>
-              TLDW is a Chrome extension that sends the current YouTube video to
+              TL;DW is a Chrome extension that sends the current YouTube video to
               Gemini in one keystroke using a saved prompt profile.
             </p>
             <p>
-              Press <kbd>Alt</kbd>+<kbd>G</kbd> on any YouTube video. TLDW
+              Press <kbd>Alt</kbd>+<kbd>G</kbd> on any YouTube video. TL;DW
               opens Gemini, fills in your prompt, and submits. You read the
               answer instead of watching the video.
             </p>
@@ -61,7 +65,7 @@ export function AboutSection() {
           <p style={{ marginBottom: 8 }}>Planned for future versions:</p>
           <ul className="profiles-list-mini">
             <li>Custom curiosity field in the popup (per-search question for Research/Learning/Tutorial)</li>
-            <li>Full profile create/import/export from the options page</li>
+            <li>Profile import/export from the options page</li>
             <li>History dashboard with filter by profile and date range</li>
             <li>Transcript extraction for richer analysis</li>
             <li>Gemini API mode (BYO key, optional response saving)</li>

@@ -1,16 +1,16 @@
-# TLDW — Build Plan
+# TL;DW — Product Plan
 
-> **TLDW = "Too Long; Didn't Watch."**
+> **TL;DW = "Too Long; Didn't Watch."**
 >
 > **Thesis:** A Chrome extension that turns "I want to ask Gemini about this YouTube video" into a single keystroke.
 >
-> **Core promise:** It saves the *search*, not the *answer*. That keeps V1 simple, private, fast, and buildable.
+> **Core promise:** It saves the *search*, not the *answer*. That keeps the extension simple, private, fast, and buildable.
 
 ---
 
 ## 1. The spine, in one sentence
 
-On a YouTube tab, press **Ctrl+Shift+G** → grab the URL → build the default prompt → open a new Gemini chat → auto-fill the composer → press Enter. The user just watches the answer generate.
+On a YouTube tab, press **Alt+G** → grab the URL → build the default prompt → open a new Gemini chat → auto-fill the composer → press Enter. The user reads the answer instead of watching the whole video.
 
 That single motion *is* the product. Everything else is management UI layered on top.
 
@@ -20,7 +20,7 @@ That single motion *is* the product. Everything else is management UI layered on
 
 | # | Piece | Responsibility |
 |---|-------|----------------|
-| 1 | **Shortcut** | `chrome.commands` registers Ctrl+Shift+G |
+| 1 | **Shortcut** | `chrome.commands` registers Alt+G by default |
 | 2 | **YouTube side** | Read the active tab's URL (title/channel optional — see §4) |
 | 3 | **Handoff** | Build prompt, stash it keyed by tab id, open `gemini.google.com/app` |
 | 4 | **Gemini side** | Content script on Gemini waits for the composer, injects the prompt, submits |
@@ -60,9 +60,9 @@ This is the classic "works in the demo, silently breaks in 3 months" feature. Th
 
 The fallback is a **V1 feature**, not a nice-to-have.
 
-### First thing to build
+### Current handling
 
-Spike piece #4 in isolation — a throwaway content script that fills Gemini's composer and hits send — **before** scaffolding anything else. If it's flaky, the whole experience is flaky, and we want to know that on day one.
+The extension now attempts composer injection and auto-submit first. If that fails, it copies the prompt and shows a Gemini-page toast so the user can paste manually.
 
 ---
 
@@ -78,34 +78,33 @@ That deletes the most fragile part of YouTube-side scraping (SPA selectors that 
 
 ## 5. Roadmap
 
-### V1 — the solid spine
+### Shipped core
 
-Goal: the Ctrl+Shift+G motion works end-to-end, reliably, with a sane fallback.
+Goal: the Alt+G motion works end-to-end, reliably, with a sane fallback.
 
-- [ ] Keyboard shortcut (Ctrl+Shift+G) on any YouTube watch / Shorts tab
-- [ ] URL capture from the active tab (title/channel optional — skip for now)
-- [ ] Default prompt built from one template (`Summarize this video: {{url}}`)
-- [ ] Open Gemini in a new tab
-- [ ] **Auto-inject + auto-submit** into Gemini's composer
-- [ ] **Graceful fallback**: injection fails → copy to clipboard + toast, tab still opens
-- [ ] Tiny popup as the visible entry point: current video, "Ask Gemini" button (same as shortcut), profile dropdown if >1 profile exists
-- [ ] Minimal history: reverse-chronological list (video URL, prompt, timestamp), delete one, clear all
-- [ ] A few built-in profiles (TLDR / Worth Watching / Research / Clip Ideas / Learning) — usable + editable, nothing fancy
-- [ ] Set default profile
-- [ ] Auto-submit toggle in settings (default ON) — insurance for users who want to review before sending
-- [ ] Not on a YouTube video? → clear message, no action
+- [x] Keyboard shortcut on YouTube watch pages and Shorts
+- [x] URL capture from the active tab
+- [x] Prompt built from editable profiles
+- [x] Open Gemini in a new tab
+- [x] Auto-inject + auto-submit into Gemini's composer
+- [x] Graceful fallback: injection fails → copy prompt + toast, tab still opens
+- [x] Popup entry point with profile selection
+- [x] Local prompt history with delete and clear
+- [x] Built-in editable profiles
+- [x] Set default profile
+- [x] Auto-submit toggle in settings
+- [x] Toolbar context menu for choosing a profile
+- [x] History limit setting
+- [x] Clear empty state when the active tab is not a YouTube video
 
 That's a genuinely complete, useful product.
 
-### V1.1 — management & polish
+### Next management & polish
 
-- [ ] Full Options page (the management surfaces live here, not in V1)
-- [ ] Context menu items (right-click → ask with default / choose profile)
 - [ ] Title + channel extraction with SPA `yt-navigate-finish` handling — *if* it improves results
-- [ ] Profile create / edit / duplicate / archive / delete
+- [ ] Profile duplicate / archive
 - [ ] Reset defaults (all at once; per-profile + `isCustomized` tracking deferred further)
 - [ ] History dashboard: search, profile filter, sort, copy-prompt, reopen-video
-- [ ] History limit setting (50 / 100 / 250 / unlimited)
 - [ ] Remaining settings (`includeMetadataHeader`, custom Gemini URL, etc.)
 
 ### V1.2 — sharing / portability
