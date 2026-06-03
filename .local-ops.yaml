@@ -1,0 +1,37 @@
+local_ops_id: locops_tldw_2026_06
+name: TL;DW
+slug: tldw
+type: chrome-extension
+status: active
+priority: high
+project_kind: single
+
+local:
+  path: /home/natkins/personal/tools/extensions/tldw
+  dev_command: npm run dev
+  build_command: npm run build
+  test_command: npm run typecheck
+  package_manager: npm
+
+deployments:
+  - provider: manual
+    production_url:
+
+docs:
+  readme: README.md
+  status: docs/status.md
+  roadmap: PLAN.md
+  decisions: docs/decisions.md
+  links: docs/links.md
+  onboarding: docs/onboarding.md
+
+agent:
+  agents_md: AGENTS.md
+  claude_md: CLAUDE.md
+  update_protocol: false
+
+tags:
+  - chrome-extension
+  - youtube
+  - gemini
+  - ai-workflow
