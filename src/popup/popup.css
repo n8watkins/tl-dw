@@ -2,35 +2,35 @@
 
 body {
   font-family: system-ui, sans-serif;
-  font-size: 14px;
+  font-size: 16px;
   background: #0f172a;
   color: #f1f5f9;
-  min-width: 280px;
+  min-width: 340px;
 }
 
 .tldw {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
+  gap: 16px;
+  padding: 20px;
 }
 
 header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 
 .brand-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 44px;
+  height: 44px;
+  border-radius: 9px;
   flex: 0 0 auto;
 }
 
 .logo {
   display: block;
-  font-size: 18px;
+  font-size: 26px;
   font-weight: 700;
   color: #a78bfa;
   letter-spacing: 0.05em;
@@ -38,24 +38,26 @@ header {
 
 .tag {
   display: block;
-  font-size: 11px;
+  font-size: 14px;
   color: #64748b;
 }
 
 .video {
-  font-size: 13px;
+  font-size: 16px;
+  line-height: 1.4;
   color: #cbd5e1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 248px;
+  max-width: 300px;
   background: #1e293b;
-  padding: 6px 10px;
-  border-radius: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
 }
 
 .empty {
-  font-size: 13px;
+  font-size: 16px;
+  line-height: 1.45;
   color: #64748b;
   font-style: italic;
 }
@@ -63,8 +65,8 @@ header {
 .field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 15px;
   color: #94a3b8;
 }
 
@@ -72,9 +74,9 @@ select {
   background: #1e293b;
   color: #f1f5f9;
   border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 13px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 16px;
   cursor: pointer;
   width: 100%;
 }
@@ -86,8 +88,8 @@ select:disabled { opacity: 0.4; cursor: default; }
   color: #fff;
   border: none;
   border-radius: 8px;
-  padding: 9px 0;
-  font-size: 14px;
+  padding: 12px 0;
+  font-size: 17px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;
@@ -100,20 +102,22 @@ select:disabled { opacity: 0.4; cursor: default; }
 footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
+  gap: 16px;
 }
 
 .hint {
-  font-size: 11px;
+  font-size: 14px;
   color: #475569;
+  margin-right: auto;
 }
 
 kbd {
   background: #1e293b;
   border: 1px solid #334155;
-  border-radius: 3px;
-  padding: 1px 4px;
-  font-size: 10px;
+  border-radius: 4px;
+  padding: 2px 5px;
+  font-size: 13px;
   font-family: monospace;
 }
 
@@ -121,7 +125,7 @@ kbd {
   background: none;
   border: none;
   color: #7c3aed;
-  font-size: 12px;
+  font-size: 15px;
   cursor: pointer;
   padding: 0;
   text-decoration: underline;
@@ -131,7 +135,7 @@ kbd {
 .options-link:hover { color: #a78bfa; }
 
 .version {
-  font-size: 10px;
+  font-size: 12px;
   color: #334155;
   text-align: right;
   margin-top: -6px;

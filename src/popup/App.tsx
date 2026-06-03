@@ -20,6 +20,7 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string>("");
   const [tab, setTab] = useState<chrome.tabs.Tab | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -32,6 +33,7 @@ export function App() {
       setSettings(s);
       setTab(tabs[0] ?? null);
       setSelectedId(s.defaultProfileId ?? p[0]?.id ?? "");
+      setReady(true);
     })();
   }, []);
 
@@ -58,7 +60,9 @@ export function App() {
         </div>
       </header>
 
-      {onVideo ? (
+      {!ready ? (
+        <p className="empty">Checking current tab...</p>
+      ) : onVideo ? (
         <p className="video" title={tab?.url}>
           {cleanTitle(tab?.title)}
         </p>
@@ -66,30 +70,36 @@ export function App() {
         <p className="empty">Open a YouTube video to use TL;DW.</p>
       )}
 
-      <label className="field">
-        <span>Profile</span>
-        <select
-          value={selectedId}
-          onChange={(e) => setSelectedId(e.target.value)}
-          disabled={!onVideo || profiles.length === 0}
-        >
-          {profiles.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      {onVideo && (
+        <>
+          <label className="field">
+            <span>Profile</span>
+            <select
+              value={selectedId}
+              onChange={(e) => setSelectedId(e.target.value)}
+              disabled={profiles.length === 0}
+            >
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
-      <button className="primary" onClick={ask} disabled={!onVideo || busy}>
-        Ask Gemini
-      </button>
+          <button className="primary" onClick={ask} disabled={busy || profiles.length === 0}>
+            Ask Gemini
+          </button>
+        </>
+      )}
 
       <footer>
-        <span className="hint">
-          <kbd>Alt</kbd>+<kbd>G</kbd>
-          {settings && !settings.autoSubmit ? " · auto-submit off" : ""}
-        </span>
+        {onVideo && (
+          <span className="hint">
+            <kbd>Alt</kbd>+<kbd>G</kbd>
+            {settings && !settings.autoSubmit ? " · auto-submit off" : ""}
+          </span>
+        )}
         <button className="options-link" onClick={openOptions}>
           Settings
         </button>
