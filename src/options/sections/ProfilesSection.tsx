@@ -122,10 +122,11 @@ export function ProfilesSection() {
 
   async function duplicateProfile(profile: PromptProfile) {
     const now = new Date().toISOString();
+    const baseName = normalizeName(profile.name) || "New Profile";
     const copy: PromptProfile = {
       ...profile,
       id: crypto.randomUUID(),
-      name: nextAvailableName(profiles, profile.name),
+      name: nextAvailableName(profiles, baseName),
       isDefault: false,
       isCustomized: undefined,
       createdAt: now,
@@ -258,7 +259,7 @@ export function ProfilesSection() {
                         Set as Default
                       </button>
                     )}
-                    <button className="btn btn-ghost btn-icon-text" onClick={() => void duplicateProfile(profile)}>
+                    <button className="btn btn-ghost btn-icon-text" onClick={() => void duplicateProfile(d)}>
                       <Icon name="duplicate" />
                       Duplicate
                     </button>
