@@ -28,6 +28,34 @@ header {
   flex: 0 0 auto;
 }
 
+.brand-copy {
+  min-width: 0;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  margin-left: auto;
+  color: #c4b5fd;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  color: #ffffff;
+  background: #334155;
+}
+
+.icon-button svg {
+  width: 22px;
+  height: 22px;
+}
+
 .logo {
   display: block;
   font-size: 26px;
@@ -120,19 +148,6 @@ kbd {
   font-size: 13px;
   font-family: monospace;
 }
-
-.options-link {
-  background: none;
-  border: none;
-  color: #7c3aed;
-  font-size: 15px;
-  cursor: pointer;
-  padding: 0;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.options-link:hover { color: #a78bfa; }
 
 .version {
   font-size: 12px;

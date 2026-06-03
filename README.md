@@ -58,6 +58,8 @@ Use `npm run build:copy` when you want to rebuild and copy without incrementing 
 
 If the build or Windows copy step fails, `npm run build` restores the package version files to their previous contents.
 
+After a successful build, open `chrome://extensions` and click Reload on the unpacked TL;DW extension so Chrome picks up the copied files.
+
 ## Chrome Install
 
 1. Open `chrome://extensions`.

@@ -54,10 +54,29 @@ export function App() {
     <div className="tldw">
       <header>
         <img className="brand-icon" src={ICON_URL} alt="" />
-        <div>
+        <div className="brand-copy">
           <span className="logo">TL;DW</span>
           <span className="tag">Too Long; Didn't Watch</span>
         </div>
+        <button
+          className="icon-button"
+          onClick={openOptions}
+          title="Settings"
+          aria-label="Settings"
+        >
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path d="M9.67 4.14a2.34 2.34 0 0 1 4.66 0 2.34 2.34 0 0 0 3.32 1.92 2.34 2.34 0 0 1 2.33 4.03 2.34 2.34 0 0 0 0 3.82 2.34 2.34 0 0 1-2.33 4.03 2.34 2.34 0 0 0-3.32 1.92 2.34 2.34 0 0 1-4.66 0 2.34 2.34 0 0 0-3.32-1.92 2.34 2.34 0 0 1-2.33-4.03 2.34 2.34 0 0 0 0-3.82 2.34 2.34 0 0 1 2.33-4.03 2.34 2.34 0 0 0 3.32-1.92Z" />
+          </svg>
+        </button>
       </header>
 
       {!ready ? (
@@ -67,25 +86,30 @@ export function App() {
           {cleanTitle(tab?.title)}
         </p>
       ) : (
-        <p className="empty">Open a YouTube video to use TL;DW.</p>
+        <p className="empty">Open a YouTube video or Short to use TL;DW.</p>
       )}
 
       {onVideo && (
         <>
-          <label className="field">
-            <span>Profile</span>
-            <select
-              value={selectedId}
-              onChange={(e) => setSelectedId(e.target.value)}
-              disabled={profiles.length === 0}
-            >
-              {profiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          {profiles.length > 0 ? (
+            <label className="field">
+              <span>Profile</span>
+              <select
+                value={selectedId}
+                onChange={(e) => setSelectedId(e.target.value)}
+              >
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <p className="empty">
+              No prompt profiles found. Open Settings to restore or create one.
+            </p>
+          )}
 
           <button className="primary" onClick={ask} disabled={busy || profiles.length === 0}>
             Ask Gemini
@@ -100,9 +124,6 @@ export function App() {
             {settings && !settings.autoSubmit ? " · auto-submit off" : ""}
           </span>
         )}
-        <button className="options-link" onClick={openOptions}>
-          Settings
-        </button>
       </footer>
 
       <div className="version">v{VERSION}</div>
