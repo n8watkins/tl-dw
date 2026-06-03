@@ -11,9 +11,16 @@ import {
 } from "./constants";
 import { createDefaultProfiles } from "./profiles";
 
+function normalizeBuiltInProfiles(profiles: PromptProfile[]): PromptProfile[] {
+  const builtInIds = new Set(createDefaultProfiles().map((profile) => profile.id));
+  return profiles.map((profile) =>
+    builtInIds.has(profile.id) ? { ...profile, isDefault: true } : profile,
+  );
+}
+
 export async function getProfiles(): Promise<PromptProfile[]> {
   const r = await chrome.storage.local.get(STORAGE_KEYS.profiles);
-  return (r[STORAGE_KEYS.profiles] as PromptProfile[]) ?? [];
+  return normalizeBuiltInProfiles((r[STORAGE_KEYS.profiles] as PromptProfile[]) ?? []);
 }
 
 export async function setProfiles(profiles: PromptProfile[]): Promise<void> {

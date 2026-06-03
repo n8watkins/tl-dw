@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { SearchHistoryEntry } from "../../types";
 import { getHistory, setHistory } from "../../lib/storage";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Icon } from "../components/Icons";
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -25,6 +27,8 @@ export function HistorySection() {
   const [entries, setEntries] = useState<SearchHistoryEntry[]>([]);
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     void getHistory().then(setEntries);
@@ -34,16 +38,34 @@ export function HistorySection() {
     const next = entries.filter((e) => e.id !== id);
     setEntries(next);
     await setHistory(next);
+    setDeleteId(null);
   }
 
   async function clearAll() {
-    if (!confirm("Clear all search history?")) return;
     setEntries([]);
     await setHistory([]);
+    setConfirmClear(false);
   }
 
   async function copyPrompt(prompt: string) {
     await navigator.clipboard.writeText(prompt);
+  }
+
+  function exportHistory() {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      source: "TL;DW",
+      entries,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `tl-dw-history-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   const filtered = query.trim()
@@ -71,9 +93,16 @@ export function HistorySection() {
           onChange={(e) => setQuery(e.target.value)}
         />
         {entries.length > 0 && (
-          <button className="btn btn-danger btn-sm" onClick={clearAll}>
-            Clear All
-          </button>
+          <div className="toolbar-actions">
+            <button className="btn btn-ghost btn-icon-text" onClick={exportHistory}>
+              <Icon name="download" />
+              Export
+            </button>
+            <button className="btn btn-danger btn-icon-text" onClick={() => setConfirmClear(true)}>
+              <Icon name="trash" />
+              Clear All
+            </button>
+          </div>
         )}
       </div>
 
@@ -106,28 +135,33 @@ export function HistorySection() {
                   </div>
                   <div className="history-actions" onClick={(e) => e.stopPropagation()}>
                     <button
-                      className="btn btn-ghost btn-sm"
+                      className="icon-action"
                       title="Open video"
+                      aria-label="Open video"
                       onClick={() => void chrome.tabs.create({ url: entry.videoUrl })}
                     >
-                      ↗
+                      <Icon name="external" />
                     </button>
                     <button
-                      className="btn btn-ghost btn-sm"
+                      className="icon-action"
                       title="Copy prompt"
+                      aria-label="Copy prompt"
                       onClick={() => void copyPrompt(entry.prompt)}
                     >
-                      Copy
+                      <Icon name="copy" />
                     </button>
                     <button
-                      className="btn btn-danger btn-sm"
+                      className="icon-action danger"
                       title="Delete"
-                      onClick={() => void deleteEntry(entry.id)}
+                      aria-label="Delete history entry"
+                      onClick={() => setDeleteId(entry.id)}
                     >
-                      ✕
+                      <Icon name="trash" />
                     </button>
                   </div>
-                  <span className={`chevron ${isOpen ? "open" : ""}`} style={{ marginLeft: 8 }}>▾</span>
+                  <span className={`chevron ${isOpen ? "open" : ""}`} style={{ marginLeft: 8 }}>
+                    <Icon name="chevron" />
+                  </span>
                 </div>
 
                 {isOpen && (
@@ -137,17 +171,19 @@ export function HistorySection() {
                       <pre className="prompt-preview">{entry.prompt}</pre>
                     </div>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <button className="btn btn-ghost btn-sm" onClick={() => void copyPrompt(entry.prompt)}>
+                      <button className="btn btn-ghost btn-icon-text" onClick={() => void copyPrompt(entry.prompt)}>
+                        <Icon name="copy" />
                         Copy Prompt
                       </button>
                       <a
                         href={entry.videoUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="btn btn-ghost btn-sm"
+                        className="btn btn-ghost btn-icon-text"
                         style={{ textDecoration: "none" }}
                       >
-                        Open Video ↗
+                        <Icon name="external" />
+                        Open Video
                       </a>
                     </div>
                   </div>
@@ -156,6 +192,24 @@ export function HistorySection() {
             );
           })}
         </div>
+      )}
+      {confirmClear && (
+        <ConfirmDialog
+          title="Clear all history?"
+          body={`This will permanently delete ${entries.length} saved ${entries.length === 1 ? "history entry" : "history entries"}. Gemini responses are not stored, so only saved prompts and video URLs are affected.`}
+          confirmLabel="Clear History"
+          onCancel={() => setConfirmClear(false)}
+          onConfirm={() => void clearAll()}
+        />
+      )}
+      {deleteId && (
+        <ConfirmDialog
+          title="Delete this history entry?"
+          body="This removes the saved prompt and video URL from TL;DW history."
+          confirmLabel="Delete Entry"
+          onCancel={() => setDeleteId(null)}
+          onConfirm={() => void deleteEntry(deleteId)}
+        />
       )}
     </div>
   );

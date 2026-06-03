@@ -2,12 +2,33 @@ import { useEffect, useState } from "react";
 import type { PromptProfile, Settings } from "../../types";
 import { getProfiles, getSettings, setProfiles, setSettings } from "../../lib/storage";
 import { getOriginalTemplate } from "../../lib/profiles";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Icon } from "../components/Icons";
 
-function newProfile(): PromptProfile {
+function normalizeName(name: string): string {
+  return name.trim().replace(/\s+/g, " ");
+}
+
+function hasDuplicateName(profiles: PromptProfile[], id: string, name: string): boolean {
+  const normalized = normalizeName(name).toLowerCase();
+  return profiles.some((profile) => profile.id !== id && normalizeName(profile.name).toLowerCase() === normalized);
+}
+
+function nextAvailableName(profiles: PromptProfile[], baseName: string): string {
+  const base = normalizeName(baseName) || "New Profile";
+  const used = new Set(profiles.map((profile) => normalizeName(profile.name).toLowerCase()));
+  if (!used.has(base.toLowerCase())) return base;
+
+  let index = 2;
+  while (used.has(`${base} (${index})`.toLowerCase())) index += 1;
+  return `${base} (${index})`;
+}
+
+function newProfile(profiles: PromptProfile[]): PromptProfile {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
-    name: "New Profile",
+    name: nextAvailableName(profiles, "New Profile"),
     description: "",
     promptTemplate: "Analyze this YouTube video: {{url}}\n\n",
     createdAt: now,
@@ -21,6 +42,8 @@ export function ProfilesSection() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, PromptProfile>>({});
   const [saved, setSaved] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     void Promise.all([getProfiles(), getSettings()]).then(([p, s]) => {
@@ -30,9 +53,20 @@ export function ProfilesSection() {
   }, []);
 
   async function save(profile: PromptProfile) {
+    const cleanName = normalizeName(profile.name);
+    if (!cleanName) {
+      setError("Profile name is required.");
+      return;
+    }
+    if (hasDuplicateName(profiles, profile.id, cleanName)) {
+      setError(`A profile named "${cleanName}" already exists.`);
+      return;
+    }
+
     const original = getOriginalTemplate(profile.id);
     const updated: PromptProfile = {
       ...profile,
+      name: cleanName,
       isCustomized: profile.isDefault
         ? profile.promptTemplate !== original
         : undefined,
@@ -42,6 +76,7 @@ export function ProfilesSection() {
     setProfilesState(next);
     await setProfiles(next);
     await chrome.runtime.sendMessage({ type: "REBUILD_MENU" });
+    setError(null);
     setSaved(profile.id);
     setTimeout(() => setSaved(null), 2000);
   }
@@ -62,7 +97,7 @@ export function ProfilesSection() {
   }
 
   async function addProfile() {
-    const p = newProfile();
+    const p = newProfile(profiles);
     const next = [...profiles, p];
     setProfilesState(next);
     await setProfiles(next);
@@ -75,8 +110,44 @@ export function ProfilesSection() {
     const next = profiles.filter((p) => p.id !== id);
     setProfilesState(next);
     await setProfiles(next);
+    if (settings?.defaultProfileId === id) {
+      const nextSettings = { ...settings, defaultProfileId: next[0]?.id };
+      setSettingsState(nextSettings);
+      await setSettings(nextSettings);
+    }
     await chrome.runtime.sendMessage({ type: "REBUILD_MENU" });
     if (openId === id) setOpenId(null);
+    setDeleteId(null);
+  }
+
+  async function duplicateProfile(profile: PromptProfile) {
+    const now = new Date().toISOString();
+    const copy: PromptProfile = {
+      ...profile,
+      id: crypto.randomUUID(),
+      name: nextAvailableName(profiles, profile.name),
+      isDefault: false,
+      isCustomized: undefined,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const next = [...profiles, copy];
+    setProfilesState(next);
+    await setProfiles(next);
+    await chrome.runtime.sendMessage({ type: "REBUILD_MENU" });
+    setOpenId(copy.id);
+    setDrafts((d) => ({ ...d, [copy.id]: copy }));
+  }
+
+  async function moveProfile(index: number, offset: -1 | 1) {
+    const target = index + offset;
+    if (target < 0 || target >= profiles.length) return;
+    const next = [...profiles];
+    const [profile] = next.splice(index, 1);
+    next.splice(target, 0, profile);
+    setProfilesState(next);
+    await setProfiles(next);
+    await chrome.runtime.sendMessage({ type: "REBUILD_MENU" });
   }
 
   function draft(profile: PromptProfile): PromptProfile {
@@ -84,6 +155,7 @@ export function ProfilesSection() {
   }
 
   function updateDraft(id: string, patch: Partial<PromptProfile>) {
+    setError(null);
     setDrafts((d) => ({ ...d, [id]: { ...(d[id] ?? profiles.find((p) => p.id === id)!), ...patch } }));
   }
 
@@ -98,9 +170,10 @@ export function ProfilesSection() {
         </div>
         <button className="btn btn-primary" onClick={addProfile}>+ New Profile</button>
       </div>
+      {error && <div className="inline-error">{error}</div>}
 
       <div className="profile-list">
-        {profiles.map((profile) => {
+        {profiles.map((profile, index) => {
           const d = draft(profile);
           const isOpen = openId === profile.id;
           const isDefault = settings?.defaultProfileId === profile.id;
@@ -111,7 +184,29 @@ export function ProfilesSection() {
                 <div className="profile-name">{d.name}</div>
                 {isDefault && <span className="badge badge-default">Default</span>}
                 {!profile.isDefault && <span className="badge badge-custom">Custom</span>}
-                <span className={`chevron ${isOpen ? "open" : ""}`}>▾</span>
+                <div className="profile-row-actions" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    className="icon-action"
+                    title="Move up"
+                    aria-label="Move profile up"
+                    disabled={index === 0}
+                    onClick={() => void moveProfile(index, -1)}
+                  >
+                    <Icon name="up" />
+                  </button>
+                  <button
+                    className="icon-action"
+                    title="Move down"
+                    aria-label="Move profile down"
+                    disabled={index === profiles.length - 1}
+                    onClick={() => void moveProfile(index, 1)}
+                  >
+                    <Icon name="down" />
+                  </button>
+                </div>
+                <span className={`chevron ${isOpen ? "open" : ""}`}>
+                  <Icon name="chevron" />
+                </span>
               </div>
 
               {isOpen && (
@@ -153,26 +248,32 @@ export function ProfilesSection() {
                   </div>
 
                   <div className="editor-actions">
-                    <button className="btn btn-primary btn-sm" onClick={() => save(d)}>
+                    <button className="btn btn-primary btn-icon-text" onClick={() => save(d)}>
+                      <Icon name="save" />
                       {saved === profile.id ? "Saved ✓" : "Save"}
                     </button>
                     {!isDefault && (
-                      <button className="btn btn-ghost btn-sm" onClick={() => setDefault(profile.id)}>
+                      <button className="btn btn-ghost btn-icon-text" onClick={() => setDefault(profile.id)}>
+                        <Icon name="heart" />
                         Set as Default
                       </button>
                     )}
+                    <button className="btn btn-ghost btn-icon-text" onClick={() => void duplicateProfile(profile)}>
+                      <Icon name="duplicate" />
+                      Duplicate
+                    </button>
                     {profile.isDefault && profile.isCustomized && (
-                      <button className="btn btn-ghost btn-sm" onClick={() => resetTemplate(profile)}>
+                      <button className="btn btn-ghost btn-icon-text" onClick={() => resetTemplate(profile)}>
+                        <Icon name="reset" />
                         Reset to Original
                       </button>
                     )}
                     {!profile.isDefault && (
                       <button
-                        className="btn btn-danger btn-sm"
-                        onClick={() => {
-                          if (confirm(`Delete "${profile.name}"?`)) void deleteProfile(profile.id);
-                        }}
+                        className="btn btn-danger btn-icon-text"
+                        onClick={() => setDeleteId(profile.id)}
                       >
+                        <Icon name="trash" />
                         Delete
                       </button>
                     )}
@@ -183,6 +284,15 @@ export function ProfilesSection() {
           );
         })}
       </div>
+      {deleteId && (
+        <ConfirmDialog
+          title="Delete this profile?"
+          body={`"${profiles.find((profile) => profile.id === deleteId)?.name ?? "This profile"}" will be removed from TL;DW. Existing history entries are not changed.`}
+          confirmLabel="Delete Profile"
+          onCancel={() => setDeleteId(null)}
+          onConfirm={() => void deleteProfile(deleteId)}
+        />
+      )}
     </div>
   );
 }

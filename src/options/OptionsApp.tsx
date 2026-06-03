@@ -4,14 +4,16 @@ import { ProfilesSection } from "./sections/ProfilesSection";
 import { HistorySection } from "./sections/HistorySection";
 import { SettingsSection } from "./sections/SettingsSection";
 import { AboutSection } from "./sections/AboutSection";
+import { SupportSection } from "./sections/SupportSection";
 
-type NavItem = "setup" | "profiles" | "history" | "settings" | "about";
+type NavItem = "setup" | "profiles" | "history" | "settings" | "support" | "about";
 
 const NAV: { id: NavItem; label: string; icon: string }[] = [
   { id: "setup",    label: "Setup",    icon: "◎" },
   { id: "profiles", label: "Profiles", icon: "◈" },
   { id: "history",  label: "History",  icon: "◷" },
   { id: "settings", label: "Settings", icon: "◧" },
+  { id: "support",  label: "Support",  icon: "♡" },
   { id: "about",    label: "About",    icon: "◉" },
 ];
 
@@ -43,7 +45,8 @@ export function OptionsApp() {
           ))}
         </nav>
         <div className="sidebar-footer">
-          v{chrome.runtime.getManifest().version}
+          <span>Version</span>
+          <strong>v{chrome.runtime.getManifest().version}</strong>
         </div>
       </aside>
 
@@ -52,6 +55,7 @@ export function OptionsApp() {
         {active === "profiles" && <ProfilesSection />}
         {active === "history"  && <HistorySection />}
         {active === "settings" && <SettingsSection />}
+        {active === "support"  && <SupportSection />}
         {active === "about"    && <AboutSection />}
       </main>
     </div>

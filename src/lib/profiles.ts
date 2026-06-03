@@ -11,13 +11,12 @@ export function createDefaultProfiles(): PromptProfile[] {
     name: string,
     description: string,
     promptTemplate: string,
-    isDefault = false,
   ): PromptProfile => ({
     id,
     name,
     description,
     promptTemplate: promptTemplate.trim(),
-    isDefault,
+    isDefault: true,
     createdAt: ts,
     updatedAt: ts,
   });
@@ -41,7 +40,6 @@ Keep the response concise. Use short paragraphs with clear section headers. Avoi
 Start with the core idea of the video in plain English. Then explain the most useful takeaways, what seems skippable or repetitive, and whether I should watch, skim, or skip it. End with one clean final takeaway.
 
 If the transcript or metadata is incomplete, say what you can determine and what is uncertain. Do not invent details, quotes, timestamps, or claims.`,
-      true,
     ),
     base(
       "research",

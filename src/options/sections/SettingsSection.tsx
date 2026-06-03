@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import type { HistoryLimit, Settings } from "../../types";
 import { DEFAULT_SETTINGS, GEMINI_URL } from "../../lib/constants";
 import { getSettings, setSettings } from "../../lib/storage";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Icon } from "../components/Icons";
 
 export function SettingsSection() {
   const [settings, setLocal] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   useEffect(() => {
     void getSettings().then(setLocal);
@@ -21,9 +24,9 @@ export function SettingsSection() {
   }
 
   async function resetAll() {
-    if (!confirm("Reset all settings to defaults?")) return;
     setLocal(DEFAULT_SETTINGS);
     await setSettings(DEFAULT_SETTINGS);
+    setConfirmReset(false);
   }
 
   if (!settings) return <p className="text-muted">Loading…</p>;
@@ -140,11 +143,22 @@ export function SettingsSection() {
             Restores all settings to their defaults. Your profiles and search
             history are not affected.
           </div>
-          <button className="btn btn-danger btn-sm" onClick={resetAll}>
+          <button className="btn btn-danger btn-icon-text" onClick={() => setConfirmReset(true)}>
+            <Icon name="reset" />
             Reset to Defaults
           </button>
         </div>
       </div>
+      {confirmReset && (
+        <ConfirmDialog
+          title="Reset all settings?"
+          body="This restores TL;DW settings to their defaults. Profiles and search history are not changed."
+          confirmLabel="Reset Settings"
+          tone="primary"
+          onCancel={() => setConfirmReset(false)}
+          onConfirm={() => void resetAll()}
+        />
+      )}
     </div>
   );
 }
