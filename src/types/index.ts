@@ -34,6 +34,21 @@ export type OpenSearch = {
   createdAt: string;
 };
 
+/**
+ * Outcome of an auto-fill attempt on a destination page, reported by the
+ * injector back to the background. Lives in chrome.storage.session so the popup
+ * can surface failures (e.g. a selector that rotted) where the user will see
+ * them and know to update them.
+ */
+export type DeliveryStatus = {
+  /** Human label of the site we tried to fill ("ChatGPT", "NotebookLM", …). */
+  site: string;
+  ok: boolean;
+  /** Why it failed, phrased for the popup alert. */
+  reason?: string;
+  at: string;
+};
+
 export type HistoryLimit = 50 | 100 | 250 | "unlimited";
 
 /**
@@ -125,4 +140,16 @@ export type AskMessage = {
 /** Sent from options page after profiles change to sync the context menu. */
 export type RebuildMenuMessage = { type: "REBUILD_MENU" };
 
-export type RuntimeMessage = GetPendingMessage | AskMessage | RebuildMenuMessage;
+/** Reported by the injector after an auto-fill attempt on a destination page. */
+export type InjectResultMessage = {
+  type: "INJECT_RESULT";
+  site: string;
+  ok: boolean;
+  reason?: string;
+};
+
+export type RuntimeMessage =
+  | GetPendingMessage
+  | AskMessage
+  | RebuildMenuMessage
+  | InjectResultMessage;

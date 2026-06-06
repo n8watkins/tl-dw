@@ -453,7 +453,23 @@ async function fillBox(el: HTMLElement, text: string): Promise<boolean> {
   return took();
 }
 
-async function runNotebookLM(content: string): Promise<void> {
+type Outcome = { ok: boolean; reason?: string };
+
+/** Tell the background how the fill went, so the popup can surface failures. */
+async function reportOutcome(site: string, outcome: Outcome): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage({
+      type: "INJECT_RESULT",
+      site,
+      ok: outcome.ok,
+      reason: outcome.reason,
+    });
+  } catch {
+    /* background may be asleep mid-navigation; best effort */
+  }
+}
+
+async function runNotebookLM(content: string): Promise<Outcome> {
   nlog("start");
   // 0. On the home page, create a new notebook. No fixed sleep — the next step
   //    polls for the dialog and fires the instant it's ready.
@@ -486,7 +502,7 @@ async function runNotebookLM(content: string): Promise<void> {
   if (!sourceBtn) {
     nlog("source button not found:", sourceBtnTexts);
     await fallbackToClipboard(content, "NotebookLM");
-    return;
+    return { ok: false, reason: `couldn't find the "${sourceBtnTexts[0]}" source button` };
   }
   nlog("clicking source button");
   sourceBtn.click();
@@ -497,7 +513,7 @@ async function runNotebookLM(content: string): Promise<void> {
   if (!box) {
     nlog("source input not found");
     await fallbackToClipboard(content, "NotebookLM");
-    return;
+    return { ok: false, reason: "couldn't find the source input box" };
   }
   nlog(
     "filling source input; length:",
@@ -515,15 +531,16 @@ async function runNotebookLM(content: string): Promise<void> {
   }
   if (!filled) {
     await fallbackToClipboard(content, "NotebookLM");
-    return;
+    return { ok: false, reason: "found the source box but couldn't fill it" };
   }
 
   // 3. Submit the source — wait for "Insert" to enable after the fill registers.
   if (await clickInsert(8000)) {
     nlog("clicked Insert");
-    return;
+    return { ok: true };
   }
   showToast('TL;DW: source filled in — click "Insert" to add it.');
+  return { ok: false, reason: 'filled the source box but couldn\'t click "Insert"' };
 }
 
 async function run(): Promise<void> {
@@ -531,7 +548,9 @@ async function run(): Promise<void> {
     const res = (await chrome.runtime.sendMessage({ type: "GET_PENDING" })) as {
       prompt: string | null;
     } | null;
-    if (res?.prompt) await runNotebookLM(res.prompt);
+    if (!res?.prompt) return;
+    const outcome = await runNotebookLM(res.prompt);
+    await reportOutcome("NotebookLM", outcome);
     return;
   }
 
@@ -549,14 +568,25 @@ async function run(): Promise<void> {
   const editor = await waitFor<HTMLElement>(config.editorSelectors, 12000);
   if (!editor) {
     await fallbackToClipboard(prompt, config.name);
+    await reportOutcome(config.name, {
+      ok: false,
+      reason: "couldn't find the composer (its selectors may be out of date)",
+    });
     return;
   }
 
   const inserted = insertText(editor, prompt);
   if (!inserted) {
     await fallbackToClipboard(prompt, config.name);
+    await reportOutcome(config.name, {
+      ok: false,
+      reason: "found the composer but couldn't type into it",
+    });
     return;
   }
+
+  // The prompt is in — report success now; submit is best-effort after this.
+  await reportOutcome(config.name, { ok: true });
 
   if (res?.autoSubmit === false) return; // user wants to review first
 

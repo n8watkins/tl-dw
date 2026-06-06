@@ -1,4 +1,5 @@
 import type {
+  DeliveryStatus,
   OpenSearch,
   PromptProfile,
   SearchHistoryEntry,
@@ -7,6 +8,7 @@ import type {
 } from "../types";
 import {
   DEFAULT_SETTINGS,
+  DELIVERY_STATUS_KEY,
   OPEN_SEARCHES_KEY,
   PENDING_KEY,
   STORAGE_KEYS,
@@ -128,6 +130,25 @@ export async function pruneOpenSearch(tabId: number): Promise<void> {
   if (next.length !== existing.length) {
     await chrome.storage.session.set({ [OPEN_SEARCHES_KEY]: next });
   }
+}
+
+// --- session-scoped record of recent auto-fill outcomes ---
+
+/** Record an auto-fill outcome (newest first, capped) for the popup to show. */
+export async function recordDeliveryStatus(status: DeliveryStatus): Promise<void> {
+  const r = await chrome.storage.session.get(DELIVERY_STATUS_KEY);
+  const list = (r[DELIVERY_STATUS_KEY] as DeliveryStatus[]) ?? [];
+  const next = [status, ...list].slice(0, 10);
+  await chrome.storage.session.set({ [DELIVERY_STATUS_KEY]: next });
+}
+
+export async function getDeliveryStatuses(): Promise<DeliveryStatus[]> {
+  const r = await chrome.storage.session.get(DELIVERY_STATUS_KEY);
+  return (r[DELIVERY_STATUS_KEY] as DeliveryStatus[]) ?? [];
+}
+
+export async function clearDeliveryStatuses(): Promise<void> {
+  await chrome.storage.session.remove(DELIVERY_STATUS_KEY);
 }
 
 /** Open searches whose tabs are still open; prunes any that have closed. */

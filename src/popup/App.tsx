@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type {
+  DeliveryStatus,
   Destination,
   OpenSearch,
   PromptProfile,
@@ -11,6 +12,8 @@ import { buildDestinationPrompt } from "../lib/promptBuilder";
 import { addHistoryEntry } from "../lib/history";
 import {
   addOpenSearch,
+  clearDeliveryStatuses,
+  getDeliveryStatuses,
   getHistory,
   getOpenSearches,
   getProfiles,
@@ -51,15 +54,17 @@ export function App() {
   const [gate, setGate] = useState(false);
   const [openSearches, setOpenSearches] = useState<OpenSearch[]>([]);
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
+  const [statuses, setStatuses] = useState<DeliveryStatus[]>([]);
 
   useEffect(() => {
     void (async () => {
-      const [p, s, tabs, open, hist] = await Promise.all([
+      const [p, s, tabs, open, hist, stat] = await Promise.all([
         getProfiles(),
         getSettings(),
         chrome.tabs.query({ active: true, currentWindow: true }),
         getOpenSearches(),
         getHistory(),
+        getDeliveryStatuses(),
       ]);
       setProfiles(p);
       setSettings(s);
@@ -69,9 +74,17 @@ export function App() {
       setGate(s.worthWatchingGate ?? false);
       setOpenSearches(open);
       setHistory(hist);
+      setStatuses(stat);
       setReady(true);
     })();
   }, []);
+
+  const failures = statuses.filter((s) => !s.ok);
+
+  async function dismissFailures() {
+    await clearDeliveryStatuses();
+    setStatuses([]);
+  }
 
   const onVideo = isYouTubeVideoUrl(tab?.url);
 
@@ -290,6 +303,24 @@ export function App() {
         </p>
       ) : (
         <p className="empty">Open a YouTube video or Short to use TL;DW.</p>
+      )}
+
+      {failures.length > 0 && (
+        <div className="status-alert">
+          <div className="status-alert-head">
+            <span>⚠ Last send didn't work</span>
+            <button className="status-clear" onClick={() => void dismissFailures()}>
+              Dismiss
+            </button>
+          </div>
+          {failures.slice(0, 3).map((f, i) => (
+            <div className="status-alert-item" key={i}>
+              <span className="status-alert-site">{f.site}</span>{" "}
+              {f.reason ?? "delivery failed"}
+              <span className="status-alert-time">{timeAgo(f.at)}</span>
+            </div>
+          ))}
+        </div>
       )}
 
       {onVideo && (

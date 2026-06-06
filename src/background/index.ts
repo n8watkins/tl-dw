@@ -7,6 +7,7 @@ import {
   getProfiles,
   getSettings,
   pruneOpenSearch,
+  recordDeliveryStatus,
   resolveProfile,
   setPendingPrompt,
   takePendingPrompt,
@@ -219,6 +220,16 @@ async function runSummary(
     const meta = await getVideoMeta(activeTab.id);
     if (meta?.channel) video.channel = meta.channel;
     const minutes = (meta?.durationSeconds ?? 0) / 60;
+    if (minutes <= 0) {
+      // Couldn't read the duration — the gate silently can't run. Surface it so
+      // the user knows the verdict was skipped (and the selector may need a look).
+      await recordDeliveryStatus({
+        site: destination.label,
+        ok: false,
+        reason: "couldn't read the video length — verdict gate skipped",
+        at: new Date().toISOString(),
+      });
+    }
     if (
       minutes >= settings.worthWatchingMinutes &&
       !isTrusted(settings.gateBypassTerms, meta?.channel ?? "", title)
@@ -297,6 +308,17 @@ chrome.runtime.onMessage.addListener(
         message.worthWatchingGate,
       ).then(() => sendResponse({ ok: true }));
       return true;
+    }
+    if (message.type === "INJECT_RESULT") {
+      void recordDeliveryStatus({
+        site: message.site,
+        ok: message.ok,
+        reason: message.reason,
+        at: new Date().toISOString(),
+      });
+      void flashBadge(message.ok ? "✓" : "!", message.ok);
+      sendResponse({ ok: true });
+      return false;
     }
     if (message.type === "REBUILD_MENU") {
       void rebuildContextMenu().then(() => sendResponse({ ok: true }));

@@ -46,6 +46,9 @@ export const PENDING_KEY = "pendingPrompts";
 /** chrome.storage.session key holding the list of open destination tabs. */
 export const OPEN_SEARCHES_KEY = "openSearches";
 
+/** chrome.storage.session key holding recent auto-fill outcomes for the popup. */
+export const DELIVERY_STATUS_KEY = "deliveryStatus";
+
 export const DEFAULT_SETTINGS: Settings = {
   autoSubmit: true,
   saveHistoryOnSearch: true,
