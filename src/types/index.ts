@@ -29,6 +29,8 @@ export type Settings = {
   geminiUrl: string;
   /** Switch focus to the new Gemini tab; when false it opens in the background. */
   focusGeminiTab: boolean;
+  /** Fetch the video's transcript and include it in the prompt when available. */
+  includeTranscript: boolean;
 };
 
 export type StorageState = {

@@ -65,6 +65,27 @@ export function SettingsSection() {
 
         <div className="setting-row">
           <div className="setting-info">
+            <div className="setting-label">Include video transcript</div>
+            <div className="setting-sub">
+              Fetch the video's captions and add them to the prompt so the AI
+              summarizes the actual content. Falls back gracefully when a video
+              has no captions.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.includeTranscript}
+                onChange={(e) => void update({ includeTranscript: e.target.checked })}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-info">
             <div className="setting-label">Switch to Gemini tab</div>
             <div className="setting-sub">
               Bring the new Gemini tab to the front. Turn off to open it in the

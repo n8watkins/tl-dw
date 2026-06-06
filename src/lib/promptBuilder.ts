@@ -9,7 +9,7 @@ const FALLBACKS = {
  * Variables that are optional: if not supplied, the entire line containing
  * them is removed rather than left as a visible {{placeholder}}.
  */
-const OPTIONAL_VARS = new Set(["userCuriosity"]);
+const OPTIONAL_VARS = new Set(["userCuriosity", "transcript"]);
 
 export function buildPrompt(
   profile: PromptProfile,

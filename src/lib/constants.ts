@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: Settings = {
   historyLimit: 100,
   geminiUrl: GEMINI_URL,
   focusGeminiTab: true,
+  includeTranscript: true,
 };
 
 export function isYouTubeVideoUrl(url: string | undefined): boolean {

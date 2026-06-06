@@ -38,6 +38,11 @@ export default defineManifest({
       js: ["src/content/gemini.ts"],
       run_at: "document_idle",
     },
+    {
+      matches: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      js: ["src/content/youtube.ts"],
+      run_at: "document_idle",
+    },
   ],
   commands: {
     "ask-gemini": {
