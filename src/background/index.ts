@@ -134,29 +134,10 @@ function isTrusted(bypassTerms: string, channel: string, title?: string): boolea
 }
 
 /**
- * Copy text to the clipboard from the background by delegating to a YouTube
- * tab's content script — the service worker has no DOM, but the content script
- * can write to the clipboard (the extension holds the clipboardWrite
- * permission). Returns whether the write succeeded.
- */
-async function copyViaTab(tabId: number, text: string): Promise<boolean> {
-  try {
-    const res = (await chrome.tabs.sendMessage(tabId, {
-      type: "COPY_TO_CLIPBOARD",
-      text,
-    })) as { ok?: boolean } | undefined;
-    return res?.ok === true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * The core motion: read the target YouTube video, build the prompt from the
- * chosen (or default) profile, then route it to the default destination —
- * inject + submit for Gemini, or copy-with-transcript + open the site for
- * everyone else. `destinationOverride` lets the popup pick a destination for
- * one send without touching the saved default.
+ * chosen (or default) profile, then open the destination tab and hand the
+ * prompt to its injector to auto-fill and submit. `destinationOverride` lets
+ * the popup pick a destination for one send without touching the saved default.
  */
 async function runSummary(
   profileId?: string,
@@ -246,34 +227,17 @@ async function runSummary(
     prompt = prependWorthWatchingGate(prompt, gateMinutes);
   }
 
-  if (destination.mode === "inject") {
-    // Gemini's URL is user-configurable; the rest open their fixed URL.
-    const targetUrl = destination.id === "gemini" ? settings.geminiUrl : destination.url;
-    const injectTab = await chrome.tabs.create({
-      url: targetUrl,
-      active: settings.focusGeminiTab,
-    });
-    if (injectTab.id !== undefined) {
-      await setPendingPrompt(injectTab.id, prompt);
-      await recordOpenSearch(injectTab.id, video, destination);
-    }
-    if (settings.saveHistoryOnSearch) {
-      await addHistoryEntry({ video, profile, prompt, settings, destinationId: destination.id });
-    }
-    return;
+  // Open the destination tab and hand its injector the prompt to auto-fill.
+  // Gemini's URL is user-configurable; the rest open their fixed URL.
+  const targetUrl = destination.id === "gemini" ? settings.geminiUrl : destination.url;
+  const injectTab = await chrome.tabs.create({
+    url: targetUrl,
+    active: settings.focusGeminiTab,
+  });
+  if (injectTab.id !== undefined) {
+    await setPendingPrompt(injectTab.id, prompt);
+    await recordOpenSearch(injectTab.id, video, destination);
   }
-
-  // Clipboard destination: copy via the content script, then open the site.
-  let copied = false;
-  if (activeTab?.id !== undefined) {
-    copied = await copyViaTab(activeTab.id, prompt);
-  }
-  const clipTab = await chrome.tabs.create({ url: destination.url, active: true });
-  if (clipTab.id !== undefined) {
-    await recordOpenSearch(clipTab.id, video, destination);
-  }
-  await flashBadge(copied ? "✓" : "!", copied);
-
   if (settings.saveHistoryOnSearch) {
     await addHistoryEntry({ video, profile, prompt, settings, destinationId: destination.id });
   }

@@ -58,18 +58,11 @@ export type DeliveryStatus = {
 export type HistoryLimit = 50 | 100 | 250 | "unlimited";
 
 /**
- * Where a summary is sent. "inject" destinations get the prompt typed in
- * automatically by a content script (Gemini); "clipboard" destinations get the
- * prompt copied and the site opened for the user to paste — robust for sites we
- * don't auto-fill (ChatGPT, Claude, NotebookLM, Perplexity).
- */
-export type DestinationMode = "inject" | "clipboard";
-
-/**
  * What gets handed to a destination. "prompt" (default) sends the analysis
- * prompt, with the transcript appended for clipboard destinations. "source"
- * sends the raw transcript only — for tools like NotebookLM that ingest source
- * material and do their own questioning, where a prompt would be meaningless.
+ * prompt, with the transcript appended when the destination can't watch the
+ * video itself. "source" sends the raw transcript only — for tools like
+ * NotebookLM that ingest source material and do their own questioning, where a
+ * prompt would be meaningless. "link" sends just the YouTube URL.
  */
 export type DestinationPayload = "prompt" | "source" | "link";
 
@@ -77,7 +70,6 @@ export type Destination = {
   id: string;
   label: string;
   url: string;
-  mode: DestinationMode;
   payload?: DestinationPayload;
   /**
    * True only for destinations that can open the YouTube URL themselves

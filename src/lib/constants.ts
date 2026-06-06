@@ -3,20 +3,18 @@ import type { Destination, Settings } from "../types";
 export const GEMINI_URL = "https://gemini.google.com/app";
 
 /**
- * Where summaries can be sent. Gemini is auto-filled by its content script;
- * the rest can't be reliably auto-filled (different DOM, and they can't watch
- * a YouTube URL), so they use the clipboard hand-off and rely on the
- * transcript being included.
+ * Where summaries can be sent. Each destination is auto-filled by its content
+ * script (the injector types the prompt into the site's composer); only Gemini
+ * can watch the YouTube URL itself, so the rest get the transcript included.
  */
 export const DESTINATIONS: Destination[] = [
-  { id: "gemini", label: "Gemini", url: GEMINI_URL, mode: "inject", canWatch: true },
-  { id: "chatgpt", label: "ChatGPT", url: "https://chatgpt.com/", mode: "inject" },
-  { id: "claude", label: "Claude", url: "https://claude.ai/new", mode: "inject" },
+  { id: "gemini", label: "Gemini", url: GEMINI_URL, canWatch: true },
+  { id: "chatgpt", label: "ChatGPT", url: "https://chatgpt.com/" },
+  { id: "claude", label: "Claude", url: "https://claude.ai/new" },
   {
     id: "notebooklm",
     label: "NotebookLM",
     url: "https://notebooklm.google.com/",
-    mode: "inject",
     // NotebookLM is a sources tool, not a chat box. Currently in link mode: the
     // injector drives its "Websites" source with the YouTube URL. Switch to
     // "source" to paste the transcript via "Copied text" instead.
@@ -26,7 +24,6 @@ export const DESTINATIONS: Destination[] = [
     id: "perplexity",
     label: "Perplexity",
     url: "https://www.perplexity.ai/",
-    mode: "inject",
   },
 ];
 

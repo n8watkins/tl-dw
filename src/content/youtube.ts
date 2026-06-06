@@ -253,58 +253,6 @@ async function getTranscript(): Promise<string | null> {
   return null;
 }
 
-/**
- * Copy via a temporary textarea + execCommand("copy"). This works without a
- * fresh user gesture because the extension holds the clipboardWrite permission.
- * Keep the textarea on-screen (tiny, top-left) rather than off-screen/opacity:0
- * — some Chrome builds refuse to copy a selection from a non-rendered element.
- */
-function copyViaExecCommand(text: string): boolean {
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.style.position = "fixed";
-  ta.style.top = "0";
-  ta.style.left = "0";
-  ta.style.width = "2em";
-  ta.style.height = "2em";
-  ta.style.padding = "0";
-  ta.style.border = "none";
-  ta.style.outline = "none";
-  ta.style.boxShadow = "none";
-  ta.style.background = "transparent";
-  ta.style.zIndex = "2147483647";
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  ta.setSelectionRange(0, text.length);
-  let ok = false;
-  try {
-    ok = document.execCommand("copy");
-  } catch {
-    ok = false;
-  }
-  ta.remove();
-  return ok;
-}
-
-/**
- * Write text to the clipboard from the page. The service worker has no DOM, so
- * the background delegates here. Try the async Clipboard API first (it handles
- * large text cleanly), then fall back to execCommand.
- */
-async function copyTextToClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    log("clipboard: wrote via async API");
-    return true;
-  } catch (err) {
-    log("clipboard: async API failed, falling back to execCommand", err);
-  }
-  const ok = copyViaExecCommand(text);
-  log(`clipboard: execCommand ${ok ? "succeeded" : "failed"}`);
-  return ok;
-}
-
 /** Parse "12:34" / "1:02:03" into seconds. */
 function hmsToSeconds(text: string | null | undefined): number {
   if (!text) return 0;
@@ -338,13 +286,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     log("transcript requested");
     void getTranscript().then((transcript) => sendResponse({ transcript }));
     return true; // keep the channel open for the async response
-  }
-  if (type === "COPY_TO_CLIPBOARD") {
-    log("clipboard copy requested");
-    void copyTextToClipboard((message as { text: string }).text).then((ok) =>
-      sendResponse({ ok }),
-    );
-    return true; // async response
   }
   if (type === "PAUSE_VIDEO") {
     const video = document.querySelector<HTMLVideoElement>(

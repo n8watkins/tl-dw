@@ -1,15 +1,12 @@
 import { useEffect, useState } from "react";
 import type {
   DeliveryStatus,
-  Destination,
   OpenSearch,
   PromptProfile,
   SearchHistoryEntry,
   Settings,
 } from "../types";
 import { DESTINATIONS, getDestination, isYouTubeVideoUrl } from "../lib/constants";
-import { buildDestinationPrompt } from "../lib/promptBuilder";
-import { addHistoryEntry } from "../lib/history";
 import {
   addOpenSearch,
   clearDeliveryStatuses,
@@ -107,81 +104,18 @@ export function App() {
 
   function send() {
     const dest = getDestination(destinationId);
-    if (dest.mode === "inject") {
-      // Hand off to the background worker's auto-fill flow, passing the session
-      // destination so it routes here even if the saved default differs. Fire
-      // and forget, then close: the worker runs independently of the popup, so
-      // we don't block the window open while it scrapes the transcript (which
-      // can take several seconds for non-Gemini destinations).
-      void chrome.runtime.sendMessage({
-        type: "ASK",
-        profileId: selectedId,
-        destinationId: dest.id,
-        worthWatchingGate: gate,
-      });
-      window.close();
-      return;
-    }
-    void sendViaClipboard(dest);
-  }
-
-  /**
-   * For destinations we can't auto-fill (ChatGPT, Claude, …): build the prompt
-   * with the transcript, copy it, and open the site to paste into. Runs in the
-   * popup so the clipboard write happens under a user gesture.
-   */
-  async function sendViaClipboard(dest: Destination) {
-    if (!tab?.id || !tab.url) return;
-    const profile = profiles.find((p) => p.id === selectedId) ?? profiles[0];
-    if (!profile) return;
-
-    setBusy(true);
-    setCopyStatus(`Preparing for ${dest.label}…`);
-    try {
-      const res = (await chrome.tabs
-        .sendMessage(tab.id, { type: "GET_TRANSCRIPT" })
-        .catch(() => null)) as { transcript: string | null } | null;
-      const transcript = res?.transcript ?? null;
-      const full = buildDestinationPrompt(
-        profile,
-        { url: tab.url, title: cleanTitle(tab.title) },
-        dest,
-        transcript,
-      );
-
-      await navigator.clipboard.writeText(full);
-      const opened = await chrome.tabs.create({ url: dest.url });
-      const video = { url: tab.url, title: cleanTitle(tab.title) };
-      if (opened.id !== undefined) {
-        await addOpenSearch({
-          tabId: opened.id,
-          videoTitle: video.title,
-          destinationId: dest.id,
-          destinationLabel: dest.label,
-          createdAt: new Date().toISOString(),
-        });
-      }
-      if (settings?.saveHistoryOnSearch) {
-        await addHistoryEntry({ video, profile, prompt: full, settings, destinationId: dest.id });
-      }
-      if (dest.payload === "source") {
-        setCopyStatus(
-          transcript
-            ? `Copied transcript — in ${dest.label}, click "Copied text" and paste.`
-            : `No transcript found — copied the video link instead.`,
-        );
-      } else {
-        setCopyStatus(
-          transcript
-            ? `Copied with transcript — paste into ${dest.label} (Ctrl+V).`
-            : `Copied (no transcript found) — paste into ${dest.label} (Ctrl+V).`,
-        );
-      }
-    } catch {
-      setCopyStatus("Couldn't prepare the prompt — reload the YouTube tab and retry.");
-    } finally {
-      setBusy(false);
-    }
+    // Hand off to the background worker's auto-fill flow, passing the session
+    // destination so it routes here even if the saved default differs. Fire
+    // and forget, then close: the worker runs independently of the popup, so
+    // we don't block the window open while it scrapes the transcript (which
+    // can take several seconds for non-Gemini destinations).
+    void chrome.runtime.sendMessage({
+      type: "ASK",
+      profileId: selectedId,
+      destinationId: dest.id,
+      worthWatchingGate: gate,
+    });
+    window.close();
   }
 
   /**
@@ -235,40 +169,19 @@ export function App() {
     const dest = getDestination(entry.destinationId);
     const video = { url: entry.videoUrl, title: entry.videoTitle };
 
-    if (dest.mode === "inject") {
-      const targetUrl = dest.id === "gemini" ? settings.geminiUrl : dest.url;
-      const t = await chrome.tabs.create({ url: targetUrl, active: settings.focusGeminiTab });
-      if (t.id !== undefined) {
-        await setPendingPrompt(t.id, entry.prompt);
-        await addOpenSearch({
-          tabId: t.id,
-          videoTitle: video.title,
-          destinationId: dest.id,
-          destinationLabel: dest.label,
-          createdAt: new Date().toISOString(),
-        });
-      }
-      window.close();
-      return;
+    const targetUrl = dest.id === "gemini" ? settings.geminiUrl : dest.url;
+    const t = await chrome.tabs.create({ url: targetUrl, active: settings.focusGeminiTab });
+    if (t.id !== undefined) {
+      await setPendingPrompt(t.id, entry.prompt);
+      await addOpenSearch({
+        tabId: t.id,
+        videoTitle: video.title,
+        destinationId: dest.id,
+        destinationLabel: dest.label,
+        createdAt: new Date().toISOString(),
+      });
     }
-
-    setBusy(true);
-    try {
-      await navigator.clipboard.writeText(entry.prompt);
-      const t = await chrome.tabs.create({ url: dest.url });
-      if (t.id !== undefined) {
-        await addOpenSearch({
-          tabId: t.id,
-          videoTitle: video.title,
-          destinationId: dest.id,
-          destinationLabel: dest.label,
-          createdAt: new Date().toISOString(),
-        });
-      }
-      setCopyStatus(`Re-opened ${dest.label} — paste (Ctrl+V).`);
-    } finally {
-      setBusy(false);
-    }
+    window.close();
   }
 
   function openOptions() {
@@ -393,9 +306,7 @@ export function App() {
             )}
 
           <button className="primary" onClick={send} disabled={busy || profiles.length === 0}>
-            {getDestination(destinationId).mode === "inject"
-              ? `Ask ${getDestination(destinationId).label}`
-              : `Copy & open ${getDestination(destinationId).label}`}
+            Ask {getDestination(destinationId).label}
           </button>
 
           <button className="secondary" onClick={copyTranscript} disabled={busy}>
