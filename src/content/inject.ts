@@ -104,14 +104,27 @@ async function waitFor<T extends Element>(
 function insertText(editor: Element, text: string): boolean {
   (editor as HTMLElement).focus();
 
-  if (editor instanceof HTMLTextAreaElement) {
-    const setter = Object.getOwnPropertyDescriptor(
-      HTMLTextAreaElement.prototype,
-      "value",
-    )?.set;
-    setter?.call(editor, text);
-    editor.dispatchEvent(new Event("input", { bubbles: true }));
-    return editor.value === text;
+  if (editor instanceof HTMLTextAreaElement || editor instanceof HTMLInputElement) {
+    // Prefer execCommand: it fires the native input events frameworks (Angular,
+    // CDK) listen to, which is what actually enables a disabled submit button.
+    editor.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("insertText", false, text);
+    } catch {
+      ok = false;
+    }
+    if (!ok || editor.value !== text) {
+      const proto =
+        editor instanceof HTMLTextAreaElement
+          ? HTMLTextAreaElement.prototype
+          : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+      setter?.call(editor, text);
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      editor.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    return editor.value.includes(text.slice(0, 20));
   }
 
   let ok = false;
@@ -295,6 +308,49 @@ async function waitForPasteBox(timeoutMs: number): Promise<HTMLElement | null> {
 }
 
 /**
+ * Click the dialog's "Insert" submit button — waiting for it to become enabled,
+ * since it stays disabled until the paste box registers content. Logs the
+ * available buttons if it never enables, so a miss is diagnosable.
+ */
+async function clickInsert(timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  let everSeen = false;
+  while (Date.now() < deadline) {
+    const btns = Array.from(
+      document.querySelectorAll<HTMLElement>('button, [role="button"]'),
+    );
+    const match = btns.find((b) => {
+      const label = (b.getAttribute("aria-label") ?? b.textContent ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+      return label === "insert" || label.startsWith("insert");
+    });
+    if (match) {
+      everSeen = true;
+      const disabled =
+        (match as HTMLButtonElement).disabled ||
+        match.getAttribute("aria-disabled") === "true";
+      if (!disabled) {
+        match.click();
+        return true;
+      }
+    }
+    await sleep(250);
+  }
+  if (everSeen) nlog("Insert button stayed disabled");
+  else
+    nlog(
+      "no Insert button; buttons seen:",
+      Array.from(document.querySelectorAll("button"))
+        .map((b) => (b.textContent ?? "").replace(/\s+/g, " ").trim())
+        .filter(Boolean)
+        .slice(0, 25),
+    );
+  return false;
+}
+
+/**
  * NotebookLM has no chat composer — sources are added through a dialog. Drive
  * it: open "Copied text", fill the paste box with the transcript, and submit.
  * Each step falls back to the clipboard if its element can't be found, so the
@@ -333,21 +389,23 @@ async function runNotebookLM(transcript: string): Promise<void> {
     await fallbackToClipboard(transcript, "NotebookLM");
     return;
   }
-  nlog("filling paste box");
+  nlog(
+    "filling paste box; content length:",
+    transcript.length,
+    "snippet:",
+    JSON.stringify(transcript.slice(0, 80)),
+  );
   if (!insertText(box, transcript)) {
     nlog("insertText failed");
     await fallbackToClipboard(transcript, "NotebookLM");
     return;
   }
 
-  // 3. Submit the source ("Insert" / "Add").
-  const insertBtn = await waitForClickableByText(["insert", "add source", "add sources"], 6000);
-  if (insertBtn) {
-    nlog("clicking Insert");
-    insertBtn.click();
+  // 3. Submit the source — wait for "Insert" to enable after the fill registers.
+  if (await clickInsert(8000)) {
+    nlog("clicked Insert");
     return;
   }
-  nlog("Insert button not found — left it filled for the user");
   showToast('TL;DW: transcript filled in — click "Insert" to add it as a source.');
 }
 
