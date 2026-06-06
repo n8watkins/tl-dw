@@ -141,11 +141,10 @@ export function SettingsSection() {
             <div className="setting-label">Default destination</div>
             <div className="setting-sub">
               Where the right-click menu and keyboard shortcut send summaries.
-              Gemini, ChatGPT, Claude, and Perplexity are typed in
-              automatically. NotebookLM opens with the transcript copied to your
-              clipboard, ready to add via its "Copied text" button. You can
-              override this per-session from the popup without changing the
-              default.
+              Gemini, ChatGPT, Claude, and Perplexity get the prompt typed in
+              automatically; NotebookLM has the transcript added as a source
+              automatically. You can override this per-session from the popup
+              without changing the default.
             </div>
           </div>
           <div className="setting-control">

@@ -41,6 +41,7 @@ export default defineManifest({
         "https://claude.ai/*",
         "https://www.perplexity.ai/*",
         "https://perplexity.ai/*",
+        "https://notebooklm.google.com/*",
       ],
       js: ["src/content/inject.ts"],
       run_at: "document_idle",
@@ -76,5 +77,6 @@ export default defineManifest({
     "https://claude.ai/*",
     "https://www.perplexity.ai/*",
     "https://perplexity.ai/*",
+    "https://notebooklm.google.com/*",
   ],
 });

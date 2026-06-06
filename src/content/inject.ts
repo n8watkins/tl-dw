@@ -184,7 +184,97 @@ async function fallbackToClipboard(prompt: string, site: string): Promise<void> 
   }
 }
 
+/** Find a clickable element by its visible text (case-insensitive contains). */
+function findClickableByText(texts: string[]): HTMLElement | null {
+  const wanted = texts.map((t) => t.toLowerCase());
+  const els = document.querySelectorAll<HTMLElement>(
+    'button, [role="button"], [role="menuitem"], a',
+  );
+  for (const el of els) {
+    if ((el as HTMLButtonElement).disabled) continue;
+    const label = (el.getAttribute("aria-label") ?? el.textContent ?? "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    if (label && wanted.some((t) => label.includes(t))) return el;
+  }
+  return null;
+}
+
+async function waitForClickableByText(
+  texts: string[],
+  timeoutMs: number,
+): Promise<HTMLElement | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const el = findClickableByText(texts);
+    if (el) return el;
+    await sleep(150);
+  }
+  return null;
+}
+
+function isVisible(el: HTMLElement): boolean {
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0;
+}
+
+/**
+ * NotebookLM has no chat composer — sources are added through a dialog. Drive
+ * it: open "Copied text", fill the paste box with the transcript, and submit.
+ * Each step falls back to the clipboard if its element can't be found, so the
+ * worst case is the pre-v0.1.17 manual behavior.
+ */
+async function runNotebookLM(transcript: string): Promise<void> {
+  // 1. Open the "Copied text" source type.
+  const copiedTextBtn = await waitForClickableByText(["copied text", "paste text"], 12000);
+  if (!copiedTextBtn) {
+    await fallbackToClipboard(transcript, "NotebookLM");
+    return;
+  }
+  copiedTextBtn.click();
+
+  // 2. Wait for the paste box that appears (a new textarea / editor), avoiding
+  //    the always-present "search the web" box.
+  const box = await waitFor<HTMLElement>(
+    [
+      'textarea[aria-label*="paste" i]',
+      'textarea[placeholder*="paste" i]',
+      'div[contenteditable="true"][aria-label*="paste" i]',
+      'mat-dialog-container textarea',
+      'div[role="dialog"] textarea',
+    ],
+    8000,
+  );
+  if (!box || !isVisible(box)) {
+    await fallbackToClipboard(transcript, "NotebookLM");
+    return;
+  }
+
+  if (!insertText(box, transcript)) {
+    await fallbackToClipboard(transcript, "NotebookLM");
+    return;
+  }
+
+  // 3. Submit the source ("Insert" / "Add").
+  await sleep(200);
+  const insertBtn = await waitForClickableByText(["insert", "add source", "add"], 4000);
+  if (insertBtn) {
+    insertBtn.click();
+    return;
+  }
+  showToast('TL;DW: transcript filled in — click "Insert" to add it as a source.');
+}
+
 async function run(): Promise<void> {
+  if (location.hostname.endsWith("notebooklm.google.com")) {
+    const res = (await chrome.runtime.sendMessage({ type: "GET_PENDING" })) as {
+      prompt: string | null;
+    } | null;
+    if (res?.prompt) await runNotebookLM(res.prompt);
+    return;
+  }
+
   const config = configForHost(location.hostname);
   if (!config) return;
 

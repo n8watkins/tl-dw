@@ -16,9 +16,9 @@ export const DESTINATIONS: Destination[] = [
     id: "notebooklm",
     label: "NotebookLM",
     url: "https://notebooklm.google.com/notebook/creating",
-    mode: "clipboard",
-    // NotebookLM is a sources tool, not a chat box: it gets the transcript to
-    // add via "Copied text", and you ask it questions yourself.
+    mode: "inject",
+    // NotebookLM is a sources tool, not a chat box: the injector drives its
+    // "Copied text" dialog to add the transcript as a source automatically.
     payload: "source",
   },
   {
