@@ -1,6 +1,34 @@
-import type { Settings } from "../types";
+import type { Destination, Settings } from "../types";
 
 export const GEMINI_URL = "https://gemini.google.com/app";
+
+/**
+ * Where summaries can be sent. Gemini is auto-filled by its content script;
+ * the rest can't be reliably auto-filled (different DOM, and they can't watch
+ * a YouTube URL), so they use the clipboard hand-off and rely on the
+ * transcript being included.
+ */
+export const DESTINATIONS: Destination[] = [
+  { id: "gemini", label: "Gemini", url: GEMINI_URL, mode: "inject" },
+  { id: "chatgpt", label: "ChatGPT", url: "https://chatgpt.com/", mode: "clipboard" },
+  { id: "claude", label: "Claude", url: "https://claude.ai/new", mode: "clipboard" },
+  {
+    id: "notebooklm",
+    label: "NotebookLM",
+    url: "https://notebooklm.google.com/",
+    mode: "clipboard",
+  },
+  {
+    id: "perplexity",
+    label: "Perplexity",
+    url: "https://www.perplexity.ai/",
+    mode: "clipboard",
+  },
+];
+
+export function getDestination(id: string | undefined): Destination {
+  return DESTINATIONS.find((d) => d.id === id) ?? DESTINATIONS[0];
+}
 
 export const STORAGE_KEYS = {
   profiles: "profiles",
@@ -18,6 +46,7 @@ export const DEFAULT_SETTINGS: Settings = {
   geminiUrl: GEMINI_URL,
   focusGeminiTab: true,
   includeTranscript: true,
+  destinationId: "gemini",
 };
 
 export function isYouTubeVideoUrl(url: string | undefined): boolean {

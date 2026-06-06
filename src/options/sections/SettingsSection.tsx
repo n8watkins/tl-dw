@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { HistoryLimit, Settings } from "../../types";
-import { DEFAULT_SETTINGS, GEMINI_URL } from "../../lib/constants";
+import { DEFAULT_SETTINGS, DESTINATIONS, GEMINI_URL } from "../../lib/constants";
 import { getSettings, setSettings } from "../../lib/storage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
@@ -128,6 +128,34 @@ export function SettingsSection() {
               <option value="100">100 entries</option>
               <option value="250">250 entries</option>
               <option value="unlimited">Unlimited</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group-title">Destination</div>
+
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Send summaries to</div>
+            <div className="setting-sub">
+              Gemini is filled in automatically. ChatGPT, Claude, NotebookLM, and
+              Perplexity open with the prompt and transcript copied to your
+              clipboard, ready to paste.
+            </div>
+          </div>
+          <div className="setting-control">
+            <select
+              className="setting-select"
+              value={settings.destinationId}
+              onChange={(e) => void update({ destinationId: e.target.value })}
+            >
+              {DESTINATIONS.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
             </select>
           </div>
         </div>

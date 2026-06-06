@@ -21,6 +21,21 @@ export type SearchHistoryEntry = {
 
 export type HistoryLimit = 50 | 100 | 250 | "unlimited";
 
+/**
+ * Where a summary is sent. "inject" destinations get the prompt typed in
+ * automatically by a content script (Gemini); "clipboard" destinations get the
+ * prompt copied and the site opened for the user to paste — robust for sites we
+ * don't auto-fill (ChatGPT, Claude, NotebookLM, Perplexity).
+ */
+export type DestinationMode = "inject" | "clipboard";
+
+export type Destination = {
+  id: string;
+  label: string;
+  url: string;
+  mode: DestinationMode;
+};
+
 export type Settings = {
   defaultProfileId?: string;
   autoSubmit: boolean;
@@ -31,6 +46,8 @@ export type Settings = {
   focusGeminiTab: boolean;
   /** Fetch the video's transcript and include it in the prompt when available. */
   includeTranscript: boolean;
+  /** Which destination a summary is sent to (see DESTINATIONS). */
+  destinationId: string;
 };
 
 export type StorageState = {

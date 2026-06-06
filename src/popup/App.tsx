@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import type { PromptProfile, Settings } from "../types";
-import { isYouTubeVideoUrl } from "../lib/constants";
-import { getProfiles, getSettings } from "../lib/storage";
+import type { Destination, PromptProfile, Settings } from "../types";
+import { DESTINATIONS, getDestination, isYouTubeVideoUrl } from "../lib/constants";
+import { buildPrompt } from "../lib/promptBuilder";
+import { getProfiles, getSettings, setSettings as persistSettings } from "../lib/storage";
 
 function cleanTitle(raw?: string): string {
   if (!raw) return "Current YouTube video";
@@ -22,6 +23,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
+  const [destinationId, setDestinationId] = useState("gemini");
 
   useEffect(() => {
     void (async () => {
@@ -34,16 +36,72 @@ export function App() {
       setSettings(s);
       setTab(tabs[0] ?? null);
       setSelectedId(s.defaultProfileId ?? p[0]?.id ?? "");
+      setDestinationId(s.destinationId ?? "gemini");
       setReady(true);
     })();
   }, []);
 
   const onVideo = isYouTubeVideoUrl(tab?.url);
 
-  async function ask() {
+  async function changeDestination(id: string) {
+    setDestinationId(id);
+    setCopyStatus("");
+    if (settings) {
+      const next = { ...settings, destinationId: id };
+      setSettings(next);
+      await persistSettings(next);
+    }
+  }
+
+  async function send() {
+    const dest = getDestination(destinationId);
+    if (dest.mode === "inject") {
+      // Gemini: hand off to the background worker's auto-fill flow.
+      setBusy(true);
+      await chrome.runtime.sendMessage({ type: "ASK", profileId: selectedId });
+      window.close();
+      return;
+    }
+    await sendViaClipboard(dest);
+  }
+
+  /**
+   * For destinations we can't auto-fill (ChatGPT, Claude, …): build the prompt
+   * with the transcript, copy it, and open the site to paste into. Runs in the
+   * popup so the clipboard write happens under a user gesture.
+   */
+  async function sendViaClipboard(dest: Destination) {
+    if (!tab?.id || !tab.url) return;
+    const profile = profiles.find((p) => p.id === selectedId) ?? profiles[0];
+    if (!profile) return;
+
     setBusy(true);
-    await chrome.runtime.sendMessage({ type: "ASK", profileId: selectedId });
-    window.close();
+    setCopyStatus(`Preparing for ${dest.label}…`);
+    try {
+      const { prompt } = buildPrompt(profile, {
+        url: tab.url,
+        title: cleanTitle(tab.title),
+      });
+      const res = (await chrome.tabs
+        .sendMessage(tab.id, { type: "GET_TRANSCRIPT" })
+        .catch(() => null)) as { transcript: string | null } | null;
+      const transcript = res?.transcript ?? null;
+      const full = transcript
+        ? `${prompt}\n\n---\nVideo transcript (verbatim):\n${transcript}`
+        : prompt;
+
+      await navigator.clipboard.writeText(full);
+      await chrome.tabs.create({ url: dest.url });
+      setCopyStatus(
+        transcript
+          ? `Copied with transcript — paste into ${dest.label} (Ctrl+V).`
+          : `Copied (no transcript found) — paste into ${dest.label} (Ctrl+V).`,
+      );
+    } catch {
+      setCopyStatus("Couldn't prepare the prompt — reload the YouTube tab and retry.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   /**
@@ -139,8 +197,24 @@ export function App() {
             </p>
           )}
 
-          <button className="primary" onClick={ask} disabled={busy || profiles.length === 0}>
-            Ask Gemini
+          <label className="field">
+            <span>Send to</span>
+            <select
+              value={destinationId}
+              onChange={(e) => void changeDestination(e.target.value)}
+            >
+              {DESTINATIONS.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button className="primary" onClick={send} disabled={busy || profiles.length === 0}>
+            {getDestination(destinationId).mode === "inject"
+              ? `Ask ${getDestination(destinationId).label}`
+              : `Copy & open ${getDestination(destinationId).label}`}
           </button>
 
           <button className="secondary" onClick={copyTranscript} disabled={busy}>

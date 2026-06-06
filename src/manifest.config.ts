@@ -59,7 +59,7 @@ export default defineManifest({
       description: "Ask Gemini about the current YouTube video",
     },
   },
-  permissions: ["storage", "tabs", "contextMenus"],
+  permissions: ["storage", "tabs", "contextMenus", "clipboardWrite"],
   host_permissions: [
     "https://www.youtube.com/*",
     "https://youtube.com/*",
