@@ -6,8 +6,11 @@
  * clipboard and showing a toast so the user can paste it.
  *
  * Selectors are per-site and inherently brittle — when a site redesigns its
- * composer, add the new selector here. The clipboard fallback keeps the feature
- * usable in the meantime.
+ * composer, add the new selector here. Each list runs most-specific first and
+ * ends with generic fallbacks (any visible contenteditable / submit button), so
+ * one renamed id or data-testid doesn't take the whole site down. Matching is
+ * visibility-filtered (see isVisible) so those generic fallbacks can't latch
+ * onto a hidden/off-screen element. The clipboard fallback covers the rest.
  */
 
 type SiteConfig = {
@@ -48,6 +51,7 @@ function configForHost(host: string): SiteConfig | null {
         'button[data-testid="send-button"]',
         "#composer-submit-button",
         'button[aria-label*="Send" i]',
+        'form button[type="submit"]',
       ],
     };
   }
@@ -73,11 +77,15 @@ function configForHost(host: string): SiteConfig | null {
         'div[contenteditable="true"]#ask-input',
         "#ask-input",
         'div[contenteditable="true"][role="textbox"]',
+        'textarea[placeholder*="Ask" i]',
+        'div[contenteditable="true"]',
+        "textarea",
       ],
       sendSelectors: [
         'button[aria-label*="Submit" i]',
         'button[data-testid="submit-button"]',
         'button[aria-label*="Send" i]',
+        'form button[type="submit"]',
       ],
     };
   }
@@ -93,8 +101,11 @@ async function waitFor<T extends Element>(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     for (const sel of selectors) {
-      const el = document.querySelector<T>(sel);
-      if (el) return el;
+      // Earlier selectors are more specific; within a selector prefer the first
+      // visible match so generic fallbacks don't grab a hidden element.
+      for (const el of document.querySelectorAll<T>(sel)) {
+        if (isVisible(el)) return el;
+      }
     }
     await sleep(150);
   }
@@ -153,13 +164,14 @@ async function findEnabledSendButton(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     for (const sel of sendSelectors) {
-      const btn = document.querySelector<HTMLButtonElement>(sel);
-      if (
-        btn &&
-        !btn.disabled &&
-        btn.getAttribute("aria-disabled") !== "true"
-      ) {
-        return btn;
+      for (const btn of document.querySelectorAll<HTMLButtonElement>(sel)) {
+        if (
+          !btn.disabled &&
+          btn.getAttribute("aria-disabled") !== "true" &&
+          isVisible(btn)
+        ) {
+          return btn;
+        }
       }
     }
     await sleep(120);
@@ -227,9 +239,18 @@ async function waitForClickableByText(
   return null;
 }
 
-function isVisible(el: HTMLElement): boolean {
+/**
+ * Whether an element is actually on-screen and interactable. Lets the generic
+ * fallback selectors (e.g. a bare contenteditable) skip hidden/off-screen
+ * matches — a stale composer left in the DOM, an inactive tab panel — and wait
+ * for the real, visible one instead of typing into the wrong box.
+ */
+function isVisible(el: Element): boolean {
+  if (!el.isConnected) return false;
   const r = el.getBoundingClientRect();
-  return r.width > 0 && r.height > 0;
+  if (r.width === 0 && r.height === 0) return false;
+  const style = getComputedStyle(el);
+  return style.visibility !== "hidden" && style.display !== "none";
 }
 
 const nlog = (...args: unknown[]) => console.log("[TL;DW NotebookLM]", ...args);
