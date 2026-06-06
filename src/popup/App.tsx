@@ -82,13 +82,15 @@ export function App() {
     setCopyStatus("");
   }
 
-  async function send() {
+  function send() {
     const dest = getDestination(destinationId);
     if (dest.mode === "inject") {
-      // Gemini: hand off to the background worker's auto-fill flow, passing the
-      // session destination so it routes here even if the saved default differs.
-      setBusy(true);
-      await chrome.runtime.sendMessage({
+      // Hand off to the background worker's auto-fill flow, passing the session
+      // destination so it routes here even if the saved default differs. Fire
+      // and forget, then close: the worker runs independently of the popup, so
+      // we don't block the window open while it scrapes the transcript (which
+      // can take several seconds for non-Gemini destinations).
+      void chrome.runtime.sendMessage({
         type: "ASK",
         profileId: selectedId,
         destinationId: dest.id,
@@ -97,7 +99,7 @@ export function App() {
       window.close();
       return;
     }
-    await sendViaClipboard(dest);
+    void sendViaClipboard(dest);
   }
 
   /**
