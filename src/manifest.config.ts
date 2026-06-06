@@ -39,6 +39,8 @@ export default defineManifest({
         "https://chatgpt.com/*",
         "https://chat.openai.com/*",
         "https://claude.ai/*",
+        "https://www.perplexity.ai/*",
+        "https://perplexity.ai/*",
       ],
       js: ["src/content/inject.ts"],
       run_at: "document_idle",
@@ -72,5 +74,7 @@ export default defineManifest({
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
     "https://claude.ai/*",
+    "https://www.perplexity.ai/*",
+    "https://perplexity.ai/*",
   ],
 });

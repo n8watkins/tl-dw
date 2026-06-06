@@ -66,6 +66,21 @@ function configForHost(host: string): SiteConfig | null {
       ],
     };
   }
+  if (host.endsWith("perplexity.ai")) {
+    return {
+      name: "Perplexity",
+      editorSelectors: [
+        'div[contenteditable="true"]#ask-input',
+        "#ask-input",
+        'div[contenteditable="true"][role="textbox"]',
+      ],
+      sendSelectors: [
+        'button[aria-label*="Submit" i]',
+        'button[data-testid="submit-button"]',
+        'button[aria-label*="Send" i]',
+      ],
+    };
+  }
   return null;
 }
 
