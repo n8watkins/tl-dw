@@ -61,12 +61,12 @@ the popup. Last updated 2026-06-06 (v0.1.35)._
 
 ## Recommended next
 
-### 1. Clickable seek links (the big remaining feature)
-Render key-moment timestamps from the summary as links that seek the YouTube player.
-Needs three pieces: a structured "moments" section in the prompt output, parsing it
-back out, and a clickable overlay on the YouTube page that calls
-`video.currentTime = …`. Highest effort and highest novelty — worth a short design
-pass before building (where the moments live, how the overlay is anchored).
+### 1. Clickable seek links — v1 shipped (v0.1.38)
+The on-YouTube key-moments panel is in: a `getTimedTranscript()` that retains
+per-segment timestamps, transcript-derived moments (no model / no answer reading),
+a theme-aware panel prepended into `#secondary` with click-to-seek, triggered by the
+popup's "Key moments on video" button. Remaining (see SEEK_LINKS.md): progress-bar
+tick markers (phase 4) and smarter model/API-authored moments (phase 5).
 
 ---
 

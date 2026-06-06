@@ -1,6 +1,11 @@
 # TL;DW — Clickable Seek Links (design outline)
 
-_Status: design / not started. Drafted 2026-06-06._
+_Status: v1 shipped 2026-06-06 (v0.1.38). Phases 1–3 done; progress-bar markers
+(phase 4) and smarter moment sources (phase 5) remain. Drafted 2026-06-06._
+
+**v1 decisions taken:** moment source **(b) transcript-derived**; placement **side
+panel in `#secondary`**; trigger **on-demand from the popup** ("Key moments on
+video"). Markers and model/API-authored moments are deferred per the phasing below._
 
 The one big remaining feature from NEXT_STEPS.md. Goal: turn key moments into
 links that jump the YouTube player to that timestamp — and, the part that makes
@@ -174,25 +179,25 @@ produced — the overlay code is identical.
 
 ## 7. Phased build
 
-1. **`getTimedTranscript()`** — retain `{startSeconds, text}` in both the
-   network and DOM paths. (Self-contained, testable alone.)
-2. **Seek receiver** — a `SEEK_TO` message handler in the YouTube content script
-   that sets `video.currentTime` (+ optional MAIN-world `seekTo`). Verify with a
-   manual message before any UI.
-3. **Moments panel** (source b) in `#secondary`, click-to-seek. The first
-   visible feature.
-4. **Progress-bar markers** + resize/mode handling. The polish pass.
-5. **Smarter moments** (opt-in source a, or source c if/when API mode lands).
+1. ✅ **`getTimedTranscript()`** — retains `{startSeconds, text}` across all three
+   paths (json3 `tStartMs`, XML `start=`, DOM segment timestamps); the flat
+   `getTranscript()` is unchanged.
+2. ✅ **Seek** — `seekTo()` sets `video.currentTime` directly (MAIN-world
+   `player.seekTo` upgrade deferred).
+3. ✅ **Moments panel** (source b) prepended into `#secondary-inner`,
+   click-to-seek, theme-aware, torn down on `yt-navigate-finish`. Triggered by
+   the popup's "Key moments on video" button (`TOGGLE_MOMENTS`).
+4. ⬜ **Progress-bar markers** + resize/mode handling. The polish pass.
+5. ⬜ **Smarter moments** (opt-in source a, or source c if/when API mode lands).
 
 Stop after any phase and still have something shippable.
 
 ---
 
-## 8. Open decisions (need a call before phase 3)
+## 8. Decisions (settled for v1)
 
-- **Moment source for v1:** transcript-derived (b, recommended) vs. asking the
-  model + reading its answer (a, better quality, privacy cost)?
-- **Overlay placement:** side panel in `#secondary`, under-player in `#primary`,
-  or progress-bar markers only?
-- **Trigger:** always show on watch pages when a transcript exists, or only
-  after the user runs a summarize for that video?
+- **Moment source:** (b) transcript-derived — privacy-clean, no key. Revisit (a)/(c)
+  in phase 5 if label quality disappoints.
+- **Overlay placement:** side panel in `#secondary`. Progress-bar markers are phase 4.
+- **Trigger:** on-demand from the popup, so we don't fetch transcripts on every
+  watch page. Could become automatic later if it proves wanted.

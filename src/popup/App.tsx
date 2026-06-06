@@ -150,6 +150,35 @@ export function App() {
     }
   }
 
+  /**
+   * Toggle the on-page "key moments" panel on the YouTube tab. The content
+   * script derives moments from the transcript and renders the panel; on
+   * success we close the popup so the user sees it, on failure we surface why.
+   */
+  async function showMoments() {
+    if (!tab?.id) return;
+    setBusy(true);
+    setCopyStatus("Finding key moments…");
+    try {
+      const r = (await chrome.tabs.sendMessage(tab.id, {
+        type: "TOGGLE_MOMENTS",
+      })) as { ok: boolean; reason?: string } | undefined;
+      if (r?.ok) {
+        window.close();
+        return;
+      }
+      setCopyStatus(
+        r?.reason === "no transcript"
+          ? "No transcript found (does this video have captions?)."
+          : "Couldn't show key moments — reload the YouTube tab and retry.",
+      );
+    } catch {
+      setCopyStatus("Couldn't reach the page — reload the YouTube tab and retry.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /** Jump to a still-open search tab; if it's gone, drop it from the list. */
   async function goToSearch(s: OpenSearch) {
     try {
@@ -313,6 +342,10 @@ export function App() {
           <button className="primary" onClick={send} disabled={busy || profiles.length === 0}>
             {destinationVerb(getDestination(destinationId))}{" "}
             {getDestination(destinationId).label}
+          </button>
+
+          <button className="secondary" onClick={() => void showMoments()} disabled={busy}>
+            Key moments on video
           </button>
 
           <button className="secondary" onClick={copyTranscript} disabled={busy}>

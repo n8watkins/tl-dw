@@ -110,7 +110,9 @@ For destinations that can't watch the video, TL;DW extracts the transcript by in
 
 ### Next — the real depth
 
-- [ ] **Clickable seek links** — render the summary's key moments as links that seek the YouTube player (see SEEK_LINKS.md)
+- [x] **Clickable seek links (v1)** — on-page key-moments panel derived from the
+  timestamped transcript, click-to-seek (see SEEK_LINKS.md; markers + smarter
+  sources still to come)
 - [ ] Import / export profiles as JSON (validation, name-conflict "Copy")
 
 ---
