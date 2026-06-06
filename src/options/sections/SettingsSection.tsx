@@ -138,11 +138,13 @@ export function SettingsSection() {
 
         <div className="setting-row">
           <div className="setting-info">
-            <div className="setting-label">Send summaries to</div>
+            <div className="setting-label">Default destination</div>
             <div className="setting-sub">
-              Gemini is filled in automatically. ChatGPT, Claude, NotebookLM, and
+              Where the right-click menu and keyboard shortcut send summaries.
+              Gemini is filled in automatically; ChatGPT, Claude, NotebookLM, and
               Perplexity open with the prompt and transcript copied to your
-              clipboard, ready to paste.
+              clipboard, ready to paste. You can override this per-session from
+              the popup without changing the default.
             </div>
           </div>
           <div className="setting-control">

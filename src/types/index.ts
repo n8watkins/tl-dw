@@ -65,8 +65,16 @@ export type VideoContext = {
 /** Message from the Gemini content script asking for its pending prompt. */
 export type GetPendingMessage = { type: "GET_PENDING" };
 
-/** Message from the popup requesting an "ask Gemini" run. */
-export type AskMessage = { type: "ASK"; profileId?: string };
+/**
+ * Message from the popup requesting a summary run. `destinationId` lets the
+ * popup override the saved default for this one send (a per-session choice that
+ * never changes the stored default).
+ */
+export type AskMessage = {
+  type: "ASK";
+  profileId?: string;
+  destinationId?: string;
+};
 
 /** Sent from options page after profiles change to sync the context menu. */
 export type RebuildMenuMessage = { type: "REBUILD_MENU" };

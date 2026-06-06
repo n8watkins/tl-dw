@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import type { Destination, PromptProfile, Settings } from "../types";
 import { DESTINATIONS, getDestination, isYouTubeVideoUrl } from "../lib/constants";
-import { buildPrompt } from "../lib/promptBuilder";
-import { getProfiles, getSettings, setSettings as persistSettings } from "../lib/storage";
+import { buildDestinationPrompt } from "../lib/promptBuilder";
+import { getProfiles, getSettings } from "../lib/storage";
 
 function cleanTitle(raw?: string): string {
   if (!raw) return "Current YouTube video";
@@ -43,22 +43,24 @@ export function App() {
 
   const onVideo = isYouTubeVideoUrl(tab?.url);
 
-  async function changeDestination(id: string) {
+  // Per-session override only: changing the destination here does NOT touch the
+  // saved default (set in Settings). Reopening the popup reverts to the default.
+  function changeDestination(id: string) {
     setDestinationId(id);
     setCopyStatus("");
-    if (settings) {
-      const next = { ...settings, destinationId: id };
-      setSettings(next);
-      await persistSettings(next);
-    }
   }
 
   async function send() {
     const dest = getDestination(destinationId);
     if (dest.mode === "inject") {
-      // Gemini: hand off to the background worker's auto-fill flow.
+      // Gemini: hand off to the background worker's auto-fill flow, passing the
+      // session destination so it routes here even if the saved default differs.
       setBusy(true);
-      await chrome.runtime.sendMessage({ type: "ASK", profileId: selectedId });
+      await chrome.runtime.sendMessage({
+        type: "ASK",
+        profileId: selectedId,
+        destinationId: dest.id,
+      });
       window.close();
       return;
     }
@@ -78,17 +80,16 @@ export function App() {
     setBusy(true);
     setCopyStatus(`Preparing for ${dest.label}…`);
     try {
-      const { prompt } = buildPrompt(profile, {
-        url: tab.url,
-        title: cleanTitle(tab.title),
-      });
       const res = (await chrome.tabs
         .sendMessage(tab.id, { type: "GET_TRANSCRIPT" })
         .catch(() => null)) as { transcript: string | null } | null;
       const transcript = res?.transcript ?? null;
-      const full = transcript
-        ? `${prompt}\n\n---\nVideo transcript (verbatim):\n${transcript}`
-        : prompt;
+      const full = buildDestinationPrompt(
+        profile,
+        { url: tab.url, title: cleanTitle(tab.title) },
+        dest,
+        transcript,
+      );
 
       await navigator.clipboard.writeText(full);
       await chrome.tabs.create({ url: dest.url });
@@ -201,7 +202,7 @@ export function App() {
             <span>Send to</span>
             <select
               value={destinationId}
-              onChange={(e) => void changeDestination(e.target.value)}
+              onChange={(e) => changeDestination(e.target.value)}
             >
               {DESTINATIONS.map((d) => (
                 <option key={d.id} value={d.id}>

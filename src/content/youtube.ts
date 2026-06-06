@@ -253,11 +253,40 @@ async function getTranscript(): Promise<string | null> {
   return null;
 }
 
+/**
+ * Write text to the clipboard from the page. The service worker can't touch the
+ * clipboard, so the background delegates here; the extension's clipboardWrite
+ * permission lets execCommand("copy") run without a fresh user gesture.
+ */
+function copyTextToClipboard(text: string): boolean {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if ((message as { type?: string })?.type === "GET_TRANSCRIPT") {
+  const type = (message as { type?: string })?.type;
+  if (type === "GET_TRANSCRIPT") {
     log("transcript requested");
     void getTranscript().then((transcript) => sendResponse({ transcript }));
     return true; // keep the channel open for the async response
+  }
+  if (type === "COPY_TO_CLIPBOARD") {
+    const ok = copyTextToClipboard((message as { text: string }).text);
+    sendResponse({ ok });
+    return false;
   }
   return false;
 });

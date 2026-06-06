@@ -1,4 +1,4 @@
-import type { PromptProfile, VideoContext } from "../types";
+import type { Destination, PromptProfile, VideoContext } from "../types";
 
 const FALLBACKS = {
   title: "Current YouTube video",
@@ -50,4 +50,32 @@ export function buildPrompt(
     .trim();
 
   return { prompt, missingVariables: [...missing] };
+}
+
+/** Append the verbatim transcript to a prompt, when one is available. */
+export function appendTranscript(
+  prompt: string,
+  transcript?: string | null,
+): string {
+  if (!transcript) return prompt;
+  return `${prompt}\n\n---\nVideo transcript (verbatim):\n${transcript}`;
+}
+
+/**
+ * Build the prompt for a specific destination. Gemini ("inject") can open the
+ * video URL itself, so it gets the link only. Every other destination can't
+ * watch the video, so the transcript is sent in place — included whenever we
+ * managed to capture one.
+ */
+export function buildDestinationPrompt(
+  profile: PromptProfile,
+  video: VideoContext,
+  destination: Destination,
+  transcript?: string | null,
+): string {
+  const { prompt } = buildPrompt(profile, video);
+  if (destination.mode === "clipboard") {
+    return appendTranscript(prompt, transcript);
+  }
+  return prompt;
 }
