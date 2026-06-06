@@ -1,122 +1,143 @@
 /**
- * Runs on youtube.com watch pages. On request from the background worker it
- * extracts the video's transcript by driving YouTube's own "Show transcript"
- * panel and reading the rendered lines.
+ * Runs on youtube.com watch pages (isolated world). It obtains the current
+ * video's transcript and hands it to the background worker on request.
  *
- * Why the DOM instead of fetching the caption file: as of 2026 YouTube's
- * timedtext endpoint requires a proof-of-origin (PO) token and returns an
- * empty body without it, so a plain fetch — even from the extension with the
- * user's cookies — yields nothing. The transcript panel works because the page
- * itself mints the token and paints the lines into the DOM; we just read them.
+ * Primary path: the MAIN-world interceptor (youtube-intercept.ts) wraps the
+ * page's fetch and relays YouTube's own transcript responses here via
+ * postMessage. We cache that. To make YouTube actually issue the request we
+ * open its "Show transcript" panel — but we read the intercepted *data*, not
+ * the rendered panel, so it survives UI redesigns, shadow DOM, virtualization,
+ * and other extensions mutating the panel.
  *
- * Two panel generations exist in the wild: the classic
- * `ytd-transcript-segment-renderer` list, and the newer "modern_transcript_view"
- * (a `yt-section-list-renderer` that scrolls and may virtualize its rows). We
- * handle both. Logs are prefixed [TL;DW] for diagnosing in the page console.
+ * Fallback path: if nothing is intercepted, we scrape whatever the panel
+ * rendered (classic or modern markup).
  *
- * This only sees the currently-loaded video, so a right-clicked thumbnail gets
- * no transcript — the background worker handles that.
+ * Only the currently-loaded video is visible here, so a right-clicked thumbnail
+ * gets no transcript — the background worker handles that.
  */
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = (...args: unknown[]) => console.log("[TL;DW]", ...args);
 
-const TIMESTAMP_ONLY = /^\d{1,2}:\d{2}(?::\d{2})?$/;
-const PANEL_CHROME = /^(transcript|timeline|search transcript|in this video)$/i;
+const currentVideoId = (): string | null =>
+  new URLSearchParams(location.search).get("v");
 
-// --- classic panel: discrete segment elements ----------------------------
+// --- intercepted transcript cache ----------------------------------------
 
-const CLASSIC_SELECTORS = [
-  "ytd-transcript-segment-renderer",
-  "ytd-transcript-segment-list-renderer .segment",
-];
+let captured: string | null = null;
+let capturedVideoId: string | null = null;
 
-function readClassicSegments(): string | null {
-  for (const selector of CLASSIC_SELECTORS) {
-    const segments = document.querySelectorAll(selector);
-    if (segments.length === 0) continue;
-    const lines: string[] = [];
-    segments.forEach((segment) => {
-      const text =
-        segment.querySelector(".segment-text")?.textContent?.trim() ??
-        segment.textContent?.replace(/^\s*\d+:\d+(?::\d+)?\s*/, "").trim();
-      if (text) lines.push(text);
-    });
-    if (lines.length > 0) return lines.join(" ").replace(/\s+/g, " ").trim();
+window.addEventListener("message", (event) => {
+  if (event.source !== window) return;
+  const data = event.data as
+    | { __tldw?: boolean; kind?: string; body?: unknown }
+    | undefined;
+  if (!data || data.__tldw !== true) return;
+
+  const text =
+    data.kind === "get_transcript"
+      ? extractFromGetTranscript(data.body)
+      : data.kind === "timedtext"
+        ? extractFromTimedText(data.body)
+        : null;
+
+  if (text) {
+    captured = text;
+    capturedVideoId = currentVideoId();
+    log("intercepted transcript:", text.length, "chars");
   }
-  return null;
+});
+
+function cachedForCurrentVideo(): string | null {
+  return captured && capturedVideoId === currentVideoId() ? captured : null;
 }
 
-// --- modern panel: scrollable yt-section-list-renderer -------------------
+// --- parsing YouTube's transcript payloads -------------------------------
 
-/** The visible, scrollable list host of the modern transcript panel. */
-function findModernHost(): HTMLElement | null {
-  const hosts = document.querySelectorAll<HTMLElement>(
-    '[data-target-id*="transcript" i]',
-  );
-  for (const host of hosts) {
-    if (host.offsetParent !== null && host.scrollHeight > 0) return host;
+type SnippetLike = { simpleText?: string; runs?: { text?: string }[] };
+
+function snippetText(snippet: SnippetLike | undefined): string {
+  if (typeof snippet?.simpleText === "string") return snippet.simpleText;
+  if (Array.isArray(snippet?.runs)) {
+    return snippet.runs.map((r) => r?.text ?? "").join("");
   }
-  return document.querySelector<HTMLElement>(
-    'ytd-engagement-panel-section-list-renderer[visibility*="EXPANDED"] #content',
-  );
+  return "";
 }
 
-/** Keep only spoken-text lines, dropping bare timestamps and panel chrome. */
-function harvest(host: HTMLElement, seen: Set<string>, lines: string[]): void {
-  for (const raw of host.innerText.split("\n")) {
-    const line = raw.trim();
-    if (!line || TIMESTAMP_ONLY.test(line) || PANEL_CHROME.test(line)) continue;
-    if (!seen.has(line)) {
-      seen.add(line);
-      lines.push(line);
+/** Walk the get_transcript InnerTube JSON, collecting every segment's text. */
+function extractFromGetTranscript(root: unknown): string | null {
+  const parts: string[] = [];
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
     }
-  }
-}
-
-/**
- * Read the modern panel, scrolling through it so a virtualized list yields all
- * of its rows rather than just the handful currently painted.
- */
-async function readModernTranscript(): Promise<string | null> {
-  const host = findModernHost();
-  if (!host) return null;
-
-  const seen = new Set<string>();
-  const lines: string[] = [];
-  harvest(host, seen, lines);
-
-  let lastTop = -1;
-  while (host.scrollTop !== lastTop) {
-    lastTop = host.scrollTop;
-    host.scrollTop = host.scrollTop + host.clientHeight;
-    await sleep(120);
-    harvest(host, seen, lines);
-    if (host.scrollTop + host.clientHeight >= host.scrollHeight - 2) {
-      await sleep(120);
-      harvest(host, seen, lines);
-      break;
+    const record = node as Record<string, unknown>;
+    const seg = record.transcriptSegmentRenderer as
+      | { snippet?: SnippetLike }
+      | undefined;
+    if (seg?.snippet) {
+      const text = snippetText(seg.snippet);
+      if (text) parts.push(text);
     }
-  }
-
-  const text = lines.join(" ").replace(/\s+/g, " ").trim();
+    for (const key in record) visit(record[key]);
+  };
+  visit(root);
+  const text = parts.join(" ").replace(/\s+/g, " ").trim();
   return text.length > 20 ? text : null;
 }
 
-async function readTranscript(): Promise<string | null> {
-  return readClassicSegments() ?? (await readModernTranscript());
+/** Parse a timedtext response — either json3 or the legacy XML. */
+function extractFromTimedText(body: unknown): string | null {
+  if (typeof body !== "string" || !body) return null;
+
+  if (body.trimStart().startsWith("{")) {
+    try {
+      const json = JSON.parse(body) as {
+        events?: { segs?: { utf8?: string }[] }[];
+      };
+      const text = (json.events ?? [])
+        .flatMap((e) => e.segs ?? [])
+        .map((s) => s.utf8 ?? "")
+        .join("")
+        .replace(/\s+/g, " ")
+        .trim();
+      return text.length > 20 ? text : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const parts: string[] = [];
+  for (const m of body.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)) {
+    parts.push(decodeEntities(m[1]));
+  }
+  const text = parts.join(" ").replace(/\s+/g, " ").trim();
+  return text.length > 20 ? text : null;
 }
 
-// --- opening the panel ----------------------------------------------------
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&#(\d+);/g, (_, d: string) => String.fromCharCode(Number(d)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h: string) =>
+      String.fromCharCode(parseInt(h, 16)),
+    )
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+// --- opening the panel (to trigger YouTube's fetch) ----------------------
 
 function expandDescription(): void {
-  const expander = document.querySelector<HTMLElement>(
-    "ytd-text-inline-expander #expand, tp-yt-paper-button#expand, #description #expand, #expand",
-  );
-  if (expander) {
-    log("expanding description");
-    expander.click();
-  }
+  document
+    .querySelector<HTMLElement>(
+      "ytd-text-inline-expander #expand, tp-yt-paper-button#expand, #description #expand, #expand",
+    )
+    ?.click();
 }
 
 function findShowTranscriptButton(): HTMLElement | null {
@@ -137,15 +158,39 @@ function findShowTranscriptButton(): HTMLElement | null {
   return null;
 }
 
+// --- DOM scrape fallback --------------------------------------------------
+
+function scrapeRenderedTranscript(): string | null {
+  // Classic discrete segment elements.
+  for (const selector of [
+    "ytd-transcript-segment-renderer",
+    "ytd-transcript-segment-list-renderer .segment",
+  ]) {
+    const segments = document.querySelectorAll(selector);
+    if (segments.length === 0) continue;
+    const lines: string[] = [];
+    segments.forEach((segment) => {
+      const text =
+        segment.querySelector(".segment-text")?.textContent?.trim() ??
+        segment.textContent?.replace(/^\s*\d+:\d+(?::\d+)?\s*/, "").trim();
+      if (text) lines.push(text);
+    });
+    if (lines.length > 0) return lines.join(" ").replace(/\s+/g, " ").trim();
+  }
+  return null;
+}
+
+// --- request handling -----------------------------------------------------
+
 async function getTranscript(): Promise<string | null> {
-  const already = await readTranscript();
-  if (already) {
-    log("transcript already open:", already.length, "chars");
-    return already;
+  const cached = cachedForCurrentVideo();
+  if (cached) {
+    log("transcript already cached:", cached.length, "chars");
+    return cached;
   }
 
+  // Open the panel so YouTube issues the get_transcript request we intercept.
   expandDescription();
-
   let button: HTMLElement | null = null;
   const buttonDeadline = Date.now() + 4000;
   while (Date.now() < buttonDeadline) {
@@ -153,23 +198,29 @@ async function getTranscript(): Promise<string | null> {
     if (button) break;
     await sleep(200);
   }
-  if (!button) {
-    log("no 'Show transcript' button — does this video have captions?");
-    return null;
+  if (button) {
+    log("opening transcript panel to trigger fetch");
+    button.click();
+  } else {
+    log("no 'Show transcript' button found — relying on any intercepted data");
   }
-  log("clicking 'Show transcript'");
-  button.click();
 
+  // Wait for the interceptor to relay the response.
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
-    await sleep(300);
-    const text = await readTranscript();
-    if (text) {
-      log("transcript captured:", text.length, "chars");
-      return text;
-    }
+    await sleep(200);
+    const hit = cachedForCurrentVideo();
+    if (hit) return hit;
   }
-  log("transcript panel opened but no lines were read");
+
+  // Last resort: scrape whatever rendered.
+  const scraped = scrapeRenderedTranscript();
+  if (scraped) {
+    log("transcript via DOM fallback:", scraped.length, "chars");
+    return scraped;
+  }
+
+  log("no transcript captured (intercept or scrape)");
   return null;
 }
 

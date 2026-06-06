@@ -40,6 +40,12 @@ export default defineManifest({
     },
     {
       matches: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      js: ["src/content/youtube-intercept.ts"],
+      run_at: "document_start",
+      world: "MAIN",
+    },
+    {
+      matches: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
       js: ["src/content/youtube.ts"],
       run_at: "document_idle",
     },
