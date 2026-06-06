@@ -118,7 +118,10 @@ async function askGemini(profileId?: string, linkUrl?: string): Promise<void> {
   const video: VideoContext = { url, title };
   const { prompt } = buildPrompt(profile, video);
 
-  const geminiTab = await chrome.tabs.create({ url: settings.geminiUrl });
+  const geminiTab = await chrome.tabs.create({
+    url: settings.geminiUrl,
+    active: settings.focusGeminiTab,
+  });
   if (geminiTab.id !== undefined) {
     await setPendingPrompt(geminiTab.id, prompt);
   }

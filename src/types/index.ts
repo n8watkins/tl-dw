@@ -27,6 +27,8 @@ export type Settings = {
   saveHistoryOnSearch: boolean;
   historyLimit: HistoryLimit;
   geminiUrl: string;
+  /** Switch focus to the new Gemini tab; when false it opens in the background. */
+  focusGeminiTab: boolean;
 };
 
 export type StorageState = {

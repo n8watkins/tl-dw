@@ -65,6 +65,26 @@ export function SettingsSection() {
 
         <div className="setting-row">
           <div className="setting-info">
+            <div className="setting-label">Switch to Gemini tab</div>
+            <div className="setting-sub">
+              Bring the new Gemini tab to the front. Turn off to open it in the
+              background and stay on the YouTube video you're watching.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.focusGeminiTab}
+                onChange={(e) => void update({ focusGeminiTab: e.target.checked })}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-info">
             <div className="setting-label">Save history on search</div>
             <div className="setting-sub">
               Log the prompt and video URL each time you search. Nothing from
