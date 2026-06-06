@@ -42,6 +42,9 @@ export const STORAGE_KEYS = {
 /** chrome.storage.session key holding { [tabId]: prompt } for the handoff. */
 export const PENDING_KEY = "pendingPrompts";
 
+/** chrome.storage.session key holding the list of open destination tabs. */
+export const OPEN_SEARCHES_KEY = "openSearches";
+
 export const DEFAULT_SETTINGS: Settings = {
   autoSubmit: true,
   saveHistoryOnSearch: true,

@@ -1,4 +1,5 @@
 import type {
+  OpenSearch,
   PromptProfile,
   SearchHistoryEntry,
   Settings,
@@ -6,6 +7,7 @@ import type {
 } from "../types";
 import {
   DEFAULT_SETTINGS,
+  OPEN_SEARCHES_KEY,
   PENDING_KEY,
   STORAGE_KEYS,
 } from "./constants";
@@ -101,4 +103,42 @@ export async function takePendingPrompt(
     await chrome.storage.session.set({ [PENDING_KEY]: pending });
   }
   return prompt;
+}
+
+// --- session-scoped list of open destination tabs ---
+
+async function readOpenSearches(): Promise<OpenSearch[]> {
+  const r = await chrome.storage.session.get(OPEN_SEARCHES_KEY);
+  return (r[OPEN_SEARCHES_KEY] as OpenSearch[]) ?? [];
+}
+
+/** Record a destination tab we just opened (newest first, deduped, capped). */
+export async function addOpenSearch(entry: OpenSearch): Promise<void> {
+  const existing = (await readOpenSearches()).filter(
+    (s) => s.tabId !== entry.tabId,
+  );
+  const next = [entry, ...existing].slice(0, 20);
+  await chrome.storage.session.set({ [OPEN_SEARCHES_KEY]: next });
+}
+
+/** Drop a search entry when its tab closes. */
+export async function pruneOpenSearch(tabId: number): Promise<void> {
+  const existing = await readOpenSearches();
+  const next = existing.filter((s) => s.tabId !== tabId);
+  if (next.length !== existing.length) {
+    await chrome.storage.session.set({ [OPEN_SEARCHES_KEY]: next });
+  }
+}
+
+/** Open searches whose tabs are still open; prunes any that have closed. */
+export async function getOpenSearches(): Promise<OpenSearch[]> {
+  const list = await readOpenSearches();
+  if (list.length === 0) return list;
+  const tabs = await chrome.tabs.query({});
+  const open = new Set(tabs.map((t) => t.id));
+  const pruned = list.filter((s) => open.has(s.tabId));
+  if (pruned.length !== list.length) {
+    await chrome.storage.session.set({ [OPEN_SEARCHES_KEY]: pruned });
+  }
+  return pruned;
 }

@@ -1,8 +1,32 @@
 import { useEffect, useState } from "react";
-import type { Destination, PromptProfile, Settings } from "../types";
+import type {
+  Destination,
+  OpenSearch,
+  PromptProfile,
+  SearchHistoryEntry,
+  Settings,
+} from "../types";
 import { DESTINATIONS, getDestination, isYouTubeVideoUrl } from "../lib/constants";
 import { buildDestinationPrompt } from "../lib/promptBuilder";
-import { getProfiles, getSettings } from "../lib/storage";
+import { addHistoryEntry } from "../lib/history";
+import {
+  addOpenSearch,
+  getHistory,
+  getOpenSearches,
+  getProfiles,
+  getSettings,
+  setPendingPrompt,
+} from "../lib/storage";
+
+function timeAgo(iso: string): string {
+  const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (secs < 60) return "just now";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
 
 function cleanTitle(raw?: string): string {
   if (!raw) return "Current YouTube video";
@@ -24,19 +48,25 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
   const [destinationId, setDestinationId] = useState("gemini");
+  const [openSearches, setOpenSearches] = useState<OpenSearch[]>([]);
+  const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
 
   useEffect(() => {
     void (async () => {
-      const [p, s, tabs] = await Promise.all([
+      const [p, s, tabs, open, hist] = await Promise.all([
         getProfiles(),
         getSettings(),
         chrome.tabs.query({ active: true, currentWindow: true }),
+        getOpenSearches(),
+        getHistory(),
       ]);
       setProfiles(p);
       setSettings(s);
       setTab(tabs[0] ?? null);
       setSelectedId(s.defaultProfileId ?? p[0]?.id ?? "");
       setDestinationId(s.destinationId ?? "gemini");
+      setOpenSearches(open);
+      setHistory(hist);
       setReady(true);
     })();
   }, []);
@@ -92,7 +122,20 @@ export function App() {
       );
 
       await navigator.clipboard.writeText(full);
-      await chrome.tabs.create({ url: dest.url });
+      const opened = await chrome.tabs.create({ url: dest.url });
+      const video = { url: tab.url, title: cleanTitle(tab.title) };
+      if (opened.id !== undefined) {
+        await addOpenSearch({
+          tabId: opened.id,
+          videoTitle: video.title,
+          destinationId: dest.id,
+          destinationLabel: dest.label,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      if (settings?.saveHistoryOnSearch) {
+        await addHistoryEntry({ video, profile, prompt: full, settings, destinationId: dest.id });
+      }
       if (dest.payload === "source") {
         setCopyStatus(
           transcript
@@ -135,6 +178,66 @@ export function App() {
       setCopyStatus(`Copied ${transcript.length.toLocaleString()} characters.`);
     } catch {
       setCopyStatus("Couldn't reach the page — reload the YouTube tab and retry.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Jump to a still-open search tab; if it's gone, drop it from the list. */
+  async function goToSearch(s: OpenSearch) {
+    try {
+      const t = await chrome.tabs.get(s.tabId);
+      await chrome.tabs.update(s.tabId, { active: true });
+      if (t.windowId !== undefined) {
+        await chrome.windows.update(t.windowId, { focused: true });
+      }
+      window.close();
+    } catch {
+      setOpenSearches(await getOpenSearches());
+    }
+  }
+
+  /**
+   * Re-run a past search by reusing its stored prompt — works even if the
+   * original video or destination tab is long gone. Opens the same destination
+   * it was sent to before.
+   */
+  async function askAgain(entry: SearchHistoryEntry) {
+    if (!settings) return;
+    const dest = getDestination(entry.destinationId);
+    const video = { url: entry.videoUrl, title: entry.videoTitle };
+
+    if (dest.mode === "inject") {
+      const targetUrl = dest.id === "gemini" ? settings.geminiUrl : dest.url;
+      const t = await chrome.tabs.create({ url: targetUrl, active: settings.focusGeminiTab });
+      if (t.id !== undefined) {
+        await setPendingPrompt(t.id, entry.prompt);
+        await addOpenSearch({
+          tabId: t.id,
+          videoTitle: video.title,
+          destinationId: dest.id,
+          destinationLabel: dest.label,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      window.close();
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await navigator.clipboard.writeText(entry.prompt);
+      const t = await chrome.tabs.create({ url: dest.url });
+      if (t.id !== undefined) {
+        await addOpenSearch({
+          tabId: t.id,
+          videoTitle: video.title,
+          destinationId: dest.id,
+          destinationLabel: dest.label,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      setCopyStatus(`Re-opened ${dest.label} — paste (Ctrl+V).`);
     } finally {
       setBusy(false);
     }
@@ -231,6 +334,56 @@ export function App() {
           </button>
           {copyStatus && <p className="copy-status">{copyStatus}</p>}
         </>
+      )}
+
+      {!onVideo && copyStatus && <p className="copy-status">{copyStatus}</p>}
+
+      {openSearches.length > 0 && (
+        <div className="pop-section">
+          <div className="pop-section-title">Open searches</div>
+          <div className="search-list">
+            {openSearches.map((s) => (
+              <button
+                key={s.tabId}
+                className="search-item"
+                onClick={() => void goToSearch(s)}
+                title={s.videoTitle}
+              >
+                <span className="search-item-title">
+                  {s.videoTitle ?? "YouTube video"}
+                </span>
+                <span className="search-item-meta">
+                  {s.destinationLabel} · {timeAgo(s.createdAt)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="pop-section">
+          <div className="pop-section-title">Recent — click to ask again</div>
+          <div className="search-list">
+            {history.slice(0, 5).map((h) => (
+              <button
+                key={h.id}
+                className="search-item"
+                onClick={() => void askAgain(h)}
+                disabled={busy}
+                title={h.videoTitle}
+              >
+                <span className="search-item-title">
+                  {h.videoTitle ?? "YouTube video"}
+                </span>
+                <span className="search-item-meta">
+                  {h.profileName} · {getDestination(h.destinationId).label} ·{" "}
+                  {timeAgo(h.createdAt)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
       <footer>

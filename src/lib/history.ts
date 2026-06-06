@@ -20,6 +20,7 @@ export async function addHistoryEntry(args: {
   profile: PromptProfile;
   prompt: string;
   settings: Settings;
+  destinationId?: string;
 }): Promise<void> {
   const entry: SearchHistoryEntry = {
     id: crypto.randomUUID(),
@@ -27,6 +28,7 @@ export async function addHistoryEntry(args: {
     videoTitle: args.video.title,
     profileId: args.profile.id,
     profileName: args.profile.name,
+    destinationId: args.destinationId,
     prompt: args.prompt,
     createdAt: new Date().toISOString(),
   };

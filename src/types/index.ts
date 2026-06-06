@@ -15,7 +15,22 @@ export type SearchHistoryEntry = {
   videoTitle?: string;
   profileId: string;
   profileName: string;
+  /** Destination the search was sent to, so "ask again" reopens the right one. */
+  destinationId?: string;
   prompt: string;
+  createdAt: string;
+};
+
+/**
+ * A destination tab TL;DW opened this browser session. Lives in
+ * chrome.storage.session (cleared on browser restart) and is pruned as tabs
+ * close, so the popup can offer "jump back to the tab I searched in".
+ */
+export type OpenSearch = {
+  tabId: number;
+  videoTitle?: string;
+  destinationId: string;
+  destinationLabel: string;
   createdAt: string;
 };
 

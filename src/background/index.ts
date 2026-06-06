@@ -2,9 +2,11 @@ import { buildDestinationPrompt } from "../lib/promptBuilder";
 import { getDestination, isYouTubeVideoUrl, STORAGE_KEYS } from "../lib/constants";
 import { addHistoryEntry } from "../lib/history";
 import {
+  addOpenSearch,
   ensureSeeded,
   getProfiles,
   getSettings,
+  pruneOpenSearch,
   resolveProfile,
   setPendingPrompt,
   takePendingPrompt,
@@ -184,9 +186,10 @@ async function runSummary(
     });
     if (injectTab.id !== undefined) {
       await setPendingPrompt(injectTab.id, prompt);
+      await recordOpenSearch(injectTab.id, video, destination);
     }
     if (settings.saveHistoryOnSearch) {
-      await addHistoryEntry({ video, profile, prompt, settings });
+      await addHistoryEntry({ video, profile, prompt, settings, destinationId: destination.id });
     }
     return;
   }
@@ -196,13 +199,34 @@ async function runSummary(
   if (activeTab?.id !== undefined) {
     copied = await copyViaTab(activeTab.id, prompt);
   }
-  await chrome.tabs.create({ url: destination.url, active: true });
+  const clipTab = await chrome.tabs.create({ url: destination.url, active: true });
+  if (clipTab.id !== undefined) {
+    await recordOpenSearch(clipTab.id, video, destination);
+  }
   await flashBadge(copied ? "✓" : "!", copied);
 
   if (settings.saveHistoryOnSearch) {
-    await addHistoryEntry({ video, profile, prompt, settings });
+    await addHistoryEntry({ video, profile, prompt, settings, destinationId: destination.id });
   }
 }
+
+/** Remember a destination tab we opened, so the popup can offer "jump back". */
+async function recordOpenSearch(
+  tabId: number,
+  video: VideoContext,
+  destination: { id: string; label: string },
+): Promise<void> {
+  await addOpenSearch({
+    tabId,
+    videoTitle: video.title,
+    destinationId: destination.id,
+    destinationLabel: destination.label,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+// Forget a search the moment its tab closes.
+chrome.tabs.onRemoved.addListener((tabId) => void pruneOpenSearch(tabId));
 
 chrome.commands.onCommand.addListener((command) => {
   if (command === "ask-gemini") void runSummary();
