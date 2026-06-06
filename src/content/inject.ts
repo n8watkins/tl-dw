@@ -226,8 +226,18 @@ function isVisible(el: HTMLElement): boolean {
  * worst case is the pre-v0.1.17 manual behavior.
  */
 async function runNotebookLM(transcript: string): Promise<void> {
-  // 1. Open the "Copied text" source type.
-  const copiedTextBtn = await waitForClickableByText(["copied text", "paste text"], 12000);
+  // 0. On the home page, create a new notebook first, then wait for it to open.
+  const createBtn = await waitForClickableByText(
+    ["create new notebook", "create new"],
+    12000,
+  );
+  if (createBtn) {
+    createBtn.click();
+    await sleep(1500); // the new notebook + source dialog take a moment to open
+  }
+
+  // 1. Open the "Copied text" source type (give it patience to appear).
+  const copiedTextBtn = await waitForClickableByText(["copied text", "paste text"], 15000);
   if (!copiedTextBtn) {
     await fallbackToClipboard(transcript, "NotebookLM");
     return;
