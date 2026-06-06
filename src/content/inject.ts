@@ -253,7 +253,10 @@ function isNotPasteBox(el: HTMLElement): boolean {
     hay.includes("discoversources") ||
     hay.includes("ask a question") ||
     hay.includes("ask anything") ||
-    hay.includes("create some")
+    hay.includes("create some") ||
+    hay.includes("notebook title") ||
+    hay.includes("untitled") ||
+    hay.includes("name your")
   );
 }
 
@@ -318,13 +321,17 @@ async function waitForSourceBox(
 ): Promise<HTMLElement | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    // Exact selectors first (known fields), then the label heuristic.
+    // Exact selectors first (known fields). When exact selectors are given we
+    // wait for them ONLY — the heuristic would otherwise grab whatever field
+    // loads first (e.g. the notebook-name input) before the real box appears.
     for (const sel of selectors) {
       const el = document.querySelector<HTMLElement>(sel);
       if (el && isVisible(el)) return el;
     }
-    const box = findSourceBox(prefer);
-    if (box) return box;
+    if (selectors.length === 0) {
+      const box = findSourceBox(prefer);
+      if (box) return box;
+    }
     await sleep(200);
   }
   return null;
@@ -486,7 +493,7 @@ async function runNotebookLM(content: string): Promise<void> {
 
   // 2. Fill the input that appears (the visible, empty field in the dialog that
   //    isn't the "search the web" box).
-  const box = await waitForSourceBox(boxSelectors, boxPrefer, 12000);
+  const box = await waitForSourceBox(boxSelectors, boxPrefer, 20000);
   if (!box) {
     nlog("source input not found");
     await fallbackToClipboard(content, "NotebookLM");
