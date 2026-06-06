@@ -161,6 +161,7 @@ async function runSummary(
   profileId?: string,
   linkUrl?: string,
   destinationOverride?: string,
+  gateOverride?: boolean,
 ): Promise<void> {
   // A right-clicked video link (a thumbnail) wins over the active tab, so a
   // suggested video gets summarized rather than the page you're sitting on.
@@ -212,8 +213,9 @@ async function runSummary(
   // over the threshold whose channel/title isn't trusted, ask for a verdict
   // first. The meta fetch also enriches the prompt's {{channel}}.
   const isPromptDest = destination.payload !== "link" && destination.payload !== "source";
+  const gateEnabled = gateOverride ?? settings.worthWatchingGate;
   let gateMinutes = 0;
-  if (settings.worthWatchingGate && isPromptDest && !isThumbnail && activeTab?.id !== undefined) {
+  if (gateEnabled && isPromptDest && !isThumbnail && activeTab?.id !== undefined) {
     const meta = await getVideoMeta(activeTab.id);
     if (meta?.channel) video.channel = meta.channel;
     const minutes = (meta?.durationSeconds ?? 0) / 60;
@@ -288,9 +290,12 @@ chrome.commands.onCommand.addListener((command) => {
 chrome.runtime.onMessage.addListener(
   (message: RuntimeMessage, sender, sendResponse) => {
     if (message.type === "ASK") {
-      void runSummary(message.profileId, undefined, message.destinationId).then(
-        () => sendResponse({ ok: true }),
-      );
+      void runSummary(
+        message.profileId,
+        undefined,
+        message.destinationId,
+        message.worthWatchingGate,
+      ).then(() => sendResponse({ ok: true }));
       return true;
     }
     if (message.type === "REBUILD_MENU") {

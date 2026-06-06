@@ -118,6 +118,8 @@ export type AskMessage = {
   type: "ASK";
   profileId?: string;
   destinationId?: string;
+  /** Per-send override for the worth-watching verdict gate. */
+  worthWatchingGate?: boolean;
 };
 
 /** Sent from options page after profiles change to sync the context menu. */

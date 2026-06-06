@@ -151,6 +151,24 @@ select:disabled { opacity: 0.4; cursor: default; }
   text-align: center;
 }
 
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  color: #94a3b8;
+  cursor: pointer;
+  margin-top: -4px;
+}
+
+.check-field input {
+  width: 17px;
+  height: 17px;
+  accent-color: #7c3aed;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
 .pop-section {
   display: flex;
   flex-direction: column;

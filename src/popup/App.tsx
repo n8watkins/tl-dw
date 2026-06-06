@@ -48,6 +48,7 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
   const [destinationId, setDestinationId] = useState("gemini");
+  const [gate, setGate] = useState(false);
   const [openSearches, setOpenSearches] = useState<OpenSearch[]>([]);
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
 
@@ -65,6 +66,7 @@ export function App() {
       setTab(tabs[0] ?? null);
       setSelectedId(s.defaultProfileId ?? p[0]?.id ?? "");
       setDestinationId(s.destinationId ?? "gemini");
+      setGate(s.worthWatchingGate ?? false);
       setOpenSearches(open);
       setHistory(hist);
       setReady(true);
@@ -90,6 +92,7 @@ export function App() {
         type: "ASK",
         profileId: selectedId,
         destinationId: dest.id,
+        worthWatchingGate: gate,
       });
       window.close();
       return;
@@ -322,6 +325,18 @@ export function App() {
               ))}
             </select>
           </label>
+
+          {getDestination(destinationId).payload !== "link" &&
+            getDestination(destinationId).payload !== "source" && (
+              <label className="check-field">
+                <input
+                  type="checkbox"
+                  checked={gate}
+                  onChange={(e) => setGate(e.target.checked)}
+                />
+                <span>Worth-watching verdict first (long videos)</span>
+              </label>
+            )}
 
           <button className="primary" onClick={send} disabled={busy || profiles.length === 0}>
             {getDestination(destinationId).mode === "inject"
