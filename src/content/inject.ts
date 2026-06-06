@@ -381,6 +381,71 @@ async function clickInsert(timeoutMs: number): Promise<boolean> {
  */
 const URL_RE = /^https?:\/\/\S+$/;
 
+function boxValue(el: HTMLElement): string {
+  return el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement
+    ? el.value
+    : (el.textContent ?? "");
+}
+
+function setNativeValue(el: HTMLElement, text: string): void {
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+    const proto =
+      el instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    setter?.call(el, text);
+  } else {
+    el.textContent = text;
+  }
+}
+
+/**
+ * Robustly fill a (possibly framework-controlled) field, trying several
+ * techniques and verifying the value took after each: execCommand, then
+ * native-setter + InputEvent, then a synthetic paste. Returns whether it stuck.
+ */
+async function fillBox(el: HTMLElement, text: string): Promise<boolean> {
+  const took = () => boxValue(el).includes(text.slice(0, 20));
+
+  el.scrollIntoView?.({ block: "center" });
+  el.click?.();
+  el.focus();
+  await sleep(120); // let the field's value accessor initialise
+
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+    el.select();
+  }
+  try {
+    document.execCommand("insertText", false, text);
+  } catch {
+    /* deprecated in some contexts */
+  }
+  if (took()) return true;
+
+  setNativeValue(el, text);
+  el.dispatchEvent(
+    new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }),
+  );
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  if (took()) return true;
+
+  try {
+    const dt = new DataTransfer();
+    dt.setData("text/plain", text);
+    el.dispatchEvent(
+      new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: dt,
+      }),
+    );
+  } catch {
+    /* DataTransfer/ClipboardEvent unsupported */
+  }
+  return took();
+}
+
 async function runNotebookLM(content: string): Promise<void> {
   nlog("start");
   // 0. On the home page, create a new notebook. No fixed sleep — the next step
@@ -433,14 +498,15 @@ async function runNotebookLM(content: string): Promise<void> {
     "snippet:",
     JSON.stringify(content.slice(0, 80)),
   );
-  insertText(box, content);
-  const filled =
-    box instanceof HTMLTextAreaElement || box instanceof HTMLInputElement
-      ? box.value
-      : (box.textContent ?? "");
-  nlog("after fill, box value length:", filled.length);
-  if (!filled.includes(content.slice(0, 20))) {
-    nlog("insertText didn't take");
+  // Retry: the field is often in the DOM a beat before its value accessor is
+  // ready, so a single fill can silently no-op.
+  let filled = false;
+  for (let attempt = 1; attempt <= 6 && !filled; attempt++) {
+    if (attempt > 1) await sleep(400);
+    filled = await fillBox(box, content);
+    nlog(`fill attempt ${attempt}: ${filled ? "stuck" : "empty"}`);
+  }
+  if (!filled) {
     await fallbackToClipboard(content, "NotebookLM");
     return;
   }
