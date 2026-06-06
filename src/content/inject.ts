@@ -219,6 +219,66 @@ function isVisible(el: HTMLElement): boolean {
   return r.width > 0 && r.height > 0;
 }
 
+const nlog = (...args: unknown[]) => console.log("[TL;DW NotebookLM]", ...args);
+
+/** NotebookLM's always-present "search the web for new sources" box. */
+function isSearchBox(el: HTMLElement): boolean {
+  const hay = [
+    el.getAttribute("aria-label"),
+    el.getAttribute("placeholder"),
+    el.getAttribute("formcontrolname"),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return (
+    hay.includes("search the web") ||
+    hay.includes("discover sources") ||
+    hay.includes("discoversources")
+  );
+}
+
+function editorIsEmpty(el: HTMLElement): boolean {
+  const v = el instanceof HTMLTextAreaElement ? el.value : el.textContent;
+  return !(v ?? "").trim();
+}
+
+/**
+ * Find the paste box in the "Copied text" panel: a visible, empty textarea or
+ * editor — preferring one inside a dialog and excluding the search box. Picks
+ * the largest candidate when several match.
+ */
+function findPasteBox(): HTMLElement | null {
+  const all = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      'textarea, div[contenteditable="true"]',
+    ),
+  ).filter((el) => isVisible(el) && !isSearchBox(el));
+
+  const inDialog = all.filter((el) =>
+    el.closest('[role="dialog"], mat-dialog-container'),
+  );
+  const pool = inDialog.length ? inDialog : all;
+  const empty = pool.filter(editorIsEmpty);
+  const choose = empty.length ? empty : pool;
+
+  choose.sort((a, b) => {
+    const ra = a.getBoundingClientRect();
+    const rb = b.getBoundingClientRect();
+    return rb.width * rb.height - ra.width * ra.height;
+  });
+  return choose[0] ?? null;
+}
+
+async function waitForPasteBox(timeoutMs: number): Promise<HTMLElement | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const box = findPasteBox();
+    if (box) return box;
+    await sleep(200);
+  }
+  return null;
+}
+
 /**
  * NotebookLM has no chat composer — sources are added through a dialog. Drive
  * it: open "Copied text", fill the paste box with the transcript, and submit.
@@ -226,53 +286,53 @@ function isVisible(el: HTMLElement): boolean {
  * worst case is the pre-v0.1.17 manual behavior.
  */
 async function runNotebookLM(transcript: string): Promise<void> {
-  // 0. On the home page, create a new notebook first, then wait for it to open.
+  nlog("start");
+  // 0. On the home page, create a new notebook. No fixed sleep — the next step
+  //    polls for the dialog and fires the instant it's ready.
   const createBtn = await waitForClickableByText(
     ["create new notebook", "create new"],
-    12000,
+    10000,
   );
   if (createBtn) {
+    nlog("clicking Create new");
     createBtn.click();
-    await sleep(1500); // the new notebook + source dialog take a moment to open
+  } else {
+    nlog("no Create button — assuming a notebook is already open");
   }
 
-  // 1. Open the "Copied text" source type (give it patience to appear).
-  const copiedTextBtn = await waitForClickableByText(["copied text", "paste text"], 15000);
+  // 1. Open the "Copied text" source type once the dialog appears.
+  const copiedTextBtn = await waitForClickableByText(["copied text", "paste text"], 12000);
   if (!copiedTextBtn) {
+    nlog("Copied text option not found");
     await fallbackToClipboard(transcript, "NotebookLM");
     return;
   }
+  nlog("clicking Copied text");
   copiedTextBtn.click();
 
-  // 2. Wait for the paste box that appears (a new textarea / editor), avoiding
-  //    the always-present "search the web" box.
-  const box = await waitFor<HTMLElement>(
-    [
-      'textarea[aria-label*="paste" i]',
-      'textarea[placeholder*="paste" i]',
-      'div[contenteditable="true"][aria-label*="paste" i]',
-      'mat-dialog-container textarea',
-      'div[role="dialog"] textarea',
-    ],
-    8000,
-  );
-  if (!box || !isVisible(box)) {
+  // 2. Fill the paste box that appears (the visible, empty editor in the dialog
+  //    that isn't the "search the web" box).
+  const box = await waitForPasteBox(12000);
+  if (!box) {
+    nlog("paste box not found");
     await fallbackToClipboard(transcript, "NotebookLM");
     return;
   }
-
+  nlog("filling paste box");
   if (!insertText(box, transcript)) {
+    nlog("insertText failed");
     await fallbackToClipboard(transcript, "NotebookLM");
     return;
   }
 
   // 3. Submit the source ("Insert" / "Add").
-  await sleep(200);
-  const insertBtn = await waitForClickableByText(["insert", "add source", "add"], 4000);
+  const insertBtn = await waitForClickableByText(["insert", "add source", "add sources"], 6000);
   if (insertBtn) {
+    nlog("clicking Insert");
     insertBtn.click();
     return;
   }
+  nlog("Insert button not found — left it filled for the user");
   showToast('TL;DW: transcript filled in — click "Insert" to add it as a source.');
 }
 
