@@ -29,11 +29,20 @@ export type HistoryLimit = 50 | 100 | 250 | "unlimited";
  */
 export type DestinationMode = "inject" | "clipboard";
 
+/**
+ * What gets handed to a destination. "prompt" (default) sends the analysis
+ * prompt, with the transcript appended for clipboard destinations. "source"
+ * sends the raw transcript only — for tools like NotebookLM that ingest source
+ * material and do their own questioning, where a prompt would be meaningless.
+ */
+export type DestinationPayload = "prompt" | "source";
+
 export type Destination = {
   id: string;
   label: string;
   url: string;
   mode: DestinationMode;
+  payload?: DestinationPayload;
 };
 
 export type Settings = {

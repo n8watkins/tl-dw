@@ -73,6 +73,12 @@ export function buildDestinationPrompt(
   destination: Destination,
   transcript?: string | null,
 ): string {
+  // Source-style destinations (NotebookLM) ingest raw material, not a prompt:
+  // hand them the transcript to add as a source. Fall back to the link if we
+  // couldn't capture a transcript.
+  if (destination.payload === "source") {
+    return transcript ?? video.url;
+  }
   const { prompt } = buildPrompt(profile, video);
   if (destination.mode === "clipboard") {
     return appendTranscript(prompt, transcript);

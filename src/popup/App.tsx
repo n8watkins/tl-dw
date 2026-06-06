@@ -93,11 +93,19 @@ export function App() {
 
       await navigator.clipboard.writeText(full);
       await chrome.tabs.create({ url: dest.url });
-      setCopyStatus(
-        transcript
-          ? `Copied with transcript — paste into ${dest.label} (Ctrl+V).`
-          : `Copied (no transcript found) — paste into ${dest.label} (Ctrl+V).`,
-      );
+      if (dest.payload === "source") {
+        setCopyStatus(
+          transcript
+            ? `Copied transcript — in ${dest.label}, click "Copied text" and paste.`
+            : `No transcript found — copied the video link instead.`,
+        );
+      } else {
+        setCopyStatus(
+          transcript
+            ? `Copied with transcript — paste into ${dest.label} (Ctrl+V).`
+            : `Copied (no transcript found) — paste into ${dest.label} (Ctrl+V).`,
+        );
+      }
     } catch {
       setCopyStatus("Couldn't prepare the prompt — reload the YouTube tab and retry.");
     } finally {
