@@ -36,25 +36,17 @@ Run a local Vite dev server:
 npm run dev
 ```
 
-Build only in WSL:
-
-```bash
-npm run build:wsl
-```
-
 Build and copy to the Windows folder Chrome loads from:
 
 ```bash
 npm run build
 ```
 
-`npm run build` increments the patch version in `package.json` and `package-lock.json`, builds `dist/`, and copies the built extension to:
+`npm run build` is the only build command: it increments the patch version in `package.json` and `package-lock.json`, builds `dist/`, and copies the built extension to:
 
 ```text
 /mnt/c/Users/natha/Projects/Tools/tldw
 ```
-
-Use `npm run build:copy` when you want to rebuild and copy without incrementing the version.
 
 If the build or Windows copy step fails, `npm run build` restores the package version files to their previous contents.
 
