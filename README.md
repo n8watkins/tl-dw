@@ -42,13 +42,19 @@ Build and copy to the Windows folder Chrome loads from:
 npm run build
 ```
 
-`npm run build` is the only build command: it increments the patch version in `package.json` and `package-lock.json`, builds `dist/`, and copies the built extension to:
+`npm run build` builds `dist/` and copies the built extension to the folder Chrome loads from, **without** changing the version — use it freely while iterating:
 
 ```text
 /mnt/c/Users/natha/Projects/Tools/tldw
 ```
 
-If the build or Windows copy step fails, `npm run build` restores the package version files to their previous contents.
+When you want to cut a new version, run:
+
+```bash
+npm run release
+```
+
+`npm run release` increments the patch version in `package.json` and `package-lock.json`, then builds and copies. If the build or Windows copy step fails, it restores the package version files to their previous contents.
 
 After a successful build, open `chrome://extensions` and click Reload on the unpacked TL;DW extension so Chrome picks up the copied files.
 

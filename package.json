@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
-    "build": "node scripts/build-release.mjs"
+    "build": "vite build && node scripts/copy-to-windows.mjs",
+    "release": "node scripts/build-release.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
