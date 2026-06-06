@@ -76,6 +76,12 @@ export type Settings = {
   focusGeminiTab: boolean;
   /** Pause the YouTube video when a summary is sent. */
   autoPauseOnSummarize: boolean;
+  /** Ask for a WATCH/SKIM/SKIP verdict first on videos over the threshold. */
+  worthWatchingGate: boolean;
+  /** Duration (minutes) above which the worth-watching verdict is requested. */
+  worthWatchingMinutes: number;
+  /** Channels/keywords (one per line) that bypass the gate — always full summary. */
+  gateBypassTerms: string;
   /** Fetch the video's transcript and include it in the prompt when available. */
   includeTranscript: boolean;
   /** Which destination a summary is sent to (see DESTINATIONS). */
@@ -92,6 +98,12 @@ export type VideoContext = {
   url: string;
   title?: string;
   channel?: string;
+};
+
+/** Metadata read from the YouTube page for the worth-watching gate. */
+export type VideoMeta = {
+  durationSeconds: number;
+  channel: string;
 };
 
 /** Message from the Gemini content script asking for its pending prompt. */

@@ -53,6 +53,9 @@ export const DEFAULT_SETTINGS: Settings = {
   geminiUrl: GEMINI_URL,
   focusGeminiTab: true,
   autoPauseOnSummarize: false,
+  worthWatchingGate: false,
+  worthWatchingMinutes: 30,
+  gateBypassTerms: "",
   includeTranscript: true,
   destinationId: "gemini",
 };

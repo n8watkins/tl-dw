@@ -1,4 +1,4 @@
-import { buildDestinationPrompt } from "../lib/promptBuilder";
+import { buildDestinationPrompt, prependWorthWatchingGate } from "../lib/promptBuilder";
 import { getDestination, isYouTubeVideoUrl, STORAGE_KEYS } from "../lib/constants";
 import { addHistoryEntry } from "../lib/history";
 import {
@@ -11,7 +11,7 @@ import {
   setPendingPrompt,
   takePendingPrompt,
 } from "../lib/storage";
-import type { RuntimeMessage, Settings, VideoContext } from "../types";
+import type { RuntimeMessage, Settings, VideoContext, VideoMeta } from "../types";
 
 const MENU_ROOT = "tldw-root";
 
@@ -110,6 +110,28 @@ async function getTranscriptFromTab(tabId: number): Promise<string | null> {
   }
 }
 
+/** Ask the YouTube content script for the video's duration + channel. */
+async function getVideoMeta(tabId: number): Promise<VideoMeta | null> {
+  try {
+    const res = (await chrome.tabs.sendMessage(tabId, {
+      type: "GET_VIDEO_META",
+    })) as VideoMeta | undefined;
+    return res ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a channel/title is on the gate's bypass (trusted) list. */
+function isTrusted(bypassTerms: string, channel: string, title?: string): boolean {
+  const haystack = `${channel} ${title ?? ""}`.toLowerCase();
+  return bypassTerms
+    .split(/[\n,]/)
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean)
+    .some((term) => haystack.includes(term));
+}
+
 /**
  * Copy text to the clipboard from the background by delegating to a YouTube
  * tab's content script — the service worker has no DOM, but the content script
@@ -185,7 +207,28 @@ async function runSummary(
   ) {
     transcript = await getTranscriptFromTab(activeTab.id);
   }
-  const prompt = buildDestinationPrompt(profile, video, destination, transcript);
+
+  // Worth-watching gate: for chat destinations (a "prompt" payload), on videos
+  // over the threshold whose channel/title isn't trusted, ask for a verdict
+  // first. The meta fetch also enriches the prompt's {{channel}}.
+  const isPromptDest = destination.payload !== "link" && destination.payload !== "source";
+  let gateMinutes = 0;
+  if (settings.worthWatchingGate && isPromptDest && !isThumbnail && activeTab?.id !== undefined) {
+    const meta = await getVideoMeta(activeTab.id);
+    if (meta?.channel) video.channel = meta.channel;
+    const minutes = (meta?.durationSeconds ?? 0) / 60;
+    if (
+      minutes >= settings.worthWatchingMinutes &&
+      !isTrusted(settings.gateBypassTerms, meta?.channel ?? "", title)
+    ) {
+      gateMinutes = minutes;
+    }
+  }
+
+  let prompt = buildDestinationPrompt(profile, video, destination, transcript);
+  if (gateMinutes > 0) {
+    prompt = prependWorthWatchingGate(prompt, gateMinutes);
+  }
 
   if (destination.mode === "inject") {
     // Gemini's URL is user-configurable; the rest open their fixed URL.

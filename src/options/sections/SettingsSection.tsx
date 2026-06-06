@@ -125,6 +125,74 @@ export function SettingsSection() {
       </div>
 
       <div className="settings-group">
+        <div className="settings-group-title">Worth watching</div>
+
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Verdict for long videos</div>
+            <div className="setting-sub">
+              For videos over the length below, the summary leads with a
+              WATCH / SKIM / SKIP verdict and a one-line reason before the full
+              write-up. Only applies to chat destinations (Gemini, ChatGPT,
+              Claude, Perplexity).
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.worthWatchingGate}
+                onChange={(e) => void update({ worthWatchingGate: e.target.checked })}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Length threshold</div>
+            <div className="setting-sub">
+              Videos longer than this get the verdict. Shorter ones are
+              summarized normally.
+            </div>
+          </div>
+          <div className="setting-control">
+            <select
+              className="setting-select"
+              value={String(settings.worthWatchingMinutes)}
+              onChange={(e) => void update({ worthWatchingMinutes: Number(e.target.value) })}
+            >
+              <option value="15">15 minutes</option>
+              <option value="20">20 minutes</option>
+              <option value="30">30 minutes</option>
+              <option value="45">45 minutes</option>
+              <option value="60">60 minutes</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="setting-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 10 }}>
+          <div className="setting-info">
+            <div className="setting-label">Trusted channels &amp; keywords</div>
+            <div className="setting-sub">
+              One per line. Videos whose channel name or title contains any of
+              these skip the verdict and get a full summary every time.
+            </div>
+          </div>
+          <div style={{ width: "100%" }}>
+            <textarea
+              rows={4}
+              value={settings.gateBypassTerms}
+              onChange={(e) => void update({ gateBypassTerms: e.target.value })}
+              placeholder={"Veritasium\n3blue1brown\nlecture"}
+              style={{ width: "100%", minHeight: 90, resize: "vertical", fontFamily: "inherit", fontSize: 14 }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-group">
         <div className="settings-group-title">History</div>
 
         <div className="setting-row">

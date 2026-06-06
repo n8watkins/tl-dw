@@ -52,6 +52,22 @@ export function buildPrompt(
   return { prompt, missingVariables: [...missing] };
 }
 
+/**
+ * Prepend a "worth watching?" directive so the response leads with a verdict
+ * before the summary — used for videos over the configured length.
+ */
+export function prependWorthWatchingGate(
+  prompt: string,
+  minutes: number,
+): string {
+  const directive =
+    `This video is long (about ${Math.round(minutes)} minutes). Before anything else, ` +
+    `start your response with a single line — exactly "Verdict: WATCH", ` +
+    `"Verdict: SKIM", or "Verdict: SKIP" — followed by one sentence saying why. ` +
+    `Then give the full summary below.`;
+  return `${directive}\n\n${prompt}`;
+}
+
 /** Append the verbatim transcript to a prompt, when one is available. */
 export function appendTranscript(
   prompt: string,

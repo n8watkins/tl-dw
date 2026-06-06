@@ -305,6 +305,33 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
   return ok;
 }
 
+/** Parse "12:34" / "1:02:03" into seconds. */
+function hmsToSeconds(text: string | null | undefined): number {
+  if (!text) return 0;
+  const parts = text.trim().split(":").map((p) => parseInt(p, 10));
+  if (parts.some((n) => Number.isNaN(n))) return 0;
+  return parts.reduce((acc, n) => acc * 60 + n, 0);
+}
+
+/** Read the current video's duration (seconds) and channel name. */
+function getVideoMeta(): { durationSeconds: number; channel: string } {
+  const video = document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
+  let durationSeconds =
+    video && Number.isFinite(video.duration) ? video.duration : 0;
+  if (!durationSeconds) {
+    durationSeconds = hmsToSeconds(
+      document.querySelector(".ytp-time-duration")?.textContent,
+    );
+  }
+  const channel =
+    document
+      .querySelector(
+        "ytd-channel-name a, #owner #channel-name a, ytd-video-owner-renderer a.yt-simple-endpoint",
+      )
+      ?.textContent?.trim() ?? "";
+  return { durationSeconds, channel };
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const type = (message as { type?: string })?.type;
   if (type === "GET_TRANSCRIPT") {
@@ -325,6 +352,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     );
     video?.pause();
     sendResponse({ paused: !!video });
+    return false;
+  }
+  if (type === "GET_VIDEO_META") {
+    sendResponse(getVideoMeta());
     return false;
   }
   return false;
