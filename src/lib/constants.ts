@@ -31,6 +31,15 @@ export function getDestination(id: string | undefined): Destination {
   return DESTINATIONS.find((d) => d.id === id) ?? DESTINATIONS[0];
 }
 
+/**
+ * The call-to-action verb for a destination. Source/link tools (NotebookLM)
+ * ingest material rather than answer a prompt, so "Add to" reads right; chat
+ * destinations get "Ask".
+ */
+export function destinationVerb(dest: Destination): string {
+  return dest.payload === "source" || dest.payload === "link" ? "Add to" : "Ask";
+}
+
 export const STORAGE_KEYS = {
   profiles: "profiles",
   history: "history",

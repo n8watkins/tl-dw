@@ -6,7 +6,12 @@ import type {
   SearchHistoryEntry,
   Settings,
 } from "../types";
-import { DESTINATIONS, getDestination, isYouTubeVideoUrl } from "../lib/constants";
+import {
+  DESTINATIONS,
+  destinationVerb,
+  getDestination,
+  isYouTubeVideoUrl,
+} from "../lib/constants";
 import {
   addOpenSearch,
   clearDeliveryStatuses,
@@ -306,7 +311,8 @@ export function App() {
             )}
 
           <button className="primary" onClick={send} disabled={busy || profiles.length === 0}>
-            Ask {getDestination(destinationId).label}
+            {destinationVerb(getDestination(destinationId))}{" "}
+            {getDestination(destinationId).label}
           </button>
 
           <button className="secondary" onClick={copyTranscript} disabled={busy}>
