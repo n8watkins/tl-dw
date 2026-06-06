@@ -221,19 +221,26 @@ function isVisible(el: HTMLElement): boolean {
 
 const nlog = (...args: unknown[]) => console.log("[TL;DW NotebookLM]", ...args);
 
-/** NotebookLM's always-present "search the web for new sources" box. */
-function isSearchBox(el: HTMLElement): boolean {
-  const hay = [
+function editorLabel(el: HTMLElement): string {
+  return [
     el.getAttribute("aria-label"),
     el.getAttribute("placeholder"),
     el.getAttribute("formcontrolname"),
   ]
     .join(" ")
     .toLowerCase();
+}
+
+/** Boxes on the page that are NOT the paste box (search + the ask composer). */
+function isNotPasteBox(el: HTMLElement): boolean {
+  const hay = editorLabel(el);
   return (
     hay.includes("search the web") ||
     hay.includes("discover sources") ||
-    hay.includes("discoversources")
+    hay.includes("discoversources") ||
+    hay.includes("ask a question") ||
+    hay.includes("ask anything") ||
+    hay.includes("create some")
   );
 }
 
@@ -244,15 +251,23 @@ function editorIsEmpty(el: HTMLElement): boolean {
 
 /**
  * Find the paste box in the "Copied text" panel: a visible, empty textarea or
- * editor — preferring one inside a dialog and excluding the search box. Picks
- * the largest candidate when several match.
+ * editor that isn't the search box or the "ask" composer. Prefers a box whose
+ * label mentions "paste"; otherwise the largest dialog-scoped candidate.
  */
 function findPasteBox(): HTMLElement | null {
   const all = Array.from(
     document.querySelectorAll<HTMLElement>(
       'textarea, div[contenteditable="true"]',
     ),
-  ).filter((el) => isVisible(el) && !isSearchBox(el));
+  ).filter((el) => isVisible(el) && !isNotPasteBox(el));
+
+  nlog(
+    "paste candidates:",
+    all.map((el) => `${el.tagName.toLowerCase()}[${editorLabel(el).trim()}]`),
+  );
+
+  const labelled = all.filter((el) => editorLabel(el).includes("paste"));
+  if (labelled[0]) return labelled[0];
 
   const inDialog = all.filter((el) =>
     el.closest('[role="dialog"], mat-dialog-container'),
