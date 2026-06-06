@@ -73,6 +73,11 @@ export function buildDestinationPrompt(
   destination: Destination,
   transcript?: string | null,
 ): string {
+  // Link-style destinations get just the video URL (e.g. NotebookLM ingesting
+  // the YouTube link directly via its "Websites" source).
+  if (destination.payload === "link") {
+    return video.url;
+  }
   // Source-style destinations (NotebookLM) ingest raw material, not a prompt:
   // hand them the transcript to add as a source. Fall back to the link if we
   // couldn't capture a transcript.

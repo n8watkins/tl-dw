@@ -258,28 +258,34 @@ function isNotPasteBox(el: HTMLElement): boolean {
 }
 
 function editorIsEmpty(el: HTMLElement): boolean {
-  const v = el instanceof HTMLTextAreaElement ? el.value : el.textContent;
+  const v =
+    el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement
+      ? el.value
+      : el.textContent;
   return !(v ?? "").trim();
 }
 
 /**
- * Find the paste box in the "Copied text" panel: a visible, empty textarea or
- * editor that isn't the search box or the "ask" composer. Prefers a box whose
- * label mentions "paste"; otherwise the largest dialog-scoped candidate.
+ * Find the input box in an "add source" panel: a visible, empty field that
+ * isn't the search box or the "ask" composer. Prefers a box whose label matches
+ * one of `prefer` (e.g. "paste", "url"); otherwise the largest dialog-scoped
+ * candidate.
  */
-function findPasteBox(): HTMLElement | null {
+function findSourceBox(prefer: string[]): HTMLElement | null {
   const all = Array.from(
     document.querySelectorAll<HTMLElement>(
-      'textarea, div[contenteditable="true"]',
+      'textarea, input[type="text"], input[type="url"], input:not([type]), div[contenteditable="true"]',
     ),
   ).filter((el) => isVisible(el) && !isNotPasteBox(el));
 
   nlog(
-    "paste candidates:",
+    "source-input candidates:",
     all.map((el) => `${el.tagName.toLowerCase()}[${editorLabel(el).trim()}]`),
   );
 
-  const labelled = all.filter((el) => editorLabel(el).includes("paste"));
+  const labelled = all.filter((el) =>
+    prefer.some((k) => editorLabel(el).includes(k)),
+  );
   if (labelled[0]) return labelled[0];
 
   const inDialog = all.filter((el) =>
@@ -297,10 +303,13 @@ function findPasteBox(): HTMLElement | null {
   return choose[0] ?? null;
 }
 
-async function waitForPasteBox(timeoutMs: number): Promise<HTMLElement | null> {
+async function waitForSourceBox(
+  prefer: string[],
+  timeoutMs: number,
+): Promise<HTMLElement | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const box = findPasteBox();
+    const box = findSourceBox(prefer);
     if (box) return box;
     await sleep(200);
   }
@@ -356,7 +365,9 @@ async function clickInsert(timeoutMs: number): Promise<boolean> {
  * Each step falls back to the clipboard if its element can't be found, so the
  * worst case is the pre-v0.1.17 manual behavior.
  */
-async function runNotebookLM(transcript: string): Promise<void> {
+const URL_RE = /^https?:\/\/\S+$/;
+
+async function runNotebookLM(content: string): Promise<void> {
   nlog("start");
   // 0. On the home page, create a new notebook. No fixed sleep — the next step
   //    polls for the dialog and fires the instant it's ready.
@@ -371,33 +382,39 @@ async function runNotebookLM(transcript: string): Promise<void> {
     nlog("no Create button — assuming a notebook is already open");
   }
 
-  // 1. Open the "Copied text" source type once the dialog appears.
-  const copiedTextBtn = await waitForClickableByText(["copied text", "paste text"], 12000);
-  if (!copiedTextBtn) {
-    nlog("Copied text option not found");
-    await fallbackToClipboard(transcript, "NotebookLM");
+  // A bare URL → add it via "Websites"; anything else → paste via "Copied text".
+  const isLink = URL_RE.test(content.trim());
+  const sourceBtnTexts = isLink ? ["websites", "website"] : ["copied text", "paste text"];
+  const boxPrefer = isLink ? ["url", "link", "website", "paste"] : ["paste"];
+  nlog(isLink ? "link mode (Websites)" : "transcript mode (Copied text)");
+
+  // 1. Open the chosen source type once the dialog appears.
+  const sourceBtn = await waitForClickableByText(sourceBtnTexts, 12000);
+  if (!sourceBtn) {
+    nlog("source button not found:", sourceBtnTexts);
+    await fallbackToClipboard(content, "NotebookLM");
     return;
   }
-  nlog("clicking Copied text");
-  copiedTextBtn.click();
+  nlog("clicking source button");
+  sourceBtn.click();
 
-  // 2. Fill the paste box that appears (the visible, empty editor in the dialog
-  //    that isn't the "search the web" box).
-  const box = await waitForPasteBox(12000);
+  // 2. Fill the input that appears (the visible, empty field in the dialog that
+  //    isn't the "search the web" box).
+  const box = await waitForSourceBox(boxPrefer, 12000);
   if (!box) {
-    nlog("paste box not found");
-    await fallbackToClipboard(transcript, "NotebookLM");
+    nlog("source input not found");
+    await fallbackToClipboard(content, "NotebookLM");
     return;
   }
   nlog(
-    "filling paste box; content length:",
-    transcript.length,
+    "filling source input; length:",
+    content.length,
     "snippet:",
-    JSON.stringify(transcript.slice(0, 80)),
+    JSON.stringify(content.slice(0, 80)),
   );
-  if (!insertText(box, transcript)) {
+  if (!insertText(box, content)) {
     nlog("insertText failed");
-    await fallbackToClipboard(transcript, "NotebookLM");
+    await fallbackToClipboard(content, "NotebookLM");
     return;
   }
 
@@ -406,7 +423,7 @@ async function runNotebookLM(transcript: string): Promise<void> {
     nlog("clicked Insert");
     return;
   }
-  showToast('TL;DW: transcript filled in — click "Insert" to add it as a source.');
+  showToast('TL;DW: source filled in — click "Insert" to add it.');
 }
 
 async function run(): Promise<void> {

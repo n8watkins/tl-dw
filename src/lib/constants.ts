@@ -17,9 +17,10 @@ export const DESTINATIONS: Destination[] = [
     label: "NotebookLM",
     url: "https://notebooklm.google.com/",
     mode: "inject",
-    // NotebookLM is a sources tool, not a chat box: the injector drives its
-    // "Copied text" dialog to add the transcript as a source automatically.
-    payload: "source",
+    // NotebookLM is a sources tool, not a chat box. Currently in link mode: the
+    // injector drives its "Websites" source with the YouTube URL. Switch to
+    // "source" to paste the transcript via "Copied text" instead.
+    payload: "link",
   },
   {
     id: "perplexity",

@@ -50,7 +50,7 @@ export type DestinationMode = "inject" | "clipboard";
  * sends the raw transcript only — for tools like NotebookLM that ingest source
  * material and do their own questioning, where a prompt would be meaningless.
  */
-export type DestinationPayload = "prompt" | "source";
+export type DestinationPayload = "prompt" | "source" | "link";
 
 export type Destination = {
   id: string;

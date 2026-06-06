@@ -172,7 +172,12 @@ async function runSummary(
   // (everything but Gemini). Only reachable when the active tab IS the video —
   // not when summarizing a suggested thumbnail.
   let transcript: string | null = null;
-  if (!destination.canWatch && !isThumbnail && activeTab?.id !== undefined) {
+  if (
+    !destination.canWatch &&
+    destination.payload !== "link" &&
+    !isThumbnail &&
+    activeTab?.id !== undefined
+  ) {
     transcript = await getTranscriptFromTab(activeTab.id);
   }
   const prompt = buildDestinationPrompt(profile, video, destination, transcript);
