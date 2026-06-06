@@ -17,23 +17,41 @@
  */
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const log = (...args: unknown[]) => console.debug("[TL;DW]", ...args);
+const log = (...args: unknown[]) => console.log("[TL;DW]", ...args);
 
-const SEGMENT_SELECTOR = "ytd-transcript-segment-renderer";
+const SEGMENT_SELECTORS = [
+  "ytd-transcript-segment-renderer",
+  "ytd-transcript-segment-list-renderer .segment",
+  "[class*='transcript'] [class*='segment']",
+];
+
+/** Pull the spoken text out of a single transcript segment element. */
+function segmentText(segment: Element): string | undefined {
+  const direct =
+    segment.querySelector(".segment-text")?.textContent ??
+    segment.querySelector("yt-formatted-string")?.textContent;
+  if (direct?.trim()) return direct.trim();
+  // Fall back to the segment's own text, dropping a leading "1:23" timestamp.
+  return segment.textContent?.replace(/^\s*\d+:\d+(?::\d+)?\s*/, "").trim() || undefined;
+}
 
 /** Read the rendered transcript panel, or null if it isn't open yet. */
 function readSegments(): string | null {
-  const segments = document.querySelectorAll(SEGMENT_SELECTOR);
-  if (segments.length === 0) return null;
+  for (const selector of SEGMENT_SELECTORS) {
+    const segments = document.querySelectorAll(selector);
+    if (segments.length === 0) continue;
 
-  const lines: string[] = [];
-  segments.forEach((segment) => {
-    const text = segment.querySelector(".segment-text")?.textContent?.trim();
-    if (text) lines.push(text);
-  });
+    const lines: string[] = [];
+    segments.forEach((segment) => {
+      const text = segmentText(segment);
+      if (text) lines.push(text);
+    });
 
-  if (lines.length === 0) return null;
-  return lines.join(" ").replace(/\s+/g, " ").trim();
+    if (lines.length > 0) {
+      return lines.join(" ").replace(/\s+/g, " ").trim();
+    }
+  }
+  return null;
 }
 
 /** Click YouTube's description "…more" expander so hidden sections mount. */
