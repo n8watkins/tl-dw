@@ -85,6 +85,26 @@ export function SettingsSection() {
 
         <div className="setting-row">
           <div className="setting-info">
+            <div className="setting-label">Pause the video on summarize</div>
+            <div className="setting-sub">
+              Pause the YouTube video you're watching when you send it for a
+              summary, so it doesn't keep playing while you read.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.autoPauseOnSummarize}
+                onChange={(e) => void update({ autoPauseOnSummarize: e.target.checked })}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-info">
             <div className="setting-label">Save history on search</div>
             <div className="setting-sub">
               Log the prompt and video URL each time you search. Nothing from

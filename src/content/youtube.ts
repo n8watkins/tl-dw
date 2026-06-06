@@ -319,6 +319,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     );
     return true; // async response
   }
+  if (type === "PAUSE_VIDEO") {
+    const video = document.querySelector<HTMLVideoElement>(
+      "video.html5-main-video, video",
+    );
+    video?.pause();
+    sendResponse({ paused: !!video });
+    return false;
+  }
   return false;
 });
 

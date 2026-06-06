@@ -72,8 +72,10 @@ export type Settings = {
   saveHistoryOnSearch: boolean;
   historyLimit: HistoryLimit;
   geminiUrl: string;
-  /** Switch focus to the new Gemini tab; when false it opens in the background. */
+  /** Switch focus to the new destination tab; when false it opens in the background. */
   focusGeminiTab: boolean;
+  /** Pause the YouTube video when a summary is sent. */
+  autoPauseOnSummarize: boolean;
   /** Fetch the video's transcript and include it in the prompt when available. */
   includeTranscript: boolean;
   /** Which destination a summary is sent to (see DESTINATIONS). */

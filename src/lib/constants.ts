@@ -52,6 +52,7 @@ export const DEFAULT_SETTINGS: Settings = {
   historyLimit: 100,
   geminiUrl: GEMINI_URL,
   focusGeminiTab: true,
+  autoPauseOnSummarize: false,
   includeTranscript: true,
   destinationId: "gemini",
 };

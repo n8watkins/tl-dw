@@ -168,6 +168,11 @@ async function runSummary(
   const destination = getDestination(destinationOverride ?? settings.destinationId);
   const video: VideoContext = { url, title };
 
+  // Pause the video you're on (not a suggested thumbnail) before we hand off.
+  if (settings.autoPauseOnSummarize && !isThumbnail && activeTab?.id !== undefined) {
+    void chrome.tabs.sendMessage(activeTab.id, { type: "PAUSE_VIDEO" }).catch(() => {});
+  }
+
   // Fetch the transcript whenever the destination can't watch the video itself
   // (everything but Gemini). Only reachable when the active tab IS the video —
   // not when summarizing a suggested thumbnail.
