@@ -160,7 +160,32 @@ function findShowTranscriptButton(): HTMLElement | null {
 
 // --- DOM scrape fallback --------------------------------------------------
 
+function joinLines(lines: string[]): string | null {
+  if (lines.length === 0) return null;
+  return lines.join(" ").replace(/\s+/g, " ").trim();
+}
+
+/** Strip a leading "1:23" / "1:02:03" timestamp from a segment's text. */
+function stripTimestamp(raw: string): string {
+  return raw.replace(/\s+/g, " ").replace(/^\d{1,2}:\d{2}(?::\d{2})?\s*/, "").trim();
+}
+
 function scrapeRenderedTranscript(): string | null {
+  // Modern view-model panel (transcript-segment-view-model). The whole
+  // transcript renders at once, so one query gets every line.
+  const modern = document.querySelectorAll(
+    "transcript-segment-view-model, .ytwTranscriptSegmentViewModelHost",
+  );
+  if (modern.length > 0) {
+    const lines: string[] = [];
+    modern.forEach((seg) => {
+      const text = stripTimestamp(seg.textContent ?? "");
+      if (text) lines.push(text);
+    });
+    const joined = joinLines(lines);
+    if (joined) return joined;
+  }
+
   // Classic discrete segment elements.
   for (const selector of [
     "ytd-transcript-segment-renderer",
@@ -172,24 +197,32 @@ function scrapeRenderedTranscript(): string | null {
     segments.forEach((segment) => {
       const text =
         segment.querySelector(".segment-text")?.textContent?.trim() ??
-        segment.textContent?.replace(/^\s*\d+:\d+(?::\d+)?\s*/, "").trim();
+        stripTimestamp(segment.textContent ?? "");
       if (text) lines.push(text);
     });
-    if (lines.length > 0) return lines.join(" ").replace(/\s+/g, " ").trim();
+    const joined = joinLines(lines);
+    if (joined) return joined;
   }
   return null;
 }
 
 // --- request handling -----------------------------------------------------
 
+/** Either source: intercepted network data, or the rendered panel. */
+function available(): string | null {
+  return cachedForCurrentVideo() ?? scrapeRenderedTranscript();
+}
+
 async function getTranscript(): Promise<string | null> {
-  const cached = cachedForCurrentVideo();
-  if (cached) {
-    log("transcript already cached:", cached.length, "chars");
-    return cached;
+  // Panel may already be open (or data already intercepted) — take it as-is so
+  // we don't toggle an open panel shut.
+  const immediate = available();
+  if (immediate) {
+    log("transcript ready:", immediate.length, "chars");
+    return immediate;
   }
 
-  // Open the panel so YouTube issues the get_transcript request we intercept.
+  // Otherwise open the panel so its segments render (and any fetch fires).
   expandDescription();
   let button: HTMLElement | null = null;
   const buttonDeadline = Date.now() + 4000;
@@ -199,28 +232,24 @@ async function getTranscript(): Promise<string | null> {
     await sleep(200);
   }
   if (button) {
-    log("opening transcript panel to trigger fetch");
+    log("opening transcript panel");
     button.click();
   } else {
-    log("no 'Show transcript' button found — relying on any intercepted data");
+    log("no 'Show transcript' button found");
   }
 
-  // Wait for the interceptor to relay the response.
+  // Poll both sources until the lines appear.
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
-    await sleep(200);
-    const hit = cachedForCurrentVideo();
-    if (hit) return hit;
+    await sleep(300);
+    const hit = available();
+    if (hit) {
+      log("transcript captured:", hit.length, "chars");
+      return hit;
+    }
   }
 
-  // Last resort: scrape whatever rendered.
-  const scraped = scrapeRenderedTranscript();
-  if (scraped) {
-    log("transcript via DOM fallback:", scraped.length, "chars");
-    return scraped;
-  }
-
-  log("no transcript captured (intercept or scrape)");
+  log("no transcript captured");
   return null;
 }
 
