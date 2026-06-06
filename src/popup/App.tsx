@@ -79,7 +79,17 @@ export function App() {
     })();
   }, []);
 
-  const failures = statuses.filter((s) => !s.ok);
+  // Collapse to the most recent status per (kind, site) — statuses are stored
+  // newest-first — so a later success hides an earlier failure instead of the
+  // red alert sticking around after the next send works.
+  const latest = new Map<string, DeliveryStatus>();
+  for (const s of statuses) {
+    const key = `${s.kind ?? "delivery"}:${s.site}`;
+    if (!latest.has(key)) latest.set(key, s);
+  }
+  const current = [...latest.values()];
+  const failures = current.filter((s) => (s.kind ?? "delivery") === "delivery" && !s.ok);
+  const gateSkips = current.filter((s) => s.kind === "gate" && !s.ok);
 
   async function dismissFailures() {
     await clearDeliveryStatuses();
@@ -318,6 +328,17 @@ export function App() {
               <span className="status-alert-site">{f.site}</span>{" "}
               {f.reason ?? "delivery failed"}
               <span className="status-alert-time">{timeAgo(f.at)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {gateSkips.length > 0 && (
+        <div className="status-note">
+          {gateSkips.slice(0, 2).map((g, i) => (
+            <div key={i}>
+              ℹ {g.reason ?? "verdict gate skipped"}{" "}
+              <span className="status-note-time">({timeAgo(g.at)})</span>
             </div>
           ))}
         </div>

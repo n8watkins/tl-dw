@@ -212,6 +212,21 @@ select:disabled { opacity: 0.4; cursor: default; }
   margin-top: 2px;
 }
 
+.status-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #1f1a0e;
+  border: 1px solid #78550f;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #fcd9a0;
+}
+
+.status-note-time { color: #b8893f; }
+
 .pop-section {
   display: flex;
   flex-direction: column;

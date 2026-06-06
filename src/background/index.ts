@@ -220,16 +220,19 @@ async function runSummary(
     const meta = await getVideoMeta(activeTab.id);
     if (meta?.channel) video.channel = meta.channel;
     const minutes = (meta?.durationSeconds ?? 0) / 60;
-    if (minutes <= 0) {
-      // Couldn't read the duration — the gate silently can't run. Surface it so
-      // the user knows the verdict was skipped (and the selector may need a look).
-      await recordDeliveryStatus({
-        site: destination.label,
-        ok: false,
-        reason: "couldn't read the video length — verdict gate skipped",
-        at: new Date().toISOString(),
-      });
-    }
+    // Record the duration read as a "gate" status every run: a failed read
+    // surfaces a notice (the selector may need a look), and a later good read
+    // clears that stale notice rather than letting it stick around.
+    await recordDeliveryStatus({
+      site: destination.label,
+      kind: "gate",
+      ok: minutes > 0,
+      reason:
+        minutes > 0
+          ? undefined
+          : "couldn't read the video length — verdict gate skipped",
+      at: new Date().toISOString(),
+    });
     if (
       minutes >= settings.worthWatchingMinutes &&
       !isTrusted(settings.gateBypassTerms, meta?.channel ?? "", title)

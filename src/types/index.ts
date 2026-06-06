@@ -47,6 +47,12 @@ export type DeliveryStatus = {
   /** Why it failed, phrased for the popup alert. */
   reason?: string;
   at: string;
+  /**
+   * What this status is about. "delivery" (default) = an auto-fill attempt;
+   * "gate" = the worth-watching verdict's duration read. They're shown
+   * separately so a skipped gate doesn't masquerade as a failed delivery.
+   */
+  kind?: "delivery" | "gate";
 };
 
 export type HistoryLimit = 50 | 100 | 250 | "unlimited";
