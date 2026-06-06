@@ -4,7 +4,7 @@ slug: tldw
 type: chrome-extension
 status: active
 priority: high
-project_kind: single
+project_kind: multi
 
 local:
   path: /home/natkins/personal/tools/extensions/tldw
@@ -13,21 +13,38 @@ local:
   test_command: npm run typecheck
   package_manager: npm
 
+links:
+  - label: GitHub
+    type: repo
+    url: https://github.com/n8watkins/tl-dw
+  - label: Local Folder
+    type: local
+    url: /home/natkins/personal/tools/extensions/tldw
+
+parts:
+  - name: Extension
+    path: src
+    kind: chrome-extension
+    role: Chrome extension source, popup, options, content scripts, and background worker.
+    primary: true
+    icon: public/icons/tl-dw-128.png
+    dev_command: npm run dev
+    build_command: npm run build
+    test_command: npm run typecheck
+  - name: Release Build
+    path: dist
+    kind: build-output
+    role: Generated extension bundle and manifest output.
+
 deployments:
   - provider: manual
     production_url:
 
 docs:
   readme: README.md
-  status: docs/status.md
   roadmap: PLAN.md
-  decisions: docs/decisions.md
-  links: docs/links.md
-  onboarding: docs/onboarding.md
 
 agent:
-  agents_md: AGENTS.md
-  claude_md: CLAUDE.md
   update_protocol: false
 
 tags:
