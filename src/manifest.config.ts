@@ -47,7 +47,7 @@ export default defineManifest({
   commands: {
     "ask-gemini": {
       suggested_key: {
-        default: "Alt+G",
+        default: "Alt+Shift+G",
         mac: "Command+Shift+G",
       },
       description: "Ask Gemini about the current YouTube video",
