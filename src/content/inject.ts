@@ -312,11 +312,17 @@ function findSourceBox(prefer: string[]): HTMLElement | null {
 }
 
 async function waitForSourceBox(
+  selectors: string[],
   prefer: string[],
   timeoutMs: number,
 ): Promise<HTMLElement | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    // Exact selectors first (known fields), then the label heuristic.
+    for (const sel of selectors) {
+      const el = document.querySelector<HTMLElement>(sel);
+      if (el && isVisible(el)) return el;
+    }
     const box = findSourceBox(prefer);
     if (box) return box;
     await sleep(200);
@@ -393,6 +399,13 @@ async function runNotebookLM(content: string): Promise<void> {
   // A bare URL → add it via "Websites"; anything else → paste via "Copied text".
   const isLink = URL_RE.test(content.trim());
   const sourceBtnTexts = isLink ? ["websites", "website"] : ["copied text", "paste text"];
+  const boxSelectors = isLink
+    ? [
+        'textarea[formcontrolname="urls"]',
+        'textarea[aria-label="Enter URLs"]',
+        'textarea[placeholder*="Paste any links" i]',
+      ]
+    : [];
   const boxPrefer = isLink ? ["url", "link", "website", "paste"] : ["paste"];
   nlog(isLink ? "link mode (Websites)" : "transcript mode (Copied text)");
 
@@ -408,7 +421,7 @@ async function runNotebookLM(content: string): Promise<void> {
 
   // 2. Fill the input that appears (the visible, empty field in the dialog that
   //    isn't the "search the web" box).
-  const box = await waitForSourceBox(boxPrefer, 12000);
+  const box = await waitForSourceBox(boxSelectors, boxPrefer, 12000);
   if (!box) {
     nlog("source input not found");
     await fallbackToClipboard(content, "NotebookLM");
@@ -420,8 +433,14 @@ async function runNotebookLM(content: string): Promise<void> {
     "snippet:",
     JSON.stringify(content.slice(0, 80)),
   );
-  if (!insertText(box, content)) {
-    nlog("insertText failed");
+  insertText(box, content);
+  const filled =
+    box instanceof HTMLTextAreaElement || box instanceof HTMLInputElement
+      ? box.value
+      : (box.textContent ?? "");
+  nlog("after fill, box value length:", filled.length);
+  if (!filled.includes(content.slice(0, 20))) {
+    nlog("insertText didn't take");
     await fallbackToClipboard(content, "NotebookLM");
     return;
   }
