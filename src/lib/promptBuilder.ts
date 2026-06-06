@@ -62,10 +62,10 @@ export function appendTranscript(
 }
 
 /**
- * Build the prompt for a specific destination. Gemini ("inject") can open the
- * video URL itself, so it gets the link only. Every other destination can't
- * watch the video, so the transcript is sent in place — included whenever we
- * managed to capture one.
+ * Build the prompt for a specific destination. Gemini can open the video URL
+ * itself (canWatch), so it gets the link only. Every other destination can't
+ * watch the video, so the transcript is included — regardless of whether the
+ * prompt is auto-typed or copied to the clipboard.
  */
 export function buildDestinationPrompt(
   profile: PromptProfile,
@@ -80,7 +80,7 @@ export function buildDestinationPrompt(
     return transcript ?? video.url;
   }
   const { prompt } = buildPrompt(profile, video);
-  if (destination.mode === "clipboard") {
+  if (!destination.canWatch) {
     return appendTranscript(prompt, transcript);
   }
   return prompt;

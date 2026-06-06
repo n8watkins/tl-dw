@@ -43,6 +43,12 @@ export type Destination = {
   url: string;
   mode: DestinationMode;
   payload?: DestinationPayload;
+  /**
+   * True only for destinations that can open the YouTube URL themselves
+   * (Gemini). When false, the transcript is included in the prompt because the
+   * destination can't watch the video — independent of how it's delivered.
+   */
+  canWatch?: boolean;
 };
 
 export type Settings = {

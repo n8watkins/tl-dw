@@ -9,9 +9,9 @@ export const GEMINI_URL = "https://gemini.google.com/app";
  * transcript being included.
  */
 export const DESTINATIONS: Destination[] = [
-  { id: "gemini", label: "Gemini", url: GEMINI_URL, mode: "inject" },
-  { id: "chatgpt", label: "ChatGPT", url: "https://chatgpt.com/", mode: "clipboard" },
-  { id: "claude", label: "Claude", url: "https://claude.ai/new", mode: "clipboard" },
+  { id: "gemini", label: "Gemini", url: GEMINI_URL, mode: "inject", canWatch: true },
+  { id: "chatgpt", label: "ChatGPT", url: "https://chatgpt.com/", mode: "inject" },
+  { id: "claude", label: "Claude", url: "https://claude.ai/new", mode: "inject" },
   {
     id: "notebooklm",
     label: "NotebookLM",

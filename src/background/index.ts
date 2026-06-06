@@ -166,14 +166,24 @@ async function runSummary(
   const destination = getDestination(destinationOverride ?? settings.destinationId);
   const video: VideoContext = { url, title };
 
+  // Fetch the transcript whenever the destination can't watch the video itself
+  // (everything but Gemini). Only reachable when the active tab IS the video —
+  // not when summarizing a suggested thumbnail.
+  let transcript: string | null = null;
+  if (!destination.canWatch && !isThumbnail && activeTab?.id !== undefined) {
+    transcript = await getTranscriptFromTab(activeTab.id);
+  }
+  const prompt = buildDestinationPrompt(profile, video, destination, transcript);
+
   if (destination.mode === "inject") {
-    const prompt = buildDestinationPrompt(profile, video, destination);
-    const geminiTab = await chrome.tabs.create({
-      url: settings.geminiUrl,
+    // Gemini's URL is user-configurable; the rest open their fixed URL.
+    const targetUrl = destination.id === "gemini" ? settings.geminiUrl : destination.url;
+    const injectTab = await chrome.tabs.create({
+      url: targetUrl,
       active: settings.focusGeminiTab,
     });
-    if (geminiTab.id !== undefined) {
-      await setPendingPrompt(geminiTab.id, prompt);
+    if (injectTab.id !== undefined) {
+      await setPendingPrompt(injectTab.id, prompt);
     }
     if (settings.saveHistoryOnSearch) {
       await addHistoryEntry({ video, profile, prompt, settings });
@@ -181,14 +191,7 @@ async function runSummary(
     return;
   }
 
-  // Clipboard destination. The transcript is only reachable when the active tab
-  // IS the video being summarized — not when summarizing a suggested thumbnail.
-  let transcript: string | null = null;
-  if (!isThumbnail && activeTab?.id !== undefined) {
-    transcript = await getTranscriptFromTab(activeTab.id);
-  }
-  const prompt = buildDestinationPrompt(profile, video, destination, transcript);
-
+  // Clipboard destination: copy via the content script, then open the site.
   let copied = false;
   if (activeTab?.id !== undefined) {
     copied = await copyViaTab(activeTab.id, prompt);

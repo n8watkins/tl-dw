@@ -45,10 +45,10 @@ export function SettingsSection() {
 
         <div className="setting-row">
           <div className="setting-info">
-            <div className="setting-label">Auto-submit to Gemini</div>
+            <div className="setting-label">Auto-submit</div>
             <div className="setting-sub">
-              Automatically press Send after filling Gemini's prompt box. Turn
-              off to review the prompt before it sends.
+              Automatically press Send after filling the prompt box (Gemini,
+              ChatGPT, Claude). Turn off to review the prompt before it sends.
             </div>
           </div>
           <div className="setting-control">
@@ -65,10 +65,10 @@ export function SettingsSection() {
 
         <div className="setting-row">
           <div className="setting-info">
-            <div className="setting-label">Switch to Gemini tab</div>
+            <div className="setting-label">Switch to the new tab</div>
             <div className="setting-sub">
-              Bring the new Gemini tab to the front. Turn off to open it in the
-              background and stay on the YouTube video you're watching.
+              Bring the new destination tab to the front. Turn off to open it in
+              the background and stay on the YouTube video you're watching.
             </div>
           </div>
           <div className="setting-control">

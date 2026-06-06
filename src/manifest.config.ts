@@ -34,8 +34,13 @@ export default defineManifest({
   },
   content_scripts: [
     {
-      matches: ["https://gemini.google.com/*"],
-      js: ["src/content/gemini.ts"],
+      matches: [
+        "https://gemini.google.com/*",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+      ],
+      js: ["src/content/inject.ts"],
       run_at: "document_idle",
     },
     {
@@ -64,5 +69,8 @@ export default defineManifest({
     "https://www.youtube.com/*",
     "https://youtube.com/*",
     "https://gemini.google.com/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://claude.ai/*",
   ],
 });

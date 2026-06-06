@@ -1,26 +1,73 @@
 /**
- * Runs on gemini.google.com. On load it asks the background worker whether
- * this tab has a pending prompt; if so, it injects the text into Gemini's
- * composer and (optionally) submits. If injection fails, it falls back to
- * copying the prompt to the clipboard and showing a toast.
+ * Auto-fill injector for chat destinations (Gemini, ChatGPT, Claude). On load
+ * it asks the background worker whether this tab has a pending prompt; if so it
+ * types the prompt into the site's composer and (optionally) submits. If the
+ * composer can't be found or filled, it falls back to copying the prompt to the
+ * clipboard and showing a toast so the user can paste it.
  *
- * The injection mechanism (execCommand insertText + click send) was validated
- * by hand before this was written — see spike-gemini.js.
+ * Selectors are per-site and inherently brittle — when a site redesigns its
+ * composer, add the new selector here. The clipboard fallback keeps the feature
+ * usable in the meantime.
  */
 
-const EDITOR_SELECTORS = [
-  'div.ql-editor[contenteditable="true"]',
-  'rich-textarea div[contenteditable="true"]',
-  'div[contenteditable="true"][role="textbox"]',
-  'div[contenteditable="true"]',
-  "textarea",
-];
+type SiteConfig = {
+  name: string;
+  editorSelectors: string[];
+  sendSelectors: string[];
+};
 
-const SEND_SELECTORS = [
-  'button[aria-label*="Send" i]',
-  "button.send-button",
-  'button[mattooltip*="Send" i]',
-];
+function configForHost(host: string): SiteConfig | null {
+  if (host.endsWith("gemini.google.com")) {
+    return {
+      name: "Gemini",
+      editorSelectors: [
+        'div.ql-editor[contenteditable="true"]',
+        'rich-textarea div[contenteditable="true"]',
+        'div[contenteditable="true"][role="textbox"]',
+        'div[contenteditable="true"]',
+        "textarea",
+      ],
+      sendSelectors: [
+        'button[aria-label*="Send" i]',
+        "button.send-button",
+        'button[mattooltip*="Send" i]',
+      ],
+    };
+  }
+  if (host.endsWith("chatgpt.com") || host.endsWith("chat.openai.com")) {
+    return {
+      name: "ChatGPT",
+      editorSelectors: [
+        "div.ProseMirror#prompt-textarea",
+        'div[contenteditable="true"]#prompt-textarea',
+        "#prompt-textarea",
+        "div.ProseMirror",
+        'div[contenteditable="true"]',
+      ],
+      sendSelectors: [
+        'button[data-testid="send-button"]',
+        "#composer-submit-button",
+        'button[aria-label*="Send" i]',
+      ],
+    };
+  }
+  if (host.endsWith("claude.ai")) {
+    return {
+      name: "Claude",
+      editorSelectors: [
+        'div[contenteditable="true"].ProseMirror',
+        'div[aria-label*="prompt" i][contenteditable="true"]',
+        'fieldset div[contenteditable="true"]',
+        'div[contenteditable="true"]',
+      ],
+      sendSelectors: [
+        'button[aria-label*="Send message" i]',
+        'button[aria-label*="Send" i]',
+      ],
+    };
+  }
+  return null;
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -72,11 +119,12 @@ function insertText(editor: Element, text: string): boolean {
 }
 
 async function findEnabledSendButton(
+  sendSelectors: string[],
   timeoutMs: number,
 ): Promise<HTMLButtonElement | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    for (const sel of SEND_SELECTORS) {
+    for (const sel of sendSelectors) {
       const btn = document.querySelector<HTMLButtonElement>(sel);
       if (
         btn &&
@@ -112,16 +160,19 @@ function showToast(text: string): void {
   setTimeout(() => el.remove(), 5000);
 }
 
-async function fallbackToClipboard(prompt: string): Promise<void> {
+async function fallbackToClipboard(prompt: string, site: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(prompt);
-    showToast("TL;DW: couldn't auto-fill — prompt copied, paste it to send.");
+    showToast(`TL;DW: couldn't auto-fill ${site} — prompt copied, paste it (Ctrl+V) to send.`);
   } catch {
-    showToast("TL;DW: couldn't auto-fill Gemini. Open the popup to copy the prompt.");
+    showToast(`TL;DW: couldn't auto-fill ${site}. Open the popup to copy the prompt.`);
   }
 }
 
 async function run(): Promise<void> {
+  const config = configForHost(location.hostname);
+  if (!config) return;
+
   const res = (await chrome.runtime.sendMessage({ type: "GET_PENDING" })) as {
     prompt: string | null;
     autoSubmit?: boolean;
@@ -130,28 +181,28 @@ async function run(): Promise<void> {
   const prompt = res?.prompt;
   if (!prompt) return;
 
-  const editor = await waitFor<HTMLElement>(EDITOR_SELECTORS, 12000);
+  const editor = await waitFor<HTMLElement>(config.editorSelectors, 12000);
   if (!editor) {
-    await fallbackToClipboard(prompt);
+    await fallbackToClipboard(prompt, config.name);
     return;
   }
 
   const inserted = insertText(editor, prompt);
   if (!inserted) {
-    await fallbackToClipboard(prompt);
+    await fallbackToClipboard(prompt, config.name);
     return;
   }
 
   if (res?.autoSubmit === false) return; // user wants to review first
 
   await sleep(150);
-  const btn = await findEnabledSendButton(3000);
+  const btn = await findEnabledSendButton(config.sendSelectors, 3000);
   if (btn) {
     btn.click();
     return;
   }
 
-  // Last resort: synthetic Enter, then clipboard if that fails too.
+  // Last resort: synthetic Enter.
   editor.dispatchEvent(
     new KeyboardEvent("keydown", {
       key: "Enter",
