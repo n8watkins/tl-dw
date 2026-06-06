@@ -2,77 +2,84 @@
 
 > **TL;DW = "Too Long; Didn't Watch."**
 >
-> **Thesis:** A Chrome extension that turns "I want to ask Gemini about this YouTube video" into a single keystroke.
+> **Thesis:** A Chrome extension that turns "I want to ask an AI about this YouTube video" into a single keystroke.
 >
 > **Core promise:** It saves the *search*, not the *answer*. That keeps the extension simple, private, fast, and buildable.
+
+> _Refreshed 2026-06-06 to match the shipped product. The original plan was Gemini-only;
+> TL;DW now sends to several destinations and extracts the transcript. History below
+> is preserved where still accurate._
 
 ---
 
 ## 1. The spine, in one sentence
 
-On a YouTube tab, press **Alt+G** → grab the URL → build the default prompt → open a new Gemini chat → auto-fill the composer → press Enter. The user reads the answer instead of watching the whole video.
+On a YouTube tab, press **Alt+Shift+G** (or use the popup / right-click menu) → grab the URL → build the default prompt → open the chosen destination → auto-fill its composer → submit. The user reads the answer instead of watching the whole video.
 
 That single motion *is* the product. Everything else is management UI layered on top.
 
 ---
 
-## 2. How the motion works (4 pieces)
+## 2. How the motion works
 
 | # | Piece | Responsibility |
 |---|-------|----------------|
-| 1 | **Shortcut** | `chrome.commands` registers Alt+G by default |
-| 2 | **YouTube side** | Read the active tab's URL (title/channel optional — see §4) |
-| 3 | **Handoff** | Build prompt, stash it keyed by tab id, open `gemini.google.com/app` |
-| 4 | **Gemini side** | Content script on Gemini waits for the composer, injects the prompt, submits |
+| 1 | **Entry points** | `chrome.commands` (Alt+Shift+G), the popup, and a YouTube right-click menu |
+| 2 | **YouTube side** | Read the active tab's URL; on demand, extract the transcript and read duration/channel |
+| 3 | **Handoff** | Build prompt, stash it keyed by tab id in `chrome.storage.session`, open the destination |
+| 4 | **Destination side** | A content script waits for the composer, injects the prompt, submits, and reports the outcome |
 
 **Piece #4 is the whole ballgame.** See §3.
 
+### Destinations
+
+| Destination | Delivery | Content |
+|-------------|----------|---------|
+| **Gemini** | inject + submit | prompt only — Gemini watches the URL itself (`canWatch`) |
+| **ChatGPT / Claude / Perplexity** | inject + submit | prompt **with the transcript appended** (they can't watch the video) |
+| **NotebookLM** | inject into the "Websites" source | the YouTube link (`payload: "link"`) |
+
+Adding a destination is a one-line registry entry in `constants.ts` plus, if it auto-fills, a `configForHost` block in `inject.ts`.
+
 ### Handoff detail (avoid the multi-tab race)
 
-If the user fires the shortcut twice quickly, two Gemini tabs open and each must pick up *its own* prompt.
+If the user fires twice quickly, two destination tabs open and each must pick up *its own* prompt.
 
-1. Background opens the Gemini tab and gets the new `tabId`.
+1. Background opens the tab and gets the new `tabId`.
 2. Background stores `pending[tabId] = prompt` in `chrome.storage.session`.
-3. The Gemini content script reads the prompt for *its own* tab id, injects it, then clears that key.
-
-Cheap to design in now; painful to retrofit.
+3. The destination content script reads the prompt for *its own* tab id, injects it, then clears that key.
 
 ---
 
-## 3. The #1 risk: auto-injecting into Gemini
+## 3. The #1 risk: auto-injecting into someone else's web app
 
-We are **assuming** Gemini ingests a video from its URL. Given that, the existential risk is no longer "can Gemini watch videos" — it's:
+The existential risk isn't "can the model help" — it's:
 
-> **Can we reliably inject text into Gemini's composer and trigger send?**
+> **Can we reliably inject text into a composer we don't control and trigger send?**
 
-Gemini's input is a **contenteditable rich-text div, not a plain `<textarea>`**. Consequences:
+These composers are **contenteditable rich-text divs, not plain `<textarea>`s**. Consequences:
 
-- Setting `.value` does nothing. We must simulate input (`InputEvent` / synthetic paste) so Gemini's framework registers the text and **enables** the send button.
-- The send trigger is a synthetic Enter keypress or a click on the send button — and that button stays disabled until input is detected.
-- Gemini's DOM/class names change without notice, so our selectors **will** break periodically.
+- Setting `.value` does nothing. We simulate input (`execCommand("insertText")` / native setter + `InputEvent`) so the site's framework registers the text and **enables** the send button.
+- The send trigger is a click on the (initially disabled) send button once input is detected.
+- Each site's DOM/class names change without notice, so selectors **will** break periodically.
 
 This is the classic "works in the demo, silently breaks in 3 months" feature. Therefore:
 
-### Non-negotiable V1 rule: graceful fallback
+### Non-negotiable rule: graceful fallback + visible failure
 
-> If injection fails, **copy the prompt to clipboard** and leave the Gemini tab open with a small toast: *"Prompt copied — paste to send."*
-> Never leave the user staring at an empty Gemini box wondering what happened.
+> If injection fails, **copy the prompt to clipboard** and leave the tab open with a toast: *"Prompt copied — paste to send."* Never leave the user staring at an empty box.
 
-The fallback is a **V1 feature**, not a nice-to-have.
+And, shipped since: the injector **reports each outcome** to the background, which records it and flashes the toolbar badge. The popup shows a red alert naming the site and reason when a selector rots — so a silent break becomes a visible, fixable one.
 
-### Current handling
+### Resilience
 
-The extension now attempts composer injection and auto-submit first. If that fails, it copies the prompt and shows a Gemini-page toast so the user can paste manually.
+Selectors run most-specific first, then generic **visible-element** fallbacks (a stray hidden composer is skipped), then the clipboard fallback. One renamed id no longer takes a site down.
 
 ---
 
-## 4. A free simplification
+## 4. Transcript & metadata
 
-If the prompt is just *"Summarize this video: {{url}}"* and Gemini ingests the link, we **may not need the title or channel at all.**
-
-That deletes the most fragile part of YouTube-side scraping (SPA selectors that rot on every YouTube redesign).
-
-**Start URL-only.** Add title/channel later *only if* it measurably improves output.
+For destinations that can't watch the video, TL;DW extracts the transcript by intercepting YouTube's own InnerTube/`timedtext` network responses (survives DOM redesigns), with a rendered-panel DOM scrape as fallback. Duration + channel are read for the worth-watching gate (`<video>.duration`, falling back to the `.ytp-time-duration` label).
 
 ---
 
@@ -80,87 +87,59 @@ That deletes the most fragile part of YouTube-side scraping (SPA selectors that 
 
 ### Shipped core
 
-Goal: the Alt+G motion works end-to-end, reliably, with a sane fallback.
+- [x] Keyboard shortcut, popup, and right-click menu on YouTube watch pages and Shorts
+- [x] URL capture + prompt built from editable profiles
+- [x] Auto-inject + auto-submit, with graceful clipboard fallback
+- [x] Local prompt history (delete, clear, copy-prompt, re-ask), built-in + custom profiles, default profile, auto-submit toggle, history limit
 
-- [x] Keyboard shortcut on YouTube watch pages and Shorts
-- [x] URL capture from the active tab
-- [x] Prompt built from editable profiles
-- [x] Open Gemini in a new tab
-- [x] Auto-inject + auto-submit into Gemini's composer
-- [x] Graceful fallback: injection fails → copy prompt + toast, tab still opens
-- [x] Popup entry point with profile selection
-- [x] Local prompt history with delete and clear
-- [x] Built-in editable profiles
-- [x] Set default profile
-- [x] Auto-submit toggle in settings
-- [x] Toolbar context menu for choosing a profile
-- [x] History limit setting
-- [x] Clear empty state when the active tab is not a YouTube video
+### Shipped — multi-destination & transcript era
 
-That's a genuinely complete, useful product.
+- [x] Multiple destinations (Gemini, ChatGPT, Claude, Perplexity, NotebookLM) with per-session override
+- [x] Transcript extraction (network interception + DOM fallback) appended for non-Gemini chats
+- [x] NotebookLM automation (drive the "Websites" source with the video link)
+- [x] Worth-watching verdict gate for long videos, with a trusted-channel bypass
+- [x] Auto-pause the video on summarize
+- [x] Open-search "jump back" + failure surfacing in the popup (badge + alert)
+- [x] Selector resilience (visibility-filtered matching, broadened fallbacks)
+- [x] Per-destination CTA verb ("Add to NotebookLM" vs "Ask ChatGPT")
 
-### Next management & polish
+### Declined
 
-- [ ] Title + channel extraction with SPA `yt-navigate-finish` handling — *if* it improves results
-- [ ] Profile duplicate / archive
-- [ ] Reset defaults (all at once; per-profile + `isCustomized` tracking deferred further)
-- [ ] History dashboard: search, profile filter, sort, copy-prompt, reopen-video
-- [ ] Remaining settings (`includeMetadataHeader`, custom Gemini URL, etc.)
+- Reuse an open destination tab instead of opening a new one
+- "Summarize up to where I am" (trim transcript to the player's `currentTime`)
 
-### V1.2 — sharing / portability
+### Next — the real depth
 
-- [ ] Import / export profiles as JSON (+ validation, name-conflict "Copy", plain-text safety guard)
-
-> These add real surface area (validation, XSS guard) for a feature most users touch once. Defer cleanly.
-
-### V2+ — the real depth
-
-- Transcript extraction, timestamp-aware prompts, scoring rubrics
-- Gemini API mode (BYO key, run inside extension, optionally save responses)
-- Profile packs / shareable links / sync
+- [ ] **Clickable seek links** — render the summary's key moments as links that seek the YouTube player (see SEEK_LINKS.md)
+- [ ] Import / export profiles as JSON (validation, name-conflict "Copy")
 
 ---
 
-## 6. Permissions (shrunk for this design)
+## 6. Permissions
 
-Likely sufficient:
+Current (`manifest.config.ts`):
 
-- `commands` — the shortcut
-- `storage` — profiles, settings, history, pending-prompt handoff
-- `tabs` — open Gemini + read active tab URL
-- **host permissions** for both `youtube.com` *and* `gemini.google.com` (the latter is new and required for the injection content script)
+- `storage` — profiles, settings, history, and the session-scoped prompt handoff / open-searches / delivery-status
+- `tabs` — open destinations + read the active tab URL
+- `contextMenus` — the right-click entry
+- `clipboardWrite` — the auto-fill-failed clipboard fallback (runs without a user gesture, so the permission is required)
+- host permissions for `youtube.com` and each destination site (the injection content scripts)
 
-Probably **droppable**: `scripting`, `activeTab`, `clipboardWrite` — if content scripts are declared statically and clipboard is used from the right context.
-
-Fewer permissions = the privacy pitch stays clean and Web Store review is faster.
+`commands` is declared via the manifest `commands` key (the shortcut), not a permission.
 
 ---
 
 ## 7. Privacy
 
-- All data local (`chrome.storage.local`). No backend, no account, no analytics.
+- All persistent data is local (`chrome.storage.local`); session state (handoff, open searches, delivery status) is `chrome.storage.session`. No backend, no account, no analytics.
 - We log the **prompt + URL + timestamp** at the moment of firing.
-- We **never** read or store the Gemini response. Auto-submit does not change this.
+- We **never** read or store the model's response.
 
 ---
 
 ## 8. Tech stack
 
-- Manifest V3
-- TypeScript + Vite
-- React + Tailwind for popup / options (vanilla is fine for the content scripts)
-- `chrome.storage.local` for data, `chrome.storage.session` for the prompt handoff
-
----
-
-## 9. Open question
-
-- **Profile choice via keyboard?** Today: the shortcut uses the *default* profile silently; profile choice happens in the popup. Add a second shortcut / quick-picker only if there's real demand.
-
----
-
-## 10. Suggested first session
-
-1. Spike piece #4 (Gemini composer injection + submit) as a standalone content script. Measure reliability.
-2. If solid → scaffold the V1 spine around it.
-3. If flaky → harden the fallback first, treat auto-submit as best-effort.
+- Manifest V3 (service-worker background, content scripts in isolated + MAIN world)
+- TypeScript + Vite + `@crxjs/vite-plugin`
+- React for popup / options; vanilla TS for the content scripts
+- `chrome.storage.local` for data, `chrome.storage.session` for ephemeral state

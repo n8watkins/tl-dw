@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import type { HistoryLimit, Settings } from "../../types";
-import { DEFAULT_SETTINGS, DESTINATIONS, GEMINI_URL } from "../../lib/constants";
+import {
+  DEFAULT_SETTINGS,
+  DESTINATIONS,
+  GEMINI_URL,
+  WATCH_THRESHOLD_OPTIONS,
+} from "../../lib/constants";
+import type { WatchThresholdMinutes } from "../../types";
 import { getSettings, setSettings } from "../../lib/storage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
@@ -161,13 +167,17 @@ export function SettingsSection() {
             <select
               className="setting-select"
               value={String(settings.worthWatchingMinutes)}
-              onChange={(e) => void update({ worthWatchingMinutes: Number(e.target.value) })}
+              onChange={(e) =>
+                void update({
+                  worthWatchingMinutes: Number(e.target.value) as WatchThresholdMinutes,
+                })
+              }
             >
-              <option value="15">15 minutes</option>
-              <option value="20">20 minutes</option>
-              <option value="30">30 minutes</option>
-              <option value="45">45 minutes</option>
-              <option value="60">60 minutes</option>
+              {WATCH_THRESHOLD_OPTIONS.map((m) => (
+                <option key={m} value={m}>
+                  {m} minutes
+                </option>
+              ))}
             </select>
           </div>
         </div>

@@ -57,6 +57,9 @@ export type DeliveryStatus = {
 
 export type HistoryLimit = 50 | 100 | 250 | "unlimited";
 
+/** Minutes thresholds the worth-watching gate offers (see WATCH_THRESHOLD_OPTIONS). */
+export type WatchThresholdMinutes = 15 | 20 | 30 | 45 | 60;
+
 /**
  * What gets handed to a destination. "prompt" (default) sends the analysis
  * prompt, with the transcript appended when the destination can't watch the
@@ -92,7 +95,7 @@ export type Settings = {
   /** Ask for a WATCH/SKIM/SKIP verdict first on videos over the threshold. */
   worthWatchingGate: boolean;
   /** Duration (minutes) above which the worth-watching verdict is requested. */
-  worthWatchingMinutes: number;
+  worthWatchingMinutes: WatchThresholdMinutes;
   /** Channels/keywords (one per line) that bypass the gate — always full summary. */
   gateBypassTerms: string;
   /** Fetch the video's transcript and include it in the prompt when available. */

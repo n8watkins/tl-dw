@@ -1,4 +1,4 @@
-import type { Destination, Settings } from "../types";
+import type { Destination, Settings, WatchThresholdMinutes } from "../types";
 
 export const GEMINI_URL = "https://gemini.google.com/app";
 
@@ -39,6 +39,9 @@ export function getDestination(id: string | undefined): Destination {
 export function destinationVerb(dest: Destination): string {
   return dest.payload === "source" || dest.payload === "link" ? "Add to" : "Ask";
 }
+
+/** The length thresholds the worth-watching gate offers (single source of truth). */
+export const WATCH_THRESHOLD_OPTIONS: WatchThresholdMinutes[] = [15, 20, 30, 45, 60];
 
 export const STORAGE_KEYS = {
   profiles: "profiles",
