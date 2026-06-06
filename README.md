@@ -42,21 +42,15 @@ Build and copy to the Windows folder Chrome loads from:
 npm run build
 ```
 
-`npm run build` builds `dist/` and copies the built extension to the folder Chrome loads from, **without** changing the version — use it freely while iterating:
+`npm run build` increments the patch version in `package.json` and `package-lock.json`, builds `dist/`, and copies the built extension to the folder Chrome loads from:
 
 ```text
 /mnt/c/Users/natha/Projects/Tools/tldw
 ```
 
-When you want to cut a new version, run:
+The version bumps on every build so the number in the popup always changes — a quick way to confirm a reload actually picked up the new build. If the build or Windows copy step fails, the package version files are restored to their previous contents. Use `npm run dev` for live iteration without bumping.
 
-```bash
-npm run release
-```
-
-`npm run release` increments the patch version in `package.json` and `package-lock.json`, then builds and copies. If the build or Windows copy step fails, it restores the package version files to their previous contents.
-
-After a successful build, open `chrome://extensions` and click Reload on the unpacked TL;DW extension so Chrome picks up the copied files.
+After a successful build, open `chrome://extensions` and click Reload on the unpacked TL;DW extension so Chrome picks up the copied files. The popup's version number should match the latest build.
 
 ## Chrome Install
 
