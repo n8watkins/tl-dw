@@ -271,12 +271,20 @@ function editorIsEmpty(el: HTMLElement): boolean {
  * one of `prefer` (e.g. "paste", "url"); otherwise the largest dialog-scoped
  * candidate.
  */
+const TEXTY_INPUT_TYPES = new Set(["text", "url", "search", "email", ""]);
+
 function findSourceBox(prefer: string[]): HTMLElement | null {
   const all = Array.from(
     document.querySelectorAll<HTMLElement>(
-      'textarea, input[type="text"], input[type="url"], input:not([type]), div[contenteditable="true"]',
+      "textarea, input, div[contenteditable=\"true\"]",
     ),
-  ).filter((el) => isVisible(el) && !isNotPasteBox(el));
+  ).filter((el) => {
+    if (!isVisible(el) || isNotPasteBox(el)) return false;
+    if (el instanceof HTMLInputElement) {
+      return TEXTY_INPUT_TYPES.has(el.getAttribute("type") ?? "");
+    }
+    return true;
+  });
 
   nlog(
     "source-input candidates:",
