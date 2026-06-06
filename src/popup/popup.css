@@ -127,6 +127,30 @@ select:disabled { opacity: 0.4; cursor: default; }
 .primary:hover:not(:disabled) { background: #6d28d9; }
 .primary:disabled { opacity: 0.4; cursor: default; }
 
+.secondary {
+  background: transparent;
+  color: #c4b5fd;
+  border: 1px solid #4c1d95;
+  border-radius: 8px;
+  padding: 10px 0;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.secondary:hover:not(:disabled) { background: #2e1065; border-color: #6d28d9; }
+.secondary:disabled { opacity: 0.4; cursor: default; }
+
+.copy-status {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 8px;
+  text-align: center;
+}
+
 footer {
   display: flex;
   align-items: center;

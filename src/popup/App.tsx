@@ -21,6 +21,7 @@ export function App() {
   const [tab, setTab] = useState<chrome.tabs.Tab | null>(null);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
 
   useEffect(() => {
     void (async () => {
@@ -43,6 +44,33 @@ export function App() {
     setBusy(true);
     await chrome.runtime.sendMessage({ type: "ASK", profileId: selectedId });
     window.close();
+  }
+
+  /**
+   * Grab the current video's transcript from its content script and copy it to
+   * the clipboard. Deliberately separate from the Ask Gemini flow so it can't
+   * slow it down or break it, and so it's visibly testable on its own.
+   */
+  async function copyTranscript() {
+    if (!tab?.id) return;
+    setBusy(true);
+    setCopyStatus("Fetching transcript…");
+    try {
+      const res = (await chrome.tabs.sendMessage(tab.id, {
+        type: "GET_TRANSCRIPT",
+      })) as { transcript: string | null } | undefined;
+      const transcript = res?.transcript;
+      if (!transcript) {
+        setCopyStatus("No transcript found (does this video have captions?).");
+        return;
+      }
+      await navigator.clipboard.writeText(transcript);
+      setCopyStatus(`Copied ${transcript.length.toLocaleString()} characters.`);
+    } catch {
+      setCopyStatus("Couldn't reach the page — reload the YouTube tab and retry.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function openOptions() {
@@ -114,13 +142,18 @@ export function App() {
           <button className="primary" onClick={ask} disabled={busy || profiles.length === 0}>
             Ask Gemini
           </button>
+
+          <button className="secondary" onClick={copyTranscript} disabled={busy}>
+            Copy transcript
+          </button>
+          {copyStatus && <p className="copy-status">{copyStatus}</p>}
         </>
       )}
 
       <footer>
         {onVideo && (
           <span className="hint">
-            <kbd>Alt</kbd>+<kbd>G</kbd>
+            <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>
             {settings && !settings.autoSubmit ? " · auto-submit off" : ""}
           </span>
         )}

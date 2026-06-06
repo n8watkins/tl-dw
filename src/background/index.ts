@@ -79,22 +79,6 @@ async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
   return tab;
 }
 
-/**
- * Ask the watch page's content script for the transcript. Returns null if the
- * tab has no content script (page predates install), the video has no
- * captions, or anything else goes wrong — the caller proceeds without it.
- */
-async function requestTranscript(tabId: number): Promise<string | null> {
-  try {
-    const res = (await chrome.tabs.sendMessage(tabId, {
-      type: "GET_TRANSCRIPT",
-    })) as { transcript: string | null } | undefined;
-    return res?.transcript ?? null;
-  } catch {
-    return null;
-  }
-}
-
 /** Briefly flash the toolbar badge to signal "not a YouTube video". */
 async function flashBadge(text: string): Promise<void> {
   await chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
@@ -114,18 +98,12 @@ async function askGemini(profileId?: string, linkUrl?: string): Promise<void> {
   // falls back to the active tab.
   let url: string | undefined;
   let title: string | undefined;
-  // The tab whose content script can hand us a transcript — only the loaded
-  // watch page, so a thumbnail (a different video) leaves this undefined.
-  let transcriptTabId: number | undefined;
   if (linkUrl && isYouTubeVideoUrl(linkUrl)) {
     url = linkUrl;
   } else {
     const tab = await getActiveTab();
     url = tab?.url;
     title = cleanTitle(tab?.title);
-    if (tab?.id !== undefined && url && isYouTubeVideoUrl(url)) {
-      transcriptTabId = tab.id;
-    }
   }
 
   if (!url || !isYouTubeVideoUrl(url)) {
@@ -138,32 +116,14 @@ async function askGemini(profileId?: string, linkUrl?: string): Promise<void> {
 
   const settings = await getSettings();
   const video: VideoContext = { url, title };
-
-  // The transcript is large, so it's appended to the sent prompt but kept out
-  // of the version logged to history. Profiles that place {{transcript}}
-  // themselves get it inline instead of appended.
-  const transcript =
-    settings.includeTranscript && transcriptTabId !== undefined
-      ? await requestTranscript(transcriptTabId)
-      : null;
-  const placesTranscript = /\{\{\s*transcript\s*\}\}/.test(profile.promptTemplate);
-  const { prompt } = buildPrompt(
-    profile,
-    video,
-    undefined,
-    transcript ? { transcript } : {},
-  );
-  const sentPrompt =
-    transcript && !placesTranscript
-      ? `${prompt}\n\n---\nVideo transcript (verbatim, for reference):\n${transcript}`
-      : prompt;
+  const { prompt } = buildPrompt(profile, video);
 
   const geminiTab = await chrome.tabs.create({
     url: settings.geminiUrl,
     active: settings.focusGeminiTab,
   });
   if (geminiTab.id !== undefined) {
-    await setPendingPrompt(geminiTab.id, sentPrompt);
+    await setPendingPrompt(geminiTab.id, prompt);
   }
 
   if (settings.saveHistoryOnSearch) {
