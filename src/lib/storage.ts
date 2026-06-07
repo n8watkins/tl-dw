@@ -82,29 +82,38 @@ export async function resolveProfile(
   return profiles.find((p) => p.id === id) ?? profiles[0];
 }
 
-// --- session-scoped prompt handoff, keyed by the Gemini tab id ---
+// --- session-scoped prompt handoff, keyed by the destination tab id ---
+
+export type PendingData = {
+  prompt: string;
+  /** Whether the inject script should watch for a TLDW_MOMENTS line in the response. */
+  autoMoments?: boolean;
+  /** YouTube tab to forward AI-derived moments to. */
+  sourceTabId?: number;
+};
 
 export async function setPendingPrompt(
   tabId: number,
-  prompt: string,
+  data: PendingData,
 ): Promise<void> {
   const r = await chrome.storage.session.get(PENDING_KEY);
-  const pending = (r[PENDING_KEY] as Record<number, string>) ?? {};
-  pending[tabId] = prompt;
+  const pending = (r[PENDING_KEY] as Record<number, PendingData>) ?? {};
+  pending[tabId] = data;
   await chrome.storage.session.set({ [PENDING_KEY]: pending });
 }
 
 export async function takePendingPrompt(
   tabId: number,
-): Promise<string | undefined> {
+): Promise<PendingData | undefined> {
   const r = await chrome.storage.session.get(PENDING_KEY);
-  const pending = (r[PENDING_KEY] as Record<number, string>) ?? {};
-  const prompt = pending[tabId];
-  if (prompt !== undefined) {
+  const pending = (r[PENDING_KEY] as Record<number, PendingData | string>) ?? {};
+  const raw = pending[tabId];
+  if (raw !== undefined) {
     delete pending[tabId];
     await chrome.storage.session.set({ [PENDING_KEY]: pending });
   }
-  return prompt;
+  if (typeof raw === "string") return { prompt: raw }; // backward-compat
+  return raw as PendingData | undefined;
 }
 
 // --- session-scoped list of open destination tabs ---

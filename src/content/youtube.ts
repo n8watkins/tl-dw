@@ -537,6 +537,43 @@ async function toggleMoments(
   return { ok: true, shown: true };
 }
 
+/**
+ * Show the key-moments panel using AI-derived moments forwarded from the
+ * inject script. `moments` are `{t: seconds, label}` objects.
+ */
+async function showAiMoments(
+  aiMoments: Array<{ t: number; label: string }>,
+): Promise<void> {
+  const moments = aiMoments.map((m) => ({ startSeconds: m.t, label: m.label }));
+  if (moments.length === 0) return;
+
+  const host =
+    document.querySelector("#below") ??
+    document.querySelector("ytd-watch-metadata") ??
+    document.querySelector("#secondary-inner") ??
+    document.querySelector("#secondary");
+  if (!host) return;
+
+  // Replace any existing panel (local or previous AI run).
+  removeMomentsPanel();
+
+  const { tldwMomentsCollapsed } = await chrome.storage.local
+    .get("tldwMomentsCollapsed")
+    .catch(() => ({ tldwMomentsCollapsed: false }));
+
+  const panel = buildMomentsPanel(moments, {
+    onSeek: seekTo,
+    onClose: removeMomentsPanel,
+    initialCollapsed: !!tldwMomentsCollapsed,
+    onToggleCollapse: (collapsed) => {
+      void chrome.storage.local.set({ tldwMomentsCollapsed: collapsed }).catch(() => {});
+    },
+  });
+  host.prepend(panel);
+  momentsPanel = panel;
+  log("showing", moments.length, "AI moments");
+}
+
 // A stale panel from the previous video shouldn't linger after SPA navigation.
 window.addEventListener("yt-navigate-finish", removeMomentsPanel);
 
@@ -563,6 +600,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const force = !!(message as { show?: boolean })?.show;
     void toggleMoments(force).then((result) => sendResponse(result));
     return true; // async response
+  }
+  if (type === "SET_MOMENTS") {
+    const moments = (message as { moments?: Array<{ t: number; label: string }> })?.moments ?? [];
+    void showAiMoments(moments).then(() => sendResponse({ ok: true }));
+    return true;
   }
   return false;
 });

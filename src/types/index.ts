@@ -164,8 +164,22 @@ export type InjectResultMessage = {
   reason?: string;
 };
 
+/** A single AI-derived key moment: seconds from video start + short label. */
+export type AiMoment = { t: number; label: string };
+
+/**
+ * Sent from the inject script to the background when the AI returns a
+ * TLDW_MOMENTS line. The background forwards it to the source YouTube tab.
+ */
+export type AiMomentsMessage = {
+  type: "AI_MOMENTS";
+  moments: AiMoment[];
+  sourceTabId: number;
+};
+
 export type RuntimeMessage =
   | GetPendingMessage
   | AskMessage
   | RebuildMenuMessage
-  | InjectResultMessage;
+  | InjectResultMessage
+  | AiMomentsMessage;

@@ -1,4 +1,4 @@
-import { buildDestinationPrompt, prependWorthWatchingGate } from "../lib/promptBuilder";
+import { appendMomentsRequest, buildDestinationPrompt, prependWorthWatchingGate } from "../lib/promptBuilder";
 import { getDestination, isYouTubeVideoUrl, STORAGE_KEYS } from "../lib/constants";
 import { addHistoryEntry } from "../lib/history";
 import {
@@ -179,11 +179,6 @@ async function runSummary(
     void chrome.tabs.sendMessage(activeTab.id, { type: "PAUSE_VIDEO" }).catch(() => {});
   }
 
-  // Optionally surface the on-page key-moments panel on the video you're on.
-  if (settings.autoShowMoments && !isThumbnail && activeTab?.id !== undefined) {
-    void chrome.tabs.sendMessage(activeTab.id, { type: "TOGGLE_MOMENTS", show: true }).catch(() => {});
-  }
-
   // Fetch the transcript whenever the destination can't watch the video itself
   // (everything but Gemini). Only reachable when the active tab IS the video —
   // not when summarizing a suggested thumbnail.
@@ -233,6 +228,18 @@ async function runSummary(
     prompt = prependWorthWatchingGate(prompt, gateMinutes);
   }
 
+  // When autoShowMoments is on and the destination accepts a prompt, append the
+  // structured moments request so the AI returns timestamps we can display.
+  const wantAiMoments =
+    settings.autoShowMoments &&
+    isPromptDest &&
+    !isThumbnail &&
+    destination.payload !== "source" &&
+    destination.payload !== "link";
+  if (wantAiMoments) {
+    prompt = appendMomentsRequest(prompt);
+  }
+
   // Open the destination tab and hand its injector the prompt to auto-fill.
   // Gemini's URL is user-configurable; the rest open their fixed URL.
   const targetUrl = destination.id === "gemini" ? settings.geminiUrl : destination.url;
@@ -241,7 +248,11 @@ async function runSummary(
     active: settings.focusGeminiTab,
   });
   if (injectTab.id !== undefined) {
-    await setPendingPrompt(injectTab.id, prompt);
+    await setPendingPrompt(injectTab.id, {
+      prompt,
+      autoMoments: wantAiMoments,
+      sourceTabId: activeTab?.id,
+    });
     await recordOpenSearch(injectTab.id, video, destination, activeTab?.id);
   }
   if (settings.saveHistoryOnSearch) {
@@ -311,6 +322,16 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: true });
       return false;
     }
+    if (message.type === "AI_MOMENTS") {
+      void chrome.tabs
+        .sendMessage(message.sourceTabId, {
+          type: "SET_MOMENTS",
+          moments: message.moments,
+        })
+        .catch(() => {});
+      sendResponse({ ok: true });
+      return false;
+    }
     if (message.type === "REBUILD_MENU") {
       void rebuildContextMenu().then(() => sendResponse({ ok: true }));
       return true;
@@ -322,10 +343,12 @@ chrome.runtime.onMessage.addListener(
         return true;
       }
       void Promise.all([takePendingPrompt(tabId), getSettings()]).then(
-        ([prompt, settings]) =>
+        ([pending, settings]) =>
           sendResponse({
-            prompt: prompt ?? null,
+            prompt: pending?.prompt ?? null,
             autoSubmit: settings.autoSubmit,
+            autoMoments: pending?.autoMoments ?? false,
+            sourceTabId: pending?.sourceTabId,
           }),
       );
       return true;

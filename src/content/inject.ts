@@ -474,7 +474,60 @@ async function fillBox(el: HTMLElement, text: string): Promise<boolean> {
   return took();
 }
 
+type AiMoment = { t: number; label: string };
 type Outcome = { ok: boolean; reason?: string };
+
+/**
+ * Scan document.body.textContent for the TLDW_MOMENTS:[...] line the AI
+ * is instructed to append. Returns the parsed moments or null if not found yet.
+ */
+function findMomentsInPage(): AiMoment[] | null {
+  const text = document.body.textContent ?? "";
+  const prefix = "TLDW_MOMENTS:";
+  const idx = text.indexOf(prefix);
+  if (idx === -1) return null;
+  const start = idx + prefix.length;
+  if (text[start] !== "[") return null;
+
+  // Walk forward counting brackets to find the closing ].
+  let depth = 0;
+  let end = -1;
+  for (let i = start; i < Math.min(text.length, start + 4000); i++) {
+    const ch = text[i];
+    if (ch === "[" || ch === "{") depth++;
+    else if (ch === "]" || ch === "}") {
+      if (--depth === 0) { end = i + 1; break; }
+    }
+  }
+  if (end === -1) return null;
+
+  try {
+    const parsed = JSON.parse(text.slice(start, end)) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    return (parsed as Array<{ t?: unknown; label?: unknown }>)
+      .filter((m) => typeof m?.t === "number" && typeof m?.label === "string")
+      .map((m) => ({ t: m.t as number, label: m.label as string }));
+  } catch {
+    return null;
+  }
+}
+
+/** Poll for the TLDW_MOMENTS line for up to `timeoutMs`, then send to background. */
+async function waitAndSendMoments(sourceTabId: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const moments = findMomentsInPage();
+    if (moments && moments.length > 0) {
+      try {
+        await chrome.runtime.sendMessage({ type: "AI_MOMENTS", moments, sourceTabId });
+      } catch {
+        /* background may be sleeping — best effort */
+      }
+      return;
+    }
+    await sleep(1500);
+  }
+}
 
 /** Tell the background how the fill went, so the popup can surface failures. */
 async function reportOutcome(site: string, outcome: Outcome): Promise<void> {
@@ -581,6 +634,8 @@ async function run(): Promise<void> {
   const res = (await chrome.runtime.sendMessage({ type: "GET_PENDING" })) as {
     prompt: string | null;
     autoSubmit?: boolean;
+    autoMoments?: boolean;
+    sourceTabId?: number;
   } | null;
 
   const prompt = res?.prompt;
@@ -609,24 +664,35 @@ async function run(): Promise<void> {
   // The prompt is in — report success now; submit is best-effort after this.
   await reportOutcome(config.name, { ok: true });
 
-  if (res?.autoSubmit === false) return; // user wants to review first
+  if (res?.autoSubmit === false) {
+    // User wants to review first — still start moments polling if needed.
+    if (res.autoMoments && res.sourceTabId !== undefined) {
+      void waitAndSendMoments(res.sourceTabId, 120_000);
+    }
+    return;
+  }
 
   await sleep(150);
   const btn = await findEnabledSendButton(config.sendSelectors, 3000);
   if (btn) {
     btn.click();
-    return;
+  } else {
+    // Last resort: synthetic Enter.
+    editor.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        code: "Enter",
+        keyCode: 13,
+        bubbles: true,
+      }),
+    );
   }
 
-  // Last resort: synthetic Enter.
-  editor.dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "Enter",
-      code: "Enter",
-      keyCode: 13,
-      bubbles: true,
-    }),
-  );
+  // After the prompt is submitted, watch for the TLDW_MOMENTS line in the
+  // AI response and forward it to the source YouTube tab (2-minute timeout).
+  if (res?.autoMoments && res.sourceTabId !== undefined) {
+    void waitAndSendMoments(res.sourceTabId, 120_000);
+  }
 }
 
 void run();
