@@ -130,6 +130,8 @@ export type Settings = {
   autoTldwMinutes: number;
   /** Gemini API key for direct (headless) calls — no tab opened when set. */
   geminiApiKey: string;
+  /** Use the direct API path when a key is present (can be toggled off in the popup). */
+  useDirectApi: boolean;
 };
 
 export type StorageState = {

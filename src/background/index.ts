@@ -259,7 +259,7 @@ async function runSummary(
 
   // --- headless path: call Gemini API directly (no tab) -------------------
   const apiKey = settings.geminiApiKey?.trim();
-  if (apiKey && destination.id === "gemini" && isPromptDest) {
+  if (apiKey && settings.useDirectApi && destination.id === "gemini" && isPromptDest) {
     try {
       const responseText = await callGeminiApi(prompt, apiKey);
       void recordGeminiCall();

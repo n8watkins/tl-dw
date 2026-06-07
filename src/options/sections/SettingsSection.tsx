@@ -289,7 +289,9 @@ export function SettingsSection() {
             <a href="https://aistudio.google.com" target="_blank" rel="noreferrer">
               aistudio.google.com
             </a>{" "}
-            → Create API key. No credit card. Free tier: 1,500 requests/day with Gemini 2.0 Flash.
+            → Create API key. No credit card, no billing upgrade needed — the free tier
+            gives you ~500 requests/day with Gemini 2.0 Flash, which is plenty for daily use.
+            Stay on the free tier.
           </div>
           <div className="card-desc" style={{ marginTop: 4, fontSize: 12, color: "var(--text-muted)" }}>
             Your key is stored only in your browser and sent only to Google's API — never to us.

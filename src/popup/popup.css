@@ -330,15 +330,19 @@ textarea:focus { outline: none; border-color: #7c3aed; }
   text-align: center;
 }
 
-.headless-badge {
-  font-size: 11px;
-  color: #16a34a;
-  background: rgba(22, 163, 74, 0.1);
-  border: 1px solid rgba(22, 163, 74, 0.25);
-  border-radius: 6px;
-  padding: 4px 10px;
-  text-align: center;
+.headless-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-top: 2px;
+}
+
+.headless-count {
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .check-field {

@@ -364,8 +364,24 @@ export function App() {
           )}
 
           {effectiveDestinationId === "gemini" && settings?.geminiApiKey && (
-            <div className="headless-badge">
-              ⚡ Direct API · {geminiUsage.totalCalls} call{geminiUsage.totalCalls === 1 ? "" : "s"}
+            <div className="headless-row">
+              <label className="check-field" style={{ margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={settings.useDirectApi ?? true}
+                  onChange={(e) => {
+                    const next = { ...settings, useDirectApi: e.target.checked };
+                    setSettings(next);
+                    void saveSettings(next);
+                  }}
+                />
+                <span>⚡ Direct API (no new tab)</span>
+              </label>
+              {settings.useDirectApi && (
+                <span className="headless-count">
+                  {geminiUsage.totalCalls} call{geminiUsage.totalCalls === 1 ? "" : "s"}
+                </span>
+              )}
             </div>
           )}
 
