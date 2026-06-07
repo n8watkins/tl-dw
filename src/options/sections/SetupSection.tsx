@@ -64,13 +64,13 @@ export function SetupSection() {
 
       <div className="shortcut-box">
         <div className="shortcut-info">
-          <div className="shortcut-label">Right-click toolbar icon</div>
+          <div className="shortcut-label">Right-click a YouTube video</div>
           <div className="shortcut-sub">
-            Right-click the TL;DW icon in Chrome's toolbar to pick a specific
+            Right-click any YouTube watch page or Short to pick a specific
             profile without opening the popup.
           </div>
         </div>
-        <span style={{ fontSize: 13, color: "var(--muted)" }}>Ask Gemini with…</span>
+        <span style={{ fontSize: 13, color: "var(--muted)" }}>Send to … with…</span>
       </div>
 
       <hr className="divider" />
