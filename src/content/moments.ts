@@ -184,16 +184,22 @@ function buildChip(
     zIndex: "10",
   });
 
-  chip.addEventListener("mouseenter", () => {
+  // Highlight + reveal the timestamp on hover *and* keyboard focus, so the time
+  // is reachable without a mouse.
+  const reveal = () => {
     chip.style.background = t.bg;
     chip.style.borderColor = t.accent;
     tip.style.opacity = "1";
-  });
-  chip.addEventListener("mouseleave", () => {
+  };
+  const hide = () => {
     chip.style.background = t.hover;
     chip.style.borderColor = t.border;
     tip.style.opacity = "0";
-  });
+  };
+  chip.addEventListener("mouseenter", reveal);
+  chip.addEventListener("mouseleave", hide);
+  chip.addEventListener("focus", reveal);
+  chip.addEventListener("blur", hide);
   chip.addEventListener("click", () => onSeek(m.startSeconds));
 
   chip.append(tip, label);
