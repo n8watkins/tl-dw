@@ -5,14 +5,14 @@ body {
   font-size: 16px;
   background: #0f172a;
   color: #f1f5f9;
-  min-width: 340px;
+  min-width: 400px;
 }
 
 .tldw {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 20px;
+  gap: 12px;
+  padding: 18px;
 }
 
 header {
@@ -77,7 +77,7 @@ header {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 300px;
+  max-width: 100%;
   background: #1e293b;
   padding: 10px 12px;
   border-radius: 8px;
@@ -112,6 +112,10 @@ select {
 select:disabled { opacity: 0.4; cursor: default; }
 
 .primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   background: #7c3aed;
   color: #fff;
   border: none;
@@ -127,27 +131,43 @@ select:disabled { opacity: 0.4; cursor: default; }
 .primary:hover:not(:disabled) { background: #6d28d9; }
 .primary:disabled { opacity: 0.4; cursor: default; }
 
+.secondary-row {
+  display: flex;
+  gap: 8px;
+}
+
 .secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex: 1;
   background: transparent;
   color: #c4b5fd;
   border: 1px solid #4c1d95;
   border-radius: 8px;
-  padding: 10px 0;
-  font-size: 15px;
+  padding: 11px 8px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
   width: 100%;
-  margin-top: 8px;
 }
 
-.secondary:hover:not(:disabled) { background: #2e1065; border-color: #6d28d9; }
+.secondary:hover:not(:disabled) {
+  background: #2e1065;
+  border-color: #6d28d9;
+  color: #ede9fe;
+}
+.secondary:active:not(:disabled) { transform: translateY(1px); }
 .secondary:disabled { opacity: 0.4; cursor: default; }
+
+.secondary svg { flex: 0 0 auto; }
 
 .copy-status {
   font-size: 13px;
   color: #64748b;
-  margin-top: 8px;
+  margin-top: 4px;
   text-align: center;
 }
 

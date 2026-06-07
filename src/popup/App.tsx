@@ -54,6 +54,45 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
+/* Inline icons — stroke uses currentColor so they inherit each button's color. */
+const iconProps = {
+  width: 16,
+  height: 16,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+
+function SparkIcon() {
+  return (
+    <svg {...iconProps} aria-hidden="true">
+      <path d="M12 3l1.9 4.6L18.5 9.5 13.9 11.4 12 16l-1.9-4.6L5.5 9.5l4.6-1.9z" />
+      <path d="M19 14l.7 1.8 1.8.7-1.8.7L19 19l-.7-1.8-1.8-.7 1.8-.7z" />
+    </svg>
+  );
+}
+
+function MomentsIcon() {
+  return (
+    <svg {...iconProps} aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg {...iconProps} aria-hidden="true">
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V5a2 2 0 0 1 2-2h8" />
+    </svg>
+  );
+}
+
 function timeAgo(iso: string): string {
   const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
   if (secs < 60) return "just now";
@@ -384,17 +423,22 @@ export function App() {
             )}
 
           <button className="primary" onClick={send} disabled={busy || profiles.length === 0}>
+            <SparkIcon />
             {destinationVerb(getDestination(destinationId))}{" "}
             {getDestination(destinationId).label}
           </button>
 
-          <button className="secondary" onClick={() => void showMoments()} disabled={busy}>
-            Key moments on video
-          </button>
+          <div className="secondary-row">
+            <button className="secondary" onClick={() => void showMoments()} disabled={busy}>
+              <MomentsIcon />
+              Key moments
+            </button>
 
-          <button className="secondary" onClick={copyTranscript} disabled={busy}>
-            Copy transcript
-          </button>
+            <button className="secondary" onClick={copyTranscript} disabled={busy}>
+              <CopyIcon />
+              Copy transcript
+            </button>
+          </div>
           {copyStatus && <p className="copy-status">{copyStatus}</p>}
         </>
       )}
