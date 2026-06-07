@@ -18,6 +18,7 @@ import {
   addOpenSearch,
   clearDeliveryStatuses,
   getDeliveryStatuses,
+  getGeminiUsage,
   getHistory,
   getOpenSearches,
   getProfiles,
@@ -25,6 +26,7 @@ import {
   setSettings as saveSettings,
   setPendingPrompt,
 } from "../lib/storage";
+import type { GeminiUsage } from "../types";
 
 /* Inline icons — stroke uses currentColor so they inherit each button's color. */
 const iconProps = {
@@ -91,16 +93,18 @@ export function App() {
   const [openSearches, setOpenSearches] = useState<OpenSearch[]>([]);
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   const [statuses, setStatuses] = useState<DeliveryStatus[]>([]);
+  const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({ totalCalls: 0 });
 
   useEffect(() => {
     void (async () => {
-      const [p, s, tabs, open, hist, stat] = await Promise.all([
+      const [p, s, tabs, open, hist, stat, usage] = await Promise.all([
         getProfiles(),
         getSettings(),
         chrome.tabs.query({ active: true, currentWindow: true }),
         getOpenSearches(),
         getHistory(),
         getDeliveryStatuses(),
+        getGeminiUsage(),
       ]);
       setProfiles(p);
       setSettings(s);
@@ -111,6 +115,7 @@ export function App() {
       setOpenSearches(open);
       setHistory(hist);
       setStatuses(stat);
+      setGeminiUsage(usage);
       setReady(true);
     })();
   }, []);
@@ -355,6 +360,12 @@ export function App() {
                   <span className="ask-btn-shortcut">Alt+Shift+G</span>
                 </span>
               </button>
+            </div>
+          )}
+
+          {effectiveDestinationId === "gemini" && settings?.geminiApiKey && (
+            <div className="headless-badge">
+              ⚡ Direct API · {geminiUsage.totalCalls} call{geminiUsage.totalCalls === 1 ? "" : "s"}
             </div>
           )}
 

@@ -78,6 +78,9 @@ export const OPEN_SEARCHES_KEY = "openSearches";
 /** chrome.storage.session key holding recent auto-fill outcomes for the popup. */
 export const DELIVERY_STATUS_KEY = "deliveryStatus";
 
+/** chrome.storage.local key holding direct Gemini API usage stats. */
+export const GEMINI_USAGE_KEY = "geminiUsage";
+
 export const DEFAULT_SETTINGS: Settings = {
   autoSubmit: true,
   saveHistoryOnSearch: true,
@@ -94,6 +97,7 @@ export const DEFAULT_SETTINGS: Settings = {
   destinationId: "gemini",
   temporaryChats: true,
   autoTldwMinutes: 0,
+  geminiApiKey: "",
 };
 
 export function isYouTubeVideoUrl(url: string | undefined): boolean {

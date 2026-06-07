@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Settings } from "../../types";
+import type { GeminiUsage, Settings } from "../../types";
 import {
   DEFAULT_SETTINGS,
   DESTINATIONS,
@@ -7,7 +7,7 @@ import {
   WATCH_THRESHOLD_OPTIONS,
 } from "../../lib/constants";
 import type { WatchThresholdMinutes } from "../../types";
-import { getSettings, setSettings } from "../../lib/storage";
+import { clearGeminiUsage, getGeminiUsage, getSettings, setSettings } from "../../lib/storage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DestinationIcon, Icon } from "../components/Icons";
 
@@ -15,9 +15,14 @@ export function SettingsSection() {
   const [settings, setLocal] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({ totalCalls: 0 });
+  const [showKey, setShowKey] = useState(false);
 
   useEffect(() => {
-    void getSettings().then(setLocal);
+    void Promise.all([getSettings(), getGeminiUsage()]).then(([s, u]) => {
+      setLocal(s);
+      setGeminiUsage(u);
+    });
 
     const handleChange = (changes: Record<string, chrome.storage.StorageChange>) => {
       if (changes[STORAGE_KEYS.settings]?.newValue) {
@@ -41,6 +46,28 @@ export function SettingsSection() {
     setLocal(DEFAULT_SETTINGS);
     await setSettings(DEFAULT_SETTINGS);
     setConfirmReset(false);
+  }
+
+  async function clearApiKey() {
+    if (!settings) return;
+    const next = { ...settings, geminiApiKey: "" };
+    setLocal(next);
+    await setSettings(next);
+    await clearGeminiUsage();
+    setGeminiUsage({ totalCalls: 0 });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  function timeAgo(iso: string | undefined): string {
+    if (!iso) return "never";
+    const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+    if (secs < 60) return "just now";
+    const mins = Math.round(secs / 60);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.round(hrs / 24)}d ago`;
   }
 
   if (!settings) return <p className="text-muted">Loading…</p>;
@@ -245,6 +272,81 @@ export function SettingsSection() {
               <span className="dest-card-label">{d.label}</span>
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group-title"><Icon name="send" /> Direct API — no new tab</div>
+
+        <div className="card" style={{ marginBottom: 0 }}>
+          <div className="card-title">Headless Gemini mode</div>
+          <div className="card-desc">
+            Paste a Gemini API key and TL;DW calls Gemini directly — no new tab opens.
+            Results arrive in seconds and are injected straight onto the YouTube page.
+          </div>
+          <div className="card-desc" style={{ marginTop: 8 }}>
+            <strong>Get a free key:</strong> Go to{" "}
+            <a href="https://aistudio.google.com" target="_blank" rel="noreferrer">
+              aistudio.google.com
+            </a>{" "}
+            → Create API key. No credit card. Free tier: 1,500 requests/day with Gemini 2.0 Flash.
+          </div>
+          <div className="card-desc" style={{ marginTop: 4, fontSize: 12, color: "var(--text-muted)" }}>
+            Your key is stored only in your browser and sent only to Google's API — never to us.
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "center" }}>
+            <div style={{ position: "relative", flex: 1 }}>
+              <input
+                type={showKey ? "text" : "password"}
+                value={settings?.geminiApiKey ?? ""}
+                onChange={(e) => void update({ geminiApiKey: e.target.value })}
+                placeholder="AIza..."
+                style={{
+                  width: "100%",
+                  fontFamily: "monospace",
+                  fontSize: 13,
+                  paddingRight: 36,
+                  boxSizing: "border-box",
+                }}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                onClick={() => setShowKey((v) => !v)}
+                title={showKey ? "Hide key" : "Show key"}
+                style={{
+                  position: "absolute",
+                  right: 6,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 4,
+                  color: "var(--text-muted)",
+                  fontSize: 13,
+                  lineHeight: 1,
+                }}
+              >
+                {showKey ? "🙈" : "👁"}
+              </button>
+            </div>
+            {settings?.geminiApiKey && (
+              <button className="btn btn-danger" onClick={() => void clearApiKey()}>
+                Remove
+              </button>
+            )}
+          </div>
+
+          {settings?.geminiApiKey && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-muted)" }}>
+              {geminiUsage.totalCalls === 0
+                ? "No API calls yet this session."
+                : `${geminiUsage.totalCalls} API call${geminiUsage.totalCalls === 1 ? "" : "s"} · last used ${timeAgo(geminiUsage.lastCalledAt)}`}
+            </div>
+          )}
         </div>
       </div>
 

@@ -80,5 +80,6 @@ export default defineManifest({
     "https://chat.openai.com/*",
     "https://claude.ai/*",
     "https://notebooklm.google.com/*",
+    "https://generativelanguage.googleapis.com/*",
   ],
 });

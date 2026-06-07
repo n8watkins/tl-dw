@@ -61,6 +61,12 @@ export type DeliveryStatus = {
 
 export type HistoryLimit = 50 | 100 | 250 | "unlimited";
 
+/** Usage stats for direct Gemini API calls. */
+export type GeminiUsage = {
+  totalCalls: number;
+  lastCalledAt?: string;
+};
+
 /** Age thresholds the history auto-expiry offers (see HISTORY_EXPIRY_OPTIONS). */
 export type HistoryExpiryDays = 7 | 30 | 90 | 365;
 
@@ -122,6 +128,8 @@ export type Settings = {
   temporaryChats: boolean;
   /** Auto-run TL;DW when opening a video longer than this many minutes (0 = off). */
   autoTldwMinutes: number;
+  /** Gemini API key for direct (headless) calls — no tab opened when set. */
+  geminiApiKey: string;
 };
 
 export type StorageState = {

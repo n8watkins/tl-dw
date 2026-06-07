@@ -1,5 +1,6 @@
 import type {
   DeliveryStatus,
+  GeminiUsage,
   OpenSearch,
   PromptProfile,
   SearchHistoryEntry,
@@ -9,6 +10,7 @@ import type {
 import {
   DEFAULT_SETTINGS,
   DELIVERY_STATUS_KEY,
+  GEMINI_USAGE_KEY,
   OPEN_SEARCHES_KEY,
   PENDING_KEY,
   STORAGE_KEYS,
@@ -156,6 +158,27 @@ export async function getDeliveryStatuses(): Promise<DeliveryStatus[]> {
 
 export async function clearDeliveryStatuses(): Promise<void> {
   await chrome.storage.session.remove(DELIVERY_STATUS_KEY);
+}
+
+// --- Gemini API usage stats (local, persisted across sessions) -------------
+
+export async function getGeminiUsage(): Promise<GeminiUsage> {
+  const r = await chrome.storage.local.get(GEMINI_USAGE_KEY);
+  return (r[GEMINI_USAGE_KEY] as GeminiUsage | undefined) ?? { totalCalls: 0 };
+}
+
+export async function recordGeminiCall(): Promise<void> {
+  const usage = await getGeminiUsage();
+  await chrome.storage.local.set({
+    [GEMINI_USAGE_KEY]: {
+      totalCalls: usage.totalCalls + 1,
+      lastCalledAt: new Date().toISOString(),
+    } satisfies GeminiUsage,
+  });
+}
+
+export async function clearGeminiUsage(): Promise<void> {
+  await chrome.storage.local.remove(GEMINI_USAGE_KEY);
 }
 
 /** Open searches whose tabs are still open; prunes any that have closed. */

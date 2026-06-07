@@ -1,18 +1,22 @@
 import { buildDestinationPrompt, prependWorthWatchingGate } from "../lib/promptBuilder";
+import { parseTldwBlock } from "../lib/tldw";
 import { getDestination, isYouTubeVideoUrl, STORAGE_KEYS } from "../lib/constants";
 import { addHistoryEntry } from "../lib/history";
 import {
   addOpenSearch,
+  clearGeminiUsage,
   ensureSeeded,
+  getGeminiUsage,
   getProfiles,
   getSettings,
   pruneOpenSearch,
   recordDeliveryStatus,
+  recordGeminiCall,
   resolveProfile,
   setPendingPrompt,
   takePendingPrompt,
 } from "../lib/storage";
-import type { RuntimeMessage, Settings, VideoContext, VideoMeta } from "../types";
+import type { GeminiUsage, RuntimeMessage, Settings, VideoContext, VideoMeta } from "../types";
 
 const MENU_ROOT = "tldw-root";
 
@@ -133,6 +137,31 @@ function isTrusted(bypassTerms: string, channel: string, title?: string): boolea
     .some((term) => haystack.includes(term));
 }
 
+/** Call the Gemini REST API directly and return the response text. */
+async function callGeminiApi(prompt: string, apiKey: string): Promise<string> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.4, maxOutputTokens: 4096 },
+    }),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => null)) as
+      | { error?: { message?: string } }
+      | null;
+    throw new Error(err?.error?.message ?? `HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  };
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  if (!text) throw new Error("Gemini returned an empty response");
+  return text;
+}
+
 /**
  * The core motion: read the target YouTube video, build the prompt from the
  * chosen (or default) profile, then open the destination tab and hand the
@@ -228,6 +257,37 @@ async function runSummary(
     prompt = prependWorthWatchingGate(prompt, gateMinutes);
   }
 
+  // --- headless path: call Gemini API directly (no tab) -------------------
+  const apiKey = settings.geminiApiKey?.trim();
+  if (apiKey && destination.id === "gemini" && isPromptDest) {
+    try {
+      const responseText = await callGeminiApi(prompt, apiKey);
+      void recordGeminiCall();
+      const tldw = parseTldwBlock(responseText);
+      if (tldw && activeTab?.id !== undefined) {
+        void chrome.tabs
+          .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw })
+          .catch(() => {});
+      }
+      void flashBadge("✓", true);
+      void recordDeliveryStatus({ site: "Gemini (API)", ok: true, at: new Date().toISOString() });
+    } catch (err) {
+      void flashBadge("!");
+      void recordDeliveryStatus({
+        site: "Gemini (API)",
+        ok: false,
+        reason: err instanceof Error ? err.message : "API call failed",
+        at: new Date().toISOString(),
+      });
+    }
+    if (settings.saveHistoryOnSearch) {
+      let historyPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity);
+      if (gateMinutes > 0) historyPrompt = prependWorthWatchingGate(historyPrompt, gateMinutes);
+      await addHistoryEntry({ video, profile, prompt: historyPrompt, settings, destinationId: destination.id });
+    }
+    return;
+  }
+
   // Open the destination tab and hand its injector the prompt to auto-fill.
   // Gemini's URL is user-configurable; the rest open their fixed URL.
   // When temporary chats are on, prefer the incognito URL if the destination
@@ -319,6 +379,14 @@ chrome.runtime.onMessage.addListener(
         .catch(() => {});
       sendResponse({ ok: true });
       return false;
+    }
+    if (message.type === "GET_GEMINI_USAGE") {
+      void getGeminiUsage().then((usage: GeminiUsage) => sendResponse(usage));
+      return true;
+    }
+    if (message.type === "CLEAR_GEMINI_USAGE") {
+      void clearGeminiUsage().then(() => sendResponse({ ok: true }));
+      return true;
     }
     if (message.type === "REBUILD_MENU") {
       void rebuildContextMenu().then(() => sendResponse({ ok: true }));
