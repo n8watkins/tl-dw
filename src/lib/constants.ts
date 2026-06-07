@@ -99,7 +99,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoTldwMinutes: 0,
   geminiApiKey: "",
   geminiApiKeyName: "",
-  useDirectApi: true,
+  useDirectApi: false,
 };
 
 export function isYouTubeVideoUrl(url: string | undefined): boolean {

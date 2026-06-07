@@ -363,12 +363,12 @@ export function App() {
             </div>
           )}
 
-          {effectiveDestinationId === "gemini" && settings?.geminiApiKey && (
+          {settings?.geminiApiKey && (
             <div className="headless-row">
               <label className="check-field" style={{ margin: 0 }}>
                 <input
                   type="checkbox"
-                  checked={settings.useDirectApi ?? true}
+                  checked={settings.useDirectApi ?? false}
                   onChange={(e) => {
                     const next = { ...settings, useDirectApi: e.target.checked };
                     setSettings(next);

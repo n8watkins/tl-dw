@@ -80,7 +80,7 @@ export function DirectApiSection() {
           {saved ? (
             <span className="text-success">Saved.</span>
           ) : (
-            "Call Gemini directly — no new tab opens, results arrive in seconds."
+            "Call Gemini directly on every summarize — no tab opens, regardless of destination."
           )}
         </p>
       </div>
@@ -161,8 +161,9 @@ export function DirectApiSection() {
           <div className="setting-info">
             <div className="setting-label">Enabled by default</div>
             <div className="setting-sub">
-              Use the direct API path automatically when Gemini is selected.
-              Turn off to fall back to the normal tab-based flow.
+              When on, every summarize goes through the Gemini API directly — no tab opens,
+              regardless of which AI destination is selected. Replaces Alt+Shift+G for getting
+              the TL;DW widget. Turn off to fall back to the normal tab-based flow.
             </div>
           </div>
           <div className="setting-control">
