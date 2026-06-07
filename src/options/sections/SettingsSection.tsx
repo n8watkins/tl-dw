@@ -16,7 +16,8 @@ export function SettingsSection() {
   const [saved, setSaved] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({ totalCalls: 0 });
-  const [showKey, setShowKey] = useState(false);
+  const [pendingKeyName, setPendingKeyName] = useState("");
+  const [pendingKeyValue, setPendingKeyValue] = useState("");
 
   useEffect(() => {
     void Promise.all([getSettings(), getGeminiUsage()]).then(([s, u]) => {
@@ -48,9 +49,24 @@ export function SettingsSection() {
     setConfirmReset(false);
   }
 
+  async function saveApiKey() {
+    if (!settings || !pendingKeyValue.trim()) return;
+    const next = {
+      ...settings,
+      geminiApiKey: pendingKeyValue.trim(),
+      geminiApiKeyName: pendingKeyName.trim() || "Gemini API key",
+    };
+    setLocal(next);
+    await setSettings(next);
+    setPendingKeyName("");
+    setPendingKeyValue("");
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
   async function clearApiKey() {
     if (!settings) return;
-    const next = { ...settings, geminiApiKey: "" };
+    const next = { ...settings, geminiApiKey: "", geminiApiKeyName: "" };
     setLocal(next);
     await setSettings(next);
     await clearGeminiUsage();
@@ -281,7 +297,7 @@ export function SettingsSection() {
         <div className="card" style={{ marginBottom: 0 }}>
           <div className="card-title">Headless Gemini mode</div>
           <div className="card-desc">
-            Paste a Gemini API key and TL;DW calls Gemini directly — no new tab opens.
+            Add a Gemini API key and TL;DW calls Gemini directly — no new tab opens.
             Results arrive in seconds and are injected straight onto the YouTube page.
           </div>
           <div className="card-desc" style={{ marginTop: 8 }}>
@@ -297,56 +313,58 @@ export function SettingsSection() {
             Your key is stored only in your browser and sent only to Google's API — never to us.
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "center" }}>
-            <div style={{ position: "relative", flex: 1 }}>
+          {settings?.geminiApiKey ? (
+            // --- key saved: show name + delete only, never the value ---
+            <div style={{ marginTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>
+                  ✓ {settings.geminiApiKeyName || "Gemini API key"}
+                </span>
+                <button className="btn btn-danger" onClick={() => void clearApiKey()}>
+                  Delete key
+                </button>
+              </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-muted)" }}>
+                The key value is not visible after saving. To use a different key, delete this one and add a new one.
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
+                {geminiUsage.totalCalls === 0
+                  ? "No API calls yet."
+                  : `${geminiUsage.totalCalls} API call${geminiUsage.totalCalls === 1 ? "" : "s"} · last used ${timeAgo(geminiUsage.lastCalledAt)}`}
+              </div>
+            </div>
+          ) : (
+            // --- no key: add form ---
+            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
               <input
-                type={showKey ? "text" : "password"}
-                value={settings?.geminiApiKey ?? ""}
-                onChange={(e) => void update({ geminiApiKey: e.target.value })}
-                placeholder="AIza..."
-                style={{
-                  width: "100%",
-                  fontFamily: "monospace",
-                  fontSize: 13,
-                  paddingRight: 36,
-                  boxSizing: "border-box",
-                }}
+                type="text"
+                value={pendingKeyName}
+                onChange={(e) => setPendingKeyName(e.target.value)}
+                placeholder="Name this key (e.g. Personal AI Studio key)"
+                style={{ fontSize: 13 }}
                 autoComplete="off"
+              />
+              <input
+                type="password"
+                value={pendingKeyValue}
+                onChange={(e) => setPendingKeyValue(e.target.value)}
+                placeholder="Paste API key — you won't be able to view it after saving"
+                style={{ fontFamily: "monospace", fontSize: 13 }}
+                autoComplete="new-password"
                 spellCheck={false}
               />
-              <button
-                type="button"
-                onClick={() => setShowKey((v) => !v)}
-                title={showKey ? "Hide key" : "Show key"}
-                style={{
-                  position: "absolute",
-                  right: 6,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: 4,
-                  color: "var(--text-muted)",
-                  fontSize: 13,
-                  lineHeight: 1,
-                }}
-              >
-                {showKey ? "🙈" : "👁"}
-              </button>
-            </div>
-            {settings?.geminiApiKey && (
-              <button className="btn btn-danger" onClick={() => void clearApiKey()}>
-                Remove
-              </button>
-            )}
-          </div>
-
-          {settings?.geminiApiKey && (
-            <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-muted)" }}>
-              {geminiUsage.totalCalls === 0
-                ? "No API calls yet this session."
-                : `${geminiUsage.totalCalls} API call${geminiUsage.totalCalls === 1 ? "" : "s"} · last used ${timeAgo(geminiUsage.lastCalledAt)}`}
+              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                The key will be saved immediately. You can delete it later, but you cannot view or edit it.
+              </div>
+              <div>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => void saveApiKey()}
+                  disabled={!pendingKeyValue.trim()}
+                >
+                  Save key
+                </button>
+              </div>
             </div>
           )}
         </div>

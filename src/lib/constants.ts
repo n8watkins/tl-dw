@@ -98,6 +98,7 @@ export const DEFAULT_SETTINGS: Settings = {
   temporaryChats: true,
   autoTldwMinutes: 0,
   geminiApiKey: "",
+  geminiApiKeyName: "",
   useDirectApi: true,
 };
 
