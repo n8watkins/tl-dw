@@ -375,23 +375,6 @@ kbd {
   color: var(--text);
 }
 
-.tips-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.tip {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 14px 16px;
-  font-size: 13px;
-  color: var(--muted);
-  line-height: 1.5;
-}
-
-.tip strong { color: var(--text); display: block; margin-bottom: 2px; }
 
 /* ── Profiles ────────────────────────────────────────── */
 
@@ -537,6 +520,35 @@ textarea { min-height: 176px; font-family: "JetBrains Mono", "Fira Code", ui-mon
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.profile-footer-notes {
+  margin-top: 20px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--faint);
+  line-height: 1.6;
+}
+
+.profile-footer-notes code {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: monospace;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.profile-footer-notes em {
+  color: var(--muted);
+  font-style: normal;
 }
 
 .inline-error {

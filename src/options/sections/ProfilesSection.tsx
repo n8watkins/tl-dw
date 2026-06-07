@@ -352,6 +352,22 @@ export function ProfilesSection() {
           );
         })}
       </div>
+      <div className="profile-footer-notes">
+        <p>
+          <code>{"{{userCuriosity}}"}</code> — the question you type in the popup's Curiosity field
+          before searching. TL;DW inserts it at that line in your prompt, or drops the entire line
+          if you leave it blank.
+        </p>
+        <p>
+          All built-in profiles are fully editable. Open one, change the template, and save.
+          <em> Reset to Original</em> restores the default at any time.
+        </p>
+        <p>
+          The keyboard shortcut always sends to your default profile. Open any profile and click
+          <em> Set as Default</em> to change it.
+        </p>
+      </div>
+
       {deleteId && (
         <ConfirmDialog
           title="Delete this profile?"

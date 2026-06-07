@@ -91,44 +91,6 @@ export function SetupSection() {
         <span style={{ fontSize: 13, color: "var(--muted)" }}>Send to … with…</span>
       </div>
 
-      <hr className="divider" />
-
-      <div className="section-header">
-        <h2 className="section-title" style={{ fontSize: 18 }}>Tips</h2>
-      </div>
-
-      <div className="tips-grid">
-        <div className="tip">
-          <strong>Change your default profile</strong>
-          Go to Profiles, open any profile, and click "Set as Default." The
-          shortcut always uses your default.
-        </div>
-        <div className="tip">
-          <strong>Auto-submit is on by default</strong>
-          Gemini receives and submits your prompt automatically. Turn it off in
-          Settings if you want to review the prompt before sending.
-        </div>
-        <div className="tip">
-          <strong>Works on Shorts too</strong>
-          TL;DW detects both youtube.com/watch and youtube.com/shorts pages. The
-          same shortcut and profiles work on both.
-        </div>
-        <div className="tip">
-          <strong>{"{{userCuriosity}} in prompts"}</strong>
-          Some profiles support a custom curiosity line. You can add it directly
-          inside the prompt template in the Profiles editor.
-        </div>
-        <div className="tip">
-          <strong>Edit any prompt</strong>
-          Every built-in profile is fully editable. Open it in Profiles, change
-          the template, and save. Use Reset to restore the original.
-        </div>
-        <div className="tip">
-          <strong>Search history is private</strong>
-          TL;DW saves the prompt you sent, never the Gemini response. Everything
-          stays in Chrome's local storage — no servers, no accounts.
-        </div>
-      </div>
     </div>
   );
 }
