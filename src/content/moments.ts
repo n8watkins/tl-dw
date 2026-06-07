@@ -31,7 +31,12 @@ function words(text: string): string[] {
 
 function tidy(sentence: string): string {
   let t = sentence.replace(/\s+/g, " ").trim();
-  if (t.length > 90) t = t.slice(0, 88).replace(/\s+\S*$/, "") + "…";
+  // Strip leading filler so the title opens on a meaningful word
+  t = t.replace(/^(?:(?:the|a|an|so|and|but|now|well|ok|right|like|here|this),?\s+)+/i, "");
+  // Drop trailing sentence punctuation
+  t = t.replace(/[.!?,;:—]+$/, "");
+  // Cap at ~40 chars, break cleanly at a word boundary (no ellipsis — reads as a title)
+  if (t.length > 40) t = t.slice(0, 38).replace(/\s+\S*$/, "");
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
 }
 
@@ -249,13 +254,14 @@ export function buildMomentsPanel(
   });
 
   const heading = document.createElement("div");
+  Object.assign(heading.style, { display: "flex", alignItems: "center", gap: "8px" });
+  const headIcon = document.createElement("img");
+  headIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
+  Object.assign(headIcon.style, { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0" });
   const title = document.createElement("div");
   title.textContent = "TL;DW — Key moments";
   Object.assign(title.style, { fontWeight: "600", fontSize: "15px" });
-  const sub = document.createElement("div");
-  sub.textContent = `${moments.length} moments · auto-detected from the transcript`;
-  Object.assign(sub.style, { color: t.sub, fontSize: "12px" });
-  heading.append(title, sub);
+  heading.append(headIcon, title);
 
   // Animated wrapper (grid-template-rows trick): 0fr = collapsed, 1fr = expanded.
   const body = document.createElement("div");
