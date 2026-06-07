@@ -41,20 +41,57 @@ export async function addHistoryEntry(args: {
   settings: Settings;
   destinationId?: string;
   apiResponse?: string;
+  aiRating?: number;
+  audienceScore?: number;
 }): Promise<void> {
   const entry: SearchHistoryEntry = {
     id: crypto.randomUUID(),
     videoUrl: args.video.url,
     videoTitle: args.video.title,
+    channel: args.video.channel,
     profileId: args.profile.id,
     profileName: args.profile.name,
     destinationId: args.destinationId,
     prompt: args.prompt,
     apiResponse: args.apiResponse,
+    aiRating: args.aiRating,
+    audienceScore: args.audienceScore,
     createdAt: new Date().toISOString(),
   };
   const existing = await getHistory();
   const fresh = expireOldEntries([entry, ...existing], args.settings);
   const next = trimToLimit(fresh, args.settings.historyLimit);
   await setHistory(next);
+}
+
+export type ChannelStats = {
+  channel: string;
+  count: number;
+  avgAiRating: number | null;
+  avgAudienceScore: number | null;
+  videos: SearchHistoryEntry[];
+};
+
+/** Group history by channel and compute per-channel averages. */
+export function computeChannelStats(history: SearchHistoryEntry[]): ChannelStats[] {
+  const byChannel = new Map<string, SearchHistoryEntry[]>();
+  for (const entry of history) {
+    if (!entry.channel) continue;
+    const list = byChannel.get(entry.channel) ?? [];
+    list.push(entry);
+    byChannel.set(entry.channel, list);
+  }
+  return [...byChannel.entries()]
+    .map(([channel, videos]) => {
+      const aiRatings = videos.map((v) => v.aiRating).filter((r): r is number => r !== undefined);
+      const audScores = videos.map((v) => v.audienceScore).filter((s): s is number => s !== undefined);
+      return {
+        channel,
+        count: videos.length,
+        avgAiRating: aiRatings.length ? aiRatings.reduce((a, b) => a + b, 0) / aiRatings.length : null,
+        avgAudienceScore: audScores.length ? audScores.reduce((a, b) => a + b, 0) / audScores.length : null,
+        videos,
+      };
+    })
+    .sort((a, b) => b.count - a.count);
 }

@@ -208,6 +208,19 @@ export function DirectApiSection() {
       <div className="settings-group">
         <div className="settings-group-title"><Icon name="sliders" /> Behavior</div>
 
+        {/* Request count summary */}
+        {settings.useDirectApi && (
+          <div style={{ marginBottom: 12, fontSize: 12, color: "var(--text-muted)" }}>
+            <span style={{
+              display: "inline-block", background: "var(--border)",
+              borderRadius: "999px", padding: "2px 10px", fontWeight: 600, fontSize: 11,
+            }}>
+              {1 + (settings.includeCommentSentiment ? 1 : 0)} Gemini request{1 + (settings.includeCommentSentiment ? 1 : 0) > 1 ? "s" : ""} per video
+            </span>
+            {" "}&nbsp;Channel comparison is computed locally — no extra request.
+          </div>
+        )}
+
         <div className="setting-row">
           <div className="setting-info">
             <div className="setting-label">Enabled by default</div>
@@ -257,7 +270,13 @@ export function DirectApiSection() {
 
         <div className="setting-row">
           <div className="setting-info">
-            <div className="setting-label">Include comment sentiment</div>
+            <div className="setting-label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              Include comment sentiment
+              <span style={{
+                fontSize: 10, fontWeight: 700, background: "#f59e0b22", color: "#b45309",
+                borderRadius: 999, padding: "1px 7px", letterSpacing: "0.03em",
+              }}>+1 request</span>
+            </div>
             <div className="setting-sub">
               After the main summary, run a second Gemini call to analyze the top viewer
               comments and add a 💬 Community row to the widget with audience sentiment

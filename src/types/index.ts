@@ -13,6 +13,8 @@ export type SearchHistoryEntry = {
   id: string;
   videoUrl: string;
   videoTitle?: string;
+  /** YouTube channel name — used for per-channel stats. */
+  channel?: string;
   profileId: string;
   profileName: string;
   /** Destination the search was sent to, so "ask again" reopens the right one. */
@@ -20,6 +22,10 @@ export type SearchHistoryEntry = {
   prompt: string;
   /** Raw text response from the Gemini API — only set for direct-API calls. */
   apiResponse?: string;
+  /** AI quality score (1-10) parsed from the TL;DW rating field. */
+  aiRating?: number;
+  /** Audience sentiment score (1-10) from the comment analysis call. */
+  audienceScore?: number;
   createdAt: string;
 };
 

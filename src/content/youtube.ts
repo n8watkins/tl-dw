@@ -509,7 +509,9 @@ function showLoadingPanel(showCommentShimmer = false): void {
   log("loading panel shown");
 }
 
-function buildSummaryPanel(tldw: TldwSummary): HTMLElement {
+type ChannelComparison = { avgAiRating: number | null; avgAudienceScore: number | null; count: number };
+
+function buildSummaryPanel(tldw: TldwSummary, channelStats?: ChannelComparison): HTMLElement {
   const t = theme();
   const panel = document.createElement("div");
   panel.id = "tldw-summary";
@@ -622,6 +624,28 @@ function buildSummaryPanel(tldw: TldwSummary): HTMLElement {
     body.addEventListener("mouseleave", () => { body.style.opacity = "1"; });
   }
 
+  // --- channel comparison row (local math, no API call) ---
+  const channelRow = document.createElement("div");
+  if (channelStats && channelStats.count >= 1) {
+    const aiRatingMatch = tldw.rating ? /^(\d+)/.exec(tldw.rating) : null;
+    const thisAi = aiRatingMatch ? parseInt(aiRatingMatch[1], 10) : null;
+    Object.assign(channelRow.style, {
+      borderTop: `1px solid ${t.border}`,
+      marginTop: "8px", paddingTop: "7px",
+      fontSize: "12px", color: t.sub,
+      display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center",
+    });
+    const fmt = (n: number | null) => n !== null ? n.toFixed(1) : "—";
+    const delta = (thisAi !== null && channelStats.avgAiRating !== null)
+      ? thisAi - channelStats.avgAiRating : null;
+    const trend = delta === null ? "" : delta > 0.4 ? " ▲" : delta < -0.4 ? " ▼" : " ≈";
+    const trendColor = delta === null ? t.sub : delta > 0.4 ? "#16a34a" : delta < -0.4 ? "#dc2626" : t.sub;
+    channelRow.innerHTML = `<span>📊 vs channel (${channelStats.count} videos)</span>` +
+      `<span>AI avg: ${fmt(channelStats.avgAiRating)}</span>` +
+      (channelStats.avgAudienceScore !== null ? `<span>Audience avg: ${fmt(channelStats.avgAudienceScore)}</span>` : "") +
+      (trend ? `<span style="color:${trendColor};font-weight:700">${trend.trim()} this video</span>` : "");
+  }
+
   // --- community section (filled in later by SET_COMMENT_SENTIMENT) ---
   const comm = document.createElement("div");
   comm.id = "tldw-community";
@@ -635,11 +659,11 @@ function buildSummaryPanel(tldw: TldwSummary): HTMLElement {
     color: t.sub,
   });
 
-  panel.append(head, body, comm);
+  panel.append(head, body, ...(channelStats && channelStats.count >= 1 ? [channelRow] : []), comm);
   return panel;
 }
 
-function showSummaryPanel(tldw: TldwSummary, keepCommunityShimmer = false): void {
+function showSummaryPanel(tldw: TldwSummary, keepCommunityShimmer = false, channelStats?: ChannelComparison): void {
   const host = panelHost();
   if (!host) return;
 
@@ -648,7 +672,7 @@ function showSummaryPanel(tldw: TldwSummary, keepCommunityShimmer = false): void
   const prevCommunity = communitySection;
 
   removeSummaryPanel();
-  const panel = buildSummaryPanel(tldw);
+  const panel = buildSummaryPanel(tldw, channelStats);
   summaryPanel = panel;
 
   // Wire up the community section reference so SET_COMMENT_SENTIMENT can find it.
@@ -760,12 +784,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   if (type === "SET_SUMMARY") {
-    const msg = message as { tldw?: TldwSummary; source?: string };
+    const msg = message as { tldw?: TldwSummary; source?: string; channelStats?: ChannelComparison };
     const tldw = msg?.tldw;
     if (tldw?.verdict && tldw.summary) {
-      // Pass keepCommunityShimmer=true if a community section was already showing
-      // in the loading panel (so we keep the "Analyzing comments…" visible).
-      showSummaryPanel({ ...tldw, source: msg.source }, communitySection !== null);
+      showSummaryPanel({ ...tldw, source: msg.source }, communitySection !== null, msg.channelStats);
     }
     sendResponse({ ok: true });
     return false;

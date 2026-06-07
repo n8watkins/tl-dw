@@ -1,12 +1,13 @@
 import { buildDestinationPrompt, prependWorthWatchingGate } from "../lib/promptBuilder";
 import { parseTldwBlock } from "../lib/tldw";
 import { getDestination, isYouTubeVideoUrl, STORAGE_KEYS } from "../lib/constants";
-import { addHistoryEntry } from "../lib/history";
+import { addHistoryEntry, computeChannelStats } from "../lib/history";
 import {
   addOpenSearch,
   clearGeminiUsage,
   ensureSeeded,
   getGeminiUsage,
+  getHistory,
   getProfiles,
   getSettings,
   patchGeminiCallEntry,
@@ -239,6 +240,13 @@ async function runSummary(
     transcript = await getTranscriptFromTab(activeTab.id);
   }
 
+  // Always fetch video metadata for headless runs so we can store the channel
+  // name for channel-tracking stats, even when the gate is off.
+  if (willUseDirectApi && !isThumbnail && activeTab?.id !== undefined) {
+    const meta = await getVideoMeta(activeTab.id);
+    if (meta?.channel) video.channel = meta.channel;
+  }
+
   // Worth-watching gate: for chat destinations (a "prompt" payload), on videos
   // over the threshold whose channel/title isn't trusted, ask for a verdict
   // first. The meta fetch also enriches the prompt's {{channel}}.
@@ -295,9 +303,24 @@ async function runSummary(
       // recordGeminiCall returns the new entry id so we can patch it later.
       callEntryId = await recordGeminiCallReturningId(video, logPrompt, responseText);
       const tldw = parseTldwBlock(responseText);
+
+      // Parse the AI rating (e.g. "8/10" → 8) for channel stats storage.
+      const aiRatingMatch = tldw?.rating ? /^(\d+)/.exec(tldw.rating) : null;
+      const aiRating = aiRatingMatch ? parseInt(aiRatingMatch[1], 10) : undefined;
+
+      // Compute channel comparison stats from existing history (local, no LLM).
+      let channelStats: { avgAiRating: number | null; avgAudienceScore: number | null; count: number } | undefined;
+      if (video.channel) {
+        const history = await getHistory();
+        const stats = computeChannelStats(history).find((s) => s.channel === video.channel);
+        if (stats && stats.count >= 1) {
+          channelStats = { avgAiRating: stats.avgAiRating, avgAudienceScore: stats.avgAudienceScore, count: stats.count };
+        }
+      }
+
       if (tldw && activeTab?.id !== undefined) {
         void chrome.tabs
-          .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw, source: "Gemini API" })
+          .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw, source: "Gemini API", channelStats })
           .catch(() => {});
 
         // Fire the comment sentiment call in parallel (best-effort, never blocks main path).
@@ -353,6 +376,7 @@ async function runSummary(
         video, profile, prompt: logPrompt, settings,
         destinationId: destination.id,
         apiResponse: responseText,
+        aiRating,
       });
     }
     return;
