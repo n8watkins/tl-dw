@@ -203,7 +203,14 @@ function buildChip(
 /** Build the moments panel element. The caller inserts and removes it. */
 export function buildMomentsPanel(
   moments: Moment[],
-  handlers: { onSeek: (seconds: number) => void; onClose: () => void },
+  handlers: {
+    onSeek: (seconds: number) => void;
+    onClose: () => void;
+    /** Initial collapsed state (restored across opens). */
+    initialCollapsed?: boolean;
+    /** Persist the collapsed state when the user toggles it. */
+    onToggleCollapse?: (collapsed: boolean) => void;
+  },
 ): HTMLElement {
   const t = theme();
   const panel = document.createElement("div");
@@ -267,16 +274,21 @@ export function buildMomentsPanel(
     return b;
   };
 
-  // Accordion: collapse/expand the chip strip.
-  let collapsed = false;
+  // Accordion: collapse/expand the chip strip, restoring the last state.
+  let collapsed = handlers.initialCollapsed ?? false;
   const toggle = iconBtn("Collapse key moments");
   toggle.textContent = "▾";
   toggle.style.transition = "transform 0.15s";
-  toggle.addEventListener("click", () => {
-    collapsed = !collapsed;
+  const applyCollapsed = () => {
     body.style.display = collapsed ? "none" : "flex";
     toggle.style.transform = collapsed ? "rotate(-90deg)" : "rotate(0deg)";
     toggle.setAttribute("aria-label", collapsed ? "Expand key moments" : "Collapse key moments");
+  };
+  applyCollapsed();
+  toggle.addEventListener("click", () => {
+    collapsed = !collapsed;
+    applyCollapsed();
+    handlers.onToggleCollapse?.(collapsed);
   });
 
   const close = iconBtn("Hide key moments");

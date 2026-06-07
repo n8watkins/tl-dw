@@ -470,9 +470,20 @@ async function toggleMoments(
     document.querySelector("#secondary");
   if (!host) return { ok: false, reason: "no place to show the panel" };
 
+  // Restore the accordion's last collapsed state. storage.local (not session)
+  // because content scripts can't read storage.session without a trusted
+  // access-level grant; persisting across restarts is harmless for this flag.
+  const { tldwMomentsCollapsed } = await chrome.storage.local
+    .get("tldwMomentsCollapsed")
+    .catch(() => ({ tldwMomentsCollapsed: false }));
+
   const panel = buildMomentsPanel(moments, {
     onSeek: seekTo,
     onClose: removeMomentsPanel,
+    initialCollapsed: !!tldwMomentsCollapsed,
+    onToggleCollapse: (collapsed) => {
+      void chrome.storage.local.set({ tldwMomentsCollapsed: collapsed }).catch(() => {});
+    },
   });
   host.prepend(panel);
   momentsPanel = panel;
