@@ -4,9 +4,10 @@ import {
   DEFAULT_SETTINGS,
   DESTINATIONS,
   GEMINI_URL,
+  HISTORY_EXPIRY_OPTIONS,
   WATCH_THRESHOLD_OPTIONS,
 } from "../../lib/constants";
-import type { WatchThresholdMinutes } from "../../types";
+import type { HistoryExpiryDays, WatchThresholdMinutes } from "../../types";
 import { getSettings, setSettings } from "../../lib/storage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
@@ -226,6 +227,53 @@ export function SettingsSection() {
               <option value="100">100 entries</option>
               <option value="250">250 entries</option>
               <option value="unlimited">Unlimited</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Auto-delete old history</div>
+            <div className="setting-sub">
+              Automatically remove entries older than the age below. Keeps history
+              from piling up. Turn off to keep entries until you clear them.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.autoExpireHistory}
+                onChange={(e) => void update({ autoExpireHistory: e.target.checked })}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Delete entries after</div>
+            <div className="setting-sub">
+              How long an entry is kept before auto-delete removes it.
+            </div>
+          </div>
+          <div className="setting-control">
+            <select
+              className="setting-select"
+              value={String(settings.historyExpiryDays)}
+              disabled={!settings.autoExpireHistory}
+              onChange={(e) =>
+                void update({
+                  historyExpiryDays: Number(e.target.value) as HistoryExpiryDays,
+                })
+              }
+            >
+              {HISTORY_EXPIRY_OPTIONS.map((d) => (
+                <option key={d} value={d}>
+                  {d} days
+                </option>
+              ))}
             </select>
           </div>
         </div>

@@ -239,7 +239,21 @@ async function runSummary(
     await recordOpenSearch(injectTab.id, video, destination);
   }
   if (settings.saveHistoryOnSearch) {
-    await addHistoryEntry({ video, profile, prompt, settings, destinationId: destination.id });
+    // Store a transcript-free prompt: the transcript can be tens to hundreds of
+    // KB, and persisting it per entry would bloat chrome.storage.local toward
+    // its ~10 MB quota (and means "Copy prompt" wouldn't quietly drag the whole
+    // transcript along). Rebuild the prompt with no transcript for the log.
+    let historyPrompt = buildDestinationPrompt(profile, video, destination, null);
+    if (gateMinutes > 0) {
+      historyPrompt = prependWorthWatchingGate(historyPrompt, gateMinutes);
+    }
+    await addHistoryEntry({
+      video,
+      profile,
+      prompt: historyPrompt,
+      settings,
+      destinationId: destination.id,
+    });
   }
 }
 

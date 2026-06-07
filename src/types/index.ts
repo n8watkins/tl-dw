@@ -57,6 +57,9 @@ export type DeliveryStatus = {
 
 export type HistoryLimit = 50 | 100 | 250 | "unlimited";
 
+/** Age thresholds the history auto-expiry offers (see HISTORY_EXPIRY_OPTIONS). */
+export type HistoryExpiryDays = 7 | 30 | 90 | 365;
+
 /** Minutes thresholds the worth-watching gate offers (see WATCH_THRESHOLD_OPTIONS). */
 export type WatchThresholdMinutes = 15 | 20 | 30 | 45 | 60;
 
@@ -87,6 +90,10 @@ export type Settings = {
   autoSubmit: boolean;
   saveHistoryOnSearch: boolean;
   historyLimit: HistoryLimit;
+  /** Auto-delete history entries older than `historyExpiryDays`. */
+  autoExpireHistory: boolean;
+  /** Age (in days) past which entries are dropped when auto-expire is on. */
+  historyExpiryDays: HistoryExpiryDays;
   geminiUrl: string;
   /** Switch focus to the new destination tab; when false it opens in the background. */
   focusGeminiTab: boolean;

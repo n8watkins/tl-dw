@@ -1,4 +1,9 @@
-import type { Destination, Settings, WatchThresholdMinutes } from "../types";
+import type {
+  Destination,
+  HistoryExpiryDays,
+  Settings,
+  WatchThresholdMinutes,
+} from "../types";
 
 export const GEMINI_URL = "https://gemini.google.com/app";
 
@@ -43,6 +48,9 @@ export function destinationVerb(dest: Destination): string {
 /** The length thresholds the worth-watching gate offers (single source of truth). */
 export const WATCH_THRESHOLD_OPTIONS: WatchThresholdMinutes[] = [15, 20, 30, 45, 60];
 
+/** The ages the history auto-expiry offers (single source of truth). */
+export const HISTORY_EXPIRY_OPTIONS: HistoryExpiryDays[] = [7, 30, 90, 365];
+
 export const STORAGE_KEYS = {
   profiles: "profiles",
   history: "history",
@@ -62,6 +70,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSubmit: true,
   saveHistoryOnSearch: true,
   historyLimit: 100,
+  autoExpireHistory: true,
+  historyExpiryDays: 30,
   geminiUrl: GEMINI_URL,
   focusGeminiTab: true,
   autoPauseOnSummarize: false,

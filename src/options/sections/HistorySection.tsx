@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SearchHistoryEntry } from "../../types";
-import { getHistory, setHistory } from "../../lib/storage";
+import { getHistory, getSettings, setHistory } from "../../lib/storage";
+import { expireOldEntries } from "../../lib/history";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 
@@ -31,7 +32,13 @@ export function HistorySection() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
-    void getHistory().then(setEntries);
+    void (async () => {
+      const [stored, settings] = await Promise.all([getHistory(), getSettings()]);
+      const fresh = expireOldEntries(stored, settings);
+      setEntries(fresh);
+      // Persist the prune so storage actually shrinks and the count is honest.
+      if (fresh.length !== stored.length) await setHistory(fresh);
+    })();
   }, []);
 
   async function deleteEntry(id: string) {
@@ -82,7 +89,10 @@ export function HistorySection() {
     <div>
       <div className="section-header">
         <h1 className="section-title">History</h1>
-        <p className="section-desc">Every search you've sent to Gemini. Prompts only — no responses saved.</p>
+        <p className="section-desc">
+          Every summary you've sent. The prompt and video only — never the
+          transcript or the AI's response.
+        </p>
       </div>
 
       <div className="history-toolbar">
