@@ -243,7 +243,7 @@ async function runSummary(
     active: settings.focusGeminiTab,
   });
   if (injectTab.id !== undefined) {
-    await setPendingPrompt(injectTab.id, { prompt });
+    await setPendingPrompt(injectTab.id, { prompt, sourceTabId: activeTab?.id });
     await recordOpenSearch(injectTab.id, video, destination, activeTab?.id);
   }
   if (settings.saveHistoryOnSearch) {
@@ -313,6 +313,13 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: true });
       return false;
     }
+    if (message.type === "AI_SUMMARY") {
+      void chrome.tabs
+        .sendMessage(message.sourceTabId, { type: "SET_SUMMARY", text: message.text })
+        .catch(() => {});
+      sendResponse({ ok: true });
+      return false;
+    }
     if (message.type === "REBUILD_MENU") {
       void rebuildContextMenu().then(() => sendResponse({ ok: true }));
       return true;
@@ -329,6 +336,7 @@ chrome.runtime.onMessage.addListener(
             prompt: pending?.prompt ?? null,
             autoSubmit: settings.autoSubmit,
             temporaryChats: settings.temporaryChats,
+            sourceTabId: pending?.sourceTabId,
           }),
       );
       return true;

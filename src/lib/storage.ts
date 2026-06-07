@@ -86,6 +86,8 @@ export async function resolveProfile(
 
 export type PendingData = {
   prompt: string;
+  /** YouTube tab to send the AI response back to, if triggered from one. */
+  sourceTabId?: number;
 };
 
 export async function setPendingPrompt(

@@ -169,8 +169,19 @@ export type InjectResultMessage = {
   reason?: string;
 };
 
+/**
+ * Sent from the inject script once the AI finishes responding. The background
+ * forwards it to the source YouTube tab so the summary appears on the page.
+ */
+export type AiSummaryMessage = {
+  type: "AI_SUMMARY";
+  text: string;
+  sourceTabId: number;
+};
+
 export type RuntimeMessage =
   | GetPendingMessage
   | AskMessage
   | RebuildMenuMessage
-  | InjectResultMessage;
+  | InjectResultMessage
+  | AiSummaryMessage;

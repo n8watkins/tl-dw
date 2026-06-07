@@ -321,6 +321,134 @@ function getVideoMeta(): { durationSeconds: number; channel: string } {
   return { durationSeconds, channel };
 }
 
+// --- TL;DW summary panel -------------------------------------------------
+
+let summaryPanel: HTMLElement | null = null;
+
+function removeSummaryPanel(): void {
+  summaryPanel?.remove();
+  summaryPanel = null;
+}
+
+function theme(): { bg: string; border: string; text: string; sub: string; hover: string } {
+  const dark = document.documentElement.hasAttribute("dark");
+  return dark
+    ? { bg: "#212121", border: "#3f3f3f", text: "#f1f1f1", sub: "#aaaaaa", hover: "#383838" }
+    : { bg: "#ffffff", border: "#e5e5e5", text: "#0f0f0f", sub: "#606060", hover: "#f2f2f2" };
+}
+
+function buildSummaryPanel(text: string): HTMLElement {
+  const t = theme();
+  const panel = document.createElement("div");
+  panel.id = "tldw-summary";
+  Object.assign(panel.style, {
+    background: t.bg,
+    border: `1px solid ${t.border}`,
+    borderRadius: "12px",
+    padding: "12px 14px",
+    marginTop: "12px",
+    marginBottom: "16px",
+    font: "14px/1.4 Roboto, system-ui, sans-serif",
+    color: t.text,
+  });
+
+  // --- header ---
+  const head = document.createElement("div");
+  Object.assign(head.style, {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+  });
+
+  const heading = document.createElement("div");
+  Object.assign(heading.style, { display: "flex", alignItems: "center", gap: "8px" });
+  const headIcon = document.createElement("img");
+  headIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
+  Object.assign(headIcon.style, { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0" });
+  const title = document.createElement("div");
+  title.textContent = "TL;DW";
+  Object.assign(title.style, { fontWeight: "600", fontSize: "15px" });
+  heading.append(headIcon, title);
+
+  // Collapse / close controls
+  const controls = document.createElement("div");
+  Object.assign(controls.style, { display: "flex", alignItems: "center", gap: "2px", flexShrink: "0" });
+
+  const iconBtn = (label: string): HTMLButtonElement => {
+    const b = document.createElement("button");
+    Object.assign(b.style, {
+      background: "transparent", border: "none", color: t.sub,
+      cursor: "pointer", fontSize: "14px", lineHeight: "1",
+      padding: "6px", borderRadius: "6px",
+    });
+    b.addEventListener("mouseenter", () => (b.style.background = t.hover));
+    b.addEventListener("mouseleave", () => (b.style.background = "transparent"));
+    b.setAttribute("aria-label", label);
+    return b;
+  };
+
+  // Animated accordion body
+  const body = document.createElement("div");
+  Object.assign(body.style, {
+    display: "grid",
+    overflow: "hidden",
+    transition: "grid-template-rows 0.22s ease",
+  });
+  const bodyInner = document.createElement("div");
+  Object.assign(bodyInner.style, {
+    paddingTop: "10px",
+    maxHeight: "320px",
+    overflowY: "auto",
+    whiteSpace: "pre-wrap",
+    fontSize: "14px",
+    lineHeight: "1.6",
+    color: t.text,
+  });
+  bodyInner.textContent = text;
+  body.append(bodyInner);
+
+  let collapsed = false;
+  const toggle = iconBtn("Collapse summary");
+  toggle.textContent = "▾";
+  toggle.style.transition = "transform 0.22s ease";
+  const applyCollapsed = (animate = true) => {
+    if (!animate) body.style.transition = "none";
+    body.style.gridTemplateRows = collapsed ? "0fr" : "1fr";
+    if (!animate) void body.offsetHeight;
+    body.style.transition = "grid-template-rows 0.22s ease";
+    toggle.style.transform = collapsed ? "rotate(-90deg)" : "rotate(0deg)";
+    toggle.setAttribute("aria-label", collapsed ? "Expand summary" : "Collapse summary");
+  };
+  applyCollapsed(false);
+  toggle.addEventListener("click", () => { collapsed = !collapsed; applyCollapsed(true); });
+
+  const close = iconBtn("Hide summary");
+  close.textContent = "✕";
+  close.addEventListener("click", removeSummaryPanel);
+
+  controls.append(toggle, close);
+  head.append(heading, controls);
+  panel.append(head, body);
+  return panel;
+}
+
+function showSummaryPanel(text: string): void {
+  const host =
+    document.querySelector("#below") ??
+    document.querySelector("ytd-watch-metadata") ??
+    document.querySelector("#secondary-inner") ??
+    document.querySelector("#secondary");
+  if (!host) return;
+  removeSummaryPanel();
+  summaryPanel = buildSummaryPanel(text);
+  host.prepend(summaryPanel);
+  log("summary panel injected");
+}
+
+// Remove a stale panel when the user navigates to another video.
+window.addEventListener("yt-navigate-finish", removeSummaryPanel);
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const type = (message as { type?: string })?.type;
   if (type === "GET_TRANSCRIPT") {
@@ -338,6 +466,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (type === "GET_VIDEO_META") {
     sendResponse(getVideoMeta());
+    return false;
+  }
+  if (type === "SET_SUMMARY") {
+    const text = (message as { text?: string })?.text ?? "";
+    if (text) showSummaryPanel(text);
+    sendResponse({ ok: true });
     return false;
   }
   return false;

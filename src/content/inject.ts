@@ -17,6 +17,10 @@ type SiteConfig = {
   name: string;
   editorSelectors: string[];
   sendSelectors: string[];
+  /** Buttons present only while the AI is generating — disappear when done. */
+  stopSelectors: string[];
+  /** Containers that hold the AI's last response text. */
+  responseSelectors: string[];
 };
 
 function configForHost(host: string): SiteConfig | null {
@@ -34,6 +38,15 @@ function configForHost(host: string): SiteConfig | null {
         'button[aria-label*="Send" i]',
         "button.send-button",
         'button[mattooltip*="Send" i]',
+      ],
+      stopSelectors: [
+        'button[aria-label*="Stop" i]',
+        'button[aria-label*="Cancel" i]',
+      ],
+      responseSelectors: [
+        "model-response",
+        ".response-container",
+        "[data-response-index]",
       ],
     };
   }
@@ -53,6 +66,13 @@ function configForHost(host: string): SiteConfig | null {
         'button[aria-label*="Send" i]',
         'form button[type="submit"]',
       ],
+      stopSelectors: [
+        'button[data-testid="stop-button"]',
+        'button[aria-label*="Stop" i]',
+      ],
+      responseSelectors: [
+        '[data-message-author-role="assistant"]',
+      ],
     };
   }
   if (host.endsWith("claude.ai")) {
@@ -67,6 +87,13 @@ function configForHost(host: string): SiteConfig | null {
       sendSelectors: [
         'button[aria-label*="Send message" i]',
         'button[aria-label*="Send" i]',
+      ],
+      stopSelectors: [
+        'button[aria-label*="Stop" i]',
+      ],
+      responseSelectors: [
+        '[data-testid="assistant-message"]',
+        ".font-claude-message",
       ],
     };
   }
@@ -86,6 +113,13 @@ function configForHost(host: string): SiteConfig | null {
         'button[data-testid="submit-button"]',
         'button[aria-label*="Send" i]',
         'form button[type="submit"]',
+      ],
+      stopSelectors: [
+        'button[aria-label*="Stop" i]',
+      ],
+      responseSelectors: [
+        ".prose",
+        '[data-testid="answer"]',
       ],
     };
   }
@@ -474,6 +508,65 @@ async function fillBox(el: HTMLElement, text: string): Promise<boolean> {
   return took();
 }
 
+/** Read the last visible response container's text content. */
+function readLastResponse(responseSelectors: string[]): string {
+  for (const sel of responseSelectors) {
+    const all = document.querySelectorAll<HTMLElement>(sel);
+    const last = all[all.length - 1];
+    if (last) {
+      const text = (last.innerText ?? last.textContent ?? "").trim();
+      if (text.length > 20) return text;
+    }
+  }
+  return "";
+}
+
+function hasStopButton(stopSelectors: string[]): boolean {
+  return stopSelectors.some((sel) => {
+    for (const el of document.querySelectorAll<HTMLElement>(sel)) {
+      if (isVisible(el)) return true;
+    }
+    return false;
+  });
+}
+
+/**
+ * After the prompt is submitted, wait for the AI to finish generating, then
+ * read the response and send it to the background so it can be forwarded to
+ * the source YouTube tab. Times out after 3 minutes.
+ */
+async function waitForResponseAndSend(
+  config: SiteConfig,
+  sourceTabId: number,
+): Promise<void> {
+  const deadline = Date.now() + 180_000;
+
+  // Wait up to 15s for the stop button to appear (generation started).
+  const startDeadline = Date.now() + 15_000;
+  while (Date.now() < startDeadline) {
+    if (hasStopButton(config.stopSelectors)) break;
+    await sleep(500);
+  }
+
+  // Wait for the stop button to disappear (generation done).
+  while (Date.now() < deadline) {
+    if (!hasStopButton(config.stopSelectors)) break;
+    await sleep(800);
+  }
+
+  // Give the DOM a moment to settle after the stop button disappears.
+  await sleep(600);
+
+  const text = readLastResponse(config.responseSelectors);
+  if (!text) return;
+
+  try {
+    await chrome.runtime.sendMessage({ type: "AI_SUMMARY", text, sourceTabId });
+  } catch {
+    /* background may be asleep — best effort */
+  }
+}
+
 type Outcome = { ok: boolean; reason?: string };
 
 /** Tell the background how the fill went, so the popup can surface failures. */
@@ -620,6 +713,7 @@ async function run(): Promise<void> {
     prompt: string | null;
     autoSubmit?: boolean;
     temporaryChats?: boolean;
+    sourceTabId?: number;
   } | null;
 
   const prompt = res?.prompt;
@@ -652,24 +746,34 @@ async function run(): Promise<void> {
   // The prompt is in — report success now; submit is best-effort after this.
   await reportOutcome(config.name, { ok: true });
 
-  if (res?.autoSubmit === false) return;
+  if (res?.autoSubmit === false) {
+    // Still watch for the response if the user submits manually.
+    if (res.sourceTabId !== undefined) {
+      void waitForResponseAndSend(config, res.sourceTabId);
+    }
+    return;
+  }
 
   await sleep(150);
   const btn = await findEnabledSendButton(config.sendSelectors, 3000);
   if (btn) {
     btn.click();
-    return;
+  } else {
+    // Last resort: synthetic Enter.
+    editor.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        code: "Enter",
+        keyCode: 13,
+        bubbles: true,
+      }),
+    );
   }
 
-  // Last resort: synthetic Enter.
-  editor.dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "Enter",
-      code: "Enter",
-      keyCode: 13,
-      bubbles: true,
-    }),
-  );
+  // After submit, wait for the AI to finish and forward the response.
+  if (res?.sourceTabId !== undefined) {
+    void waitForResponseAndSend(config, res.sourceTabId);
+  }
 }
 
 void run();
