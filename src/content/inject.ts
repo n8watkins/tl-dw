@@ -681,6 +681,40 @@ async function runNotebookLM(content: string): Promise<Outcome> {
 }
 
 /**
+ * Insert text via a synthetic paste ClipboardEvent. React (and most frameworks)
+ * handle paste events through their own synthetic event system and will update
+ * controlled-input state, enabling the send button — unlike execCommand or
+ * setting textContent directly which React ignores for state purposes.
+ */
+async function pasteIntoEditor(editor: HTMLElement, text: string): Promise<boolean> {
+  editor.focus();
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    const sel = window.getSelection();
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  } catch { /* selection setup failed — paste will still try */ }
+  try {
+    const dt = new DataTransfer();
+    dt.setData("text/plain", text);
+    editor.dispatchEvent(
+      new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: dt,
+      }),
+    );
+    await sleep(500);
+    return (editor.textContent ?? "").includes(text.slice(0, 20));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Activate the temporary/incognito chat mode for destinations that require a
  * UI click rather than a URL parameter. Claude and ChatGPT use incognito URLs
  * (handled by the background); Gemini and Perplexity need a button click here.
@@ -757,8 +791,14 @@ async function run(): Promise<void> {
     return;
   }
 
-  const inserted = insertText(editor, prompt);
+  // Try execCommand / textContent approach first; fall back to ClipboardEvent
+  // paste (more reliable for React-controlled contenteditables like Perplexity).
+  let inserted = insertText(editor, prompt);
   if (!inserted) {
+    inserted = await pasteIntoEditor(editor, prompt);
+  }
+  if (!inserted) {
+    // All in-page approaches failed — write to clipboard so user can Ctrl+V.
     await fallbackToClipboard(prompt, config.name);
     await reportOutcome(config.name, {
       ok: false,
