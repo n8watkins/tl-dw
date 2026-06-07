@@ -673,11 +673,11 @@ async function activateTemporaryMode(host: string): Promise<void> {
       await sleep(600);
     }
   } else if (host.endsWith("perplexity.ai")) {
-    // Perplexity exposes a keyboard shortcut (Ctrl+;) that toggles incognito.
-    // Try clicking a labelled button first; fall back to the shortcut.
+    // Perplexity's incognito button: aria-label contains "incognito".
+    // Wait generously — React hydration takes longer than 1.5 s on cold load.
     const btn = await waitFor<HTMLElement>(
       ['button[aria-label*="incognito" i]', '[data-testid*="incognito" i]'],
-      1500,
+      6000,
     );
     if (btn) {
       btn.click();
@@ -691,7 +691,8 @@ async function activateTemporaryMode(host: string): Promise<void> {
         }),
       );
     }
-    await sleep(400);
+    // Wait for Perplexity to flip to incognito mode and re-render the input.
+    await sleep(800);
   }
 }
 
@@ -754,8 +755,9 @@ async function run(): Promise<void> {
     return;
   }
 
-  await sleep(150);
-  const btn = await findEnabledSendButton(config.sendSelectors, 3000);
+  // Give React/Angular a moment to process the input event and enable the send button.
+  await sleep(400);
+  const btn = await findEnabledSendButton(config.sendSelectors, 6000);
   if (btn) {
     btn.click();
   } else {
