@@ -241,10 +241,11 @@ async function runSummary(
   }
 
   // Always fetch video metadata for headless runs so we can store the channel
-  // name for channel-tracking stats, even when the gate is off.
+  // name and avatar for channel-tracking stats, even when the gate is off.
   if (willUseDirectApi && !isThumbnail && activeTab?.id !== undefined) {
     const meta = await getVideoMeta(activeTab.id);
     if (meta?.channel) video.channel = meta.channel;
+    if (meta?.avatarUrl) video.avatarUrl = meta.avatarUrl;
   }
 
   // Worth-watching gate: for chat destinations (a "prompt" payload), on videos
@@ -255,6 +256,7 @@ async function runSummary(
   if (gateEnabled && isPromptDest && !isThumbnail && activeTab?.id !== undefined) {
     const meta = await getVideoMeta(activeTab.id);
     if (meta?.channel) video.channel = meta.channel;
+    if (meta?.avatarUrl) video.avatarUrl = meta.avatarUrl;
     const minutes = (meta?.durationSeconds ?? 0) / 60;
     // Record the duration read as a "gate" status every run: a failed read
     // surfaces a notice (the selector may need a look), and a later good read
@@ -377,6 +379,7 @@ async function runSummary(
         destinationId: destination.id,
         apiResponse: responseText,
         aiRating,
+        channelAvatarUrl: video.avatarUrl,
       });
     }
     return;
@@ -415,6 +418,7 @@ async function runSummary(
       prompt: historyPrompt,
       settings,
       destinationId: destination.id,
+      channelAvatarUrl: video.avatarUrl,
     });
   }
 }

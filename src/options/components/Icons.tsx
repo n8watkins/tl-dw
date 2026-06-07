@@ -20,7 +20,8 @@ export type IconProps = {
     | "send"
     | "sparkles"
     | "eye"
-    | "ghost";
+    | "ghost"
+    | "bar-chart";
 };
 
 const PATHS: Record<IconProps["name"], string[]> = {
@@ -55,6 +56,7 @@ const PATHS: Record<IconProps["name"], string[]> = {
     "M9 10h.01",
     "M15 10h.01",
   ],
+  "bar-chart": ["M3 3v18h18", "M7 16v-4", "M11 16V8", "M15 16v-7", "M19 16v-2"],
 };
 
 export { DestinationIcon } from "../../lib/DestinationIcon";

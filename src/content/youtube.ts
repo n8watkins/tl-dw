@@ -313,8 +313,8 @@ function hmsToSeconds(text: string | null | undefined): number {
   return parts.reduce((acc, n) => acc * 60 + n, 0);
 }
 
-/** Read the current video's duration (seconds) and channel name. */
-function getVideoMeta(): { durationSeconds: number; channel: string } {
+/** Read the current video's duration (seconds), channel name, and channel avatar URL. */
+function getVideoMeta(): { durationSeconds: number; channel: string; avatarUrl?: string } {
   const video = document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
   let durationSeconds =
     video && Number.isFinite(video.duration) ? video.duration : 0;
@@ -329,7 +329,11 @@ function getVideoMeta(): { durationSeconds: number; channel: string } {
         "ytd-channel-name a, #owner #channel-name a, ytd-video-owner-renderer a.yt-simple-endpoint",
       )
       ?.textContent?.trim() ?? "";
-  return { durationSeconds, channel };
+  const avatarUrl =
+    document.querySelector<HTMLImageElement>(
+      "ytd-video-owner-renderer #avatar img, #owner yt-img-shadow img, ytd-video-owner-renderer yt-img-shadow img",
+    )?.src ?? undefined;
+  return { durationSeconds, channel, avatarUrl };
 }
 
 // --- comment scraping ----------------------------------------------------

@@ -43,12 +43,14 @@ export async function addHistoryEntry(args: {
   apiResponse?: string;
   aiRating?: number;
   audienceScore?: number;
+  channelAvatarUrl?: string;
 }): Promise<void> {
   const entry: SearchHistoryEntry = {
     id: crypto.randomUUID(),
     videoUrl: args.video.url,
     videoTitle: args.video.title,
     channel: args.video.channel,
+    channelAvatarUrl: args.channelAvatarUrl,
     profileId: args.profile.id,
     profileName: args.profile.name,
     destinationId: args.destinationId,
@@ -66,9 +68,11 @@ export async function addHistoryEntry(args: {
 
 export type ChannelStats = {
   channel: string;
+  avatarUrl?: string;
   count: number;
   avgAiRating: number | null;
   avgAudienceScore: number | null;
+  lastWatched: string;
   videos: SearchHistoryEntry[];
 };
 
@@ -83,13 +87,17 @@ export function computeChannelStats(history: SearchHistoryEntry[]): ChannelStats
   }
   return [...byChannel.entries()]
     .map(([channel, videos]) => {
+      // history is newest-first; videos within a channel retain that ordering.
       const aiRatings = videos.map((v) => v.aiRating).filter((r): r is number => r !== undefined);
       const audScores = videos.map((v) => v.audienceScore).filter((s): s is number => s !== undefined);
       return {
         channel,
+        // Use the most recent entry's avatar (first in newest-first list).
+        avatarUrl: videos[0]?.channelAvatarUrl,
         count: videos.length,
         avgAiRating: aiRatings.length ? aiRatings.reduce((a, b) => a + b, 0) / aiRatings.length : null,
         avgAudienceScore: audScores.length ? audScores.reduce((a, b) => a + b, 0) / audScores.length : null,
+        lastWatched: videos[0]?.createdAt ?? "",
         videos,
       };
     })

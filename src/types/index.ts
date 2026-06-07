@@ -15,6 +15,8 @@ export type SearchHistoryEntry = {
   videoTitle?: string;
   /** YouTube channel name — used for per-channel stats. */
   channel?: string;
+  /** Channel avatar URL scraped from the YouTube DOM. */
+  channelAvatarUrl?: string;
   profileId: string;
   profileName: string;
   /** Destination the search was sent to, so "ask again" reopens the right one. */
@@ -184,12 +186,14 @@ export type VideoContext = {
   url: string;
   title?: string;
   channel?: string;
+  avatarUrl?: string;
 };
 
 /** Metadata read from the YouTube page for the worth-watching gate. */
 export type VideoMeta = {
   durationSeconds: number;
   channel: string;
+  avatarUrl?: string;
 };
 
 /** Message from the Gemini content script asking for its pending prompt. */

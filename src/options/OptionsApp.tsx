@@ -2,17 +2,19 @@ import { useState } from "react";
 import { SetupSection } from "./sections/SetupSection";
 import { ProfilesSection } from "./sections/ProfilesSection";
 import { HistorySection } from "./sections/HistorySection";
+import { ChannelsSection } from "./sections/ChannelsSection";
 import { SettingsSection } from "./sections/SettingsSection";
 import { DirectApiSection } from "./sections/DirectApiSection";
 import { AboutSection } from "./sections/AboutSection";
 import { SupportSection } from "./sections/SupportSection";
 
-type NavItem = "setup" | "profiles" | "history" | "settings" | "directapi" | "support" | "about";
+type NavItem = "setup" | "profiles" | "history" | "channels" | "settings" | "directapi" | "support" | "about";
 
 const NAV: { id: NavItem; label: string; icon: string }[] = [
   { id: "setup",     label: "Setup",      icon: "◎" },
   { id: "profiles",  label: "Profiles",   icon: "◈" },
   { id: "history",   label: "History",    icon: "◷" },
+  { id: "channels",  label: "Channels",   icon: "▦" },
   { id: "settings",  label: "Settings",   icon: "◧" },
   { id: "directapi", label: "Direct API", icon: "⚡" },
   { id: "support",   label: "Support",    icon: "♡" },
@@ -56,6 +58,7 @@ export function OptionsApp() {
         {active === "setup"     && <SetupSection />}
         {active === "profiles"  && <ProfilesSection />}
         {active === "history"   && <HistorySection />}
+        {active === "channels"  && <ChannelsSection />}
         {active === "settings"  && <SettingsSection />}
         {active === "directapi" && <DirectApiSection />}
         {active === "support"   && <SupportSection />}
