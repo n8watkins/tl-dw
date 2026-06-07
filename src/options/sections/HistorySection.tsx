@@ -9,15 +9,19 @@ import { Icon } from "../components/Icons";
 function formatDate(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  const mins = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
+  const diffMs = now.getTime() - d.getTime();
+  const mins = Math.floor(diffMs / 60000);
+
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const isToday = d.toDateString() === now.toDateString();
+  const isYesterday =
+    d.toDateString() === new Date(now.getTime() - 86400000).toDateString();
+
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days < 7) return `${days}d ago`;
-  return d.toLocaleDateString();
+  if (isToday) return `Today at ${time}`;
+  if (isYesterday) return `Yesterday at ${time}`;
+  return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }
 
 function displayUrl(url: string): string {
@@ -256,30 +260,14 @@ export function HistorySection() {
                     </span>
                   </div>
 
-                  {isOpen && (
-                    <div className="history-detail">
-                      <div>
+                  <div className={`history-detail-wrapper${isOpen ? " open" : ""}`}>
+                    <div className="history-detail-inner">
+                      <div className="history-detail">
                         <p className="field-label" style={{ marginBottom: 6 }}>Prompt sent</p>
                         <pre className="prompt-preview">{entry.prompt}</pre>
                       </div>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button className="btn btn-ghost btn-icon-text" onClick={() => void copyPrompt(entry.prompt)}>
-                          <Icon name="copy" />
-                          Copy Prompt
-                        </button>
-                        <a
-                          href={entry.videoUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn btn-ghost btn-icon-text"
-                          style={{ textDecoration: "none" }}
-                        >
-                          <Icon name="external" />
-                          Open Video
-                        </a>
-                      </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               );
             })}

@@ -257,15 +257,24 @@ export function buildMomentsPanel(
   Object.assign(sub.style, { color: t.sub, fontSize: "12px" });
   heading.append(title, sub);
 
-  // Horizontal, wrapping strip of chips.
+  // Animated wrapper (grid-template-rows trick): 0fr = collapsed, 1fr = expanded.
   const body = document.createElement("div");
   Object.assign(body.style, {
+    display: "grid",
+    overflow: "hidden",
+    transition: "grid-template-rows 0.22s ease",
+  });
+
+  const bodyInner = document.createElement("div");
+  Object.assign(bodyInner.style, {
     display: "flex",
     flexWrap: "wrap",
     gap: "8px",
-    marginTop: "10px",
+    paddingTop: "10px",
+    overflow: "hidden",
   });
-  for (const m of moments) body.append(buildChip(m, t, handlers.onSeek));
+  for (const m of moments) bodyInner.append(buildChip(m, t, handlers.onSeek));
+  body.append(bodyInner);
 
   const controls = document.createElement("div");
   Object.assign(controls.style, { display: "flex", alignItems: "center", gap: "2px", flex: "0 0 auto" });
@@ -292,16 +301,19 @@ export function buildMomentsPanel(
   let collapsed = handlers.initialCollapsed ?? false;
   const toggle = iconBtn("Collapse key moments");
   toggle.textContent = "▾";
-  toggle.style.transition = "transform 0.15s";
-  const applyCollapsed = () => {
-    body.style.display = collapsed ? "none" : "flex";
+  toggle.style.transition = "transform 0.22s ease";
+  const applyCollapsed = (animate = true) => {
+    if (!animate) body.style.transition = "none";
+    body.style.gridTemplateRows = collapsed ? "0fr" : "1fr";
+    if (!animate) void body.offsetHeight; // flush reflow
+    body.style.transition = "grid-template-rows 0.22s ease";
     toggle.style.transform = collapsed ? "rotate(-90deg)" : "rotate(0deg)";
     toggle.setAttribute("aria-label", collapsed ? "Expand key moments" : "Collapse key moments");
   };
-  applyCollapsed();
+  applyCollapsed(false); // set initial state without animation
   toggle.addEventListener("click", () => {
     collapsed = !collapsed;
-    applyCollapsed();
+    applyCollapsed(true);
     handlers.onToggleCollapse?.(collapsed);
   });
 

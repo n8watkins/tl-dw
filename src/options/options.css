@@ -679,6 +679,20 @@ textarea { min-height: 220px; font-family: "JetBrains Mono", "Fira Code", ui-mon
   flex-shrink: 0;
 }
 
+.history-detail-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.22s ease;
+}
+
+.history-detail-wrapper.open {
+  grid-template-rows: 1fr;
+}
+
+.history-detail-inner {
+  overflow: hidden;
+}
+
 .history-detail {
   border-top: 1px solid var(--border);
   padding: 14px 18px;
