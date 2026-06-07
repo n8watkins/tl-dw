@@ -67,6 +67,12 @@ export default defineManifest({
       description: "Ask Gemini about the current YouTube video",
     },
   },
+  web_accessible_resources: [
+    {
+      resources: ["icons/*.png"],
+      matches: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+    },
+  ],
   permissions: ["storage", "tabs", "contextMenus", "clipboardWrite"],
   host_permissions: [
     "https://www.youtube.com/*",
