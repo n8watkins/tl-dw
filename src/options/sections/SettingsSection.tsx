@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { GeminiUsage, Settings } from "../../types";
+import type { Settings } from "../../types";
 import {
   DEFAULT_SETTINGS,
   DESTINATIONS,
@@ -7,7 +7,7 @@ import {
   WATCH_THRESHOLD_OPTIONS,
 } from "../../lib/constants";
 import type { WatchThresholdMinutes } from "../../types";
-import { clearGeminiUsage, getGeminiUsage, getSettings, setSettings } from "../../lib/storage";
+import { getSettings, setSettings } from "../../lib/storage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DestinationIcon, Icon } from "../components/Icons";
 
@@ -15,15 +15,9 @@ export function SettingsSection() {
   const [settings, setLocal] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
-  const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({ totalCalls: 0 });
-  const [pendingKeyName, setPendingKeyName] = useState("");
-  const [pendingKeyValue, setPendingKeyValue] = useState("");
 
   useEffect(() => {
-    void Promise.all([getSettings(), getGeminiUsage()]).then(([s, u]) => {
-      setLocal(s);
-      setGeminiUsage(u);
-    });
+    void getSettings().then(setLocal);
 
     const handleChange = (changes: Record<string, chrome.storage.StorageChange>) => {
       if (changes[STORAGE_KEYS.settings]?.newValue) {
@@ -49,42 +43,6 @@ export function SettingsSection() {
     setConfirmReset(false);
   }
 
-  async function saveApiKey() {
-    if (!settings || !pendingKeyValue.trim()) return;
-    const next = {
-      ...settings,
-      geminiApiKey: pendingKeyValue.trim(),
-      geminiApiKeyName: pendingKeyName.trim() || "Gemini API key",
-    };
-    setLocal(next);
-    await setSettings(next);
-    setPendingKeyName("");
-    setPendingKeyValue("");
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
-  }
-
-  async function clearApiKey() {
-    if (!settings) return;
-    const next = { ...settings, geminiApiKey: "", geminiApiKeyName: "" };
-    setLocal(next);
-    await setSettings(next);
-    await clearGeminiUsage();
-    setGeminiUsage({ totalCalls: 0 });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
-  }
-
-  function timeAgo(iso: string | undefined): string {
-    if (!iso) return "never";
-    const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-    if (secs < 60) return "just now";
-    const mins = Math.round(secs / 60);
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.round(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${Math.round(hrs / 24)}d ago`;
-  }
 
   if (!settings) return <p className="text-muted">Loading…</p>;
 
@@ -288,85 +246,6 @@ export function SettingsSection() {
               <span className="dest-card-label">{d.label}</span>
             </button>
           ))}
-        </div>
-      </div>
-
-      <div className="settings-group">
-        <div className="settings-group-title"><Icon name="send" /> Direct API — no new tab</div>
-
-        <div className="card" style={{ marginBottom: 0 }}>
-          <div className="card-title">Headless Gemini mode</div>
-          <div className="card-desc">
-            Add a Gemini API key and TL;DW calls Gemini directly — no new tab opens.
-            Results arrive in seconds and are injected straight onto the YouTube page.
-          </div>
-          <div className="card-desc" style={{ marginTop: 8 }}>
-            <strong>Get a free key:</strong> Go to{" "}
-            <a href="https://aistudio.google.com" target="_blank" rel="noreferrer">
-              aistudio.google.com
-            </a>{" "}
-            → Create API key. No credit card, no billing upgrade needed — the free tier
-            gives you ~500 requests/day with Gemini 2.0 Flash, which is plenty for daily use.
-            Stay on the free tier.
-          </div>
-          <div className="card-desc" style={{ marginTop: 4, fontSize: 12, color: "var(--text-muted)" }}>
-            Your key is stored only in your browser and sent only to Google's API — never to us.
-          </div>
-
-          {settings?.geminiApiKey ? (
-            // --- key saved: show name + delete only, never the value ---
-            <div style={{ marginTop: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>
-                  ✓ {settings.geminiApiKeyName || "Gemini API key"}
-                </span>
-                <button className="btn btn-danger" onClick={() => void clearApiKey()}>
-                  Delete key
-                </button>
-              </div>
-              <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-muted)" }}>
-                The key value is not visible after saving. To use a different key, delete this one and add a new one.
-              </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
-                {geminiUsage.totalCalls === 0
-                  ? "No API calls yet."
-                  : `${geminiUsage.totalCalls} API call${geminiUsage.totalCalls === 1 ? "" : "s"} · last used ${timeAgo(geminiUsage.lastCalledAt)}`}
-              </div>
-            </div>
-          ) : (
-            // --- no key: add form ---
-            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-              <input
-                type="text"
-                value={pendingKeyName}
-                onChange={(e) => setPendingKeyName(e.target.value)}
-                placeholder="Name this key (e.g. Personal AI Studio key)"
-                style={{ fontSize: 13 }}
-                autoComplete="off"
-              />
-              <input
-                type="password"
-                value={pendingKeyValue}
-                onChange={(e) => setPendingKeyValue(e.target.value)}
-                placeholder="Paste API key — you won't be able to view it after saving"
-                style={{ fontFamily: "monospace", fontSize: 13 }}
-                autoComplete="new-password"
-                spellCheck={false}
-              />
-              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                The key will be saved immediately. You can delete it later, but you cannot view or edit it.
-              </div>
-              <div>
-                <button
-                  className="btn btn-primary"
-                  onClick={() => void saveApiKey()}
-                  disabled={!pendingKeyValue.trim()}
-                >
-                  Save key
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

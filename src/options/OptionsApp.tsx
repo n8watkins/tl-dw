@@ -3,18 +3,20 @@ import { SetupSection } from "./sections/SetupSection";
 import { ProfilesSection } from "./sections/ProfilesSection";
 import { HistorySection } from "./sections/HistorySection";
 import { SettingsSection } from "./sections/SettingsSection";
+import { DirectApiSection } from "./sections/DirectApiSection";
 import { AboutSection } from "./sections/AboutSection";
 import { SupportSection } from "./sections/SupportSection";
 
-type NavItem = "setup" | "profiles" | "history" | "settings" | "support" | "about";
+type NavItem = "setup" | "profiles" | "history" | "settings" | "directapi" | "support" | "about";
 
 const NAV: { id: NavItem; label: string; icon: string }[] = [
-  { id: "setup",    label: "Setup",    icon: "◎" },
-  { id: "profiles", label: "Profiles", icon: "◈" },
-  { id: "history",  label: "History",  icon: "◷" },
-  { id: "settings", label: "Settings", icon: "◧" },
-  { id: "support",  label: "Support",  icon: "♡" },
-  { id: "about",    label: "About",    icon: "◉" },
+  { id: "setup",     label: "Setup",      icon: "◎" },
+  { id: "profiles",  label: "Profiles",   icon: "◈" },
+  { id: "history",   label: "History",    icon: "◷" },
+  { id: "settings",  label: "Settings",   icon: "◧" },
+  { id: "directapi", label: "Direct API", icon: "⚡" },
+  { id: "support",   label: "Support",    icon: "♡" },
+  { id: "about",     label: "About",      icon: "◉" },
 ];
 
 const ICON_URL = chrome.runtime.getURL("icons/tl-dw-48.png");
@@ -51,12 +53,13 @@ export function OptionsApp() {
       </aside>
 
       <main className="content">
-        {active === "setup"    && <SetupSection />}
-        {active === "profiles" && <ProfilesSection />}
-        {active === "history"  && <HistorySection />}
-        {active === "settings" && <SettingsSection />}
-        {active === "support"  && <SupportSection />}
-        {active === "about"    && <AboutSection />}
+        {active === "setup"     && <SetupSection />}
+        {active === "profiles"  && <ProfilesSection />}
+        {active === "history"   && <HistorySection />}
+        {active === "settings"  && <SettingsSection />}
+        {active === "directapi" && <DirectApiSection />}
+        {active === "support"   && <SupportSection />}
+        {active === "about"     && <AboutSection />}
       </main>
     </div>
   );
