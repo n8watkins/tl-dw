@@ -26,7 +26,7 @@ export function AboutSection() {
 
         <p className="about-pitch">
           Press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> on any YouTube video. TL;DW opens
-          your AI — Gemini, ChatGPT, Claude, NotebookLM, or Perplexity — with the full transcript
+          your AI — Gemini, ChatGPT, Claude, or NotebookLM — with the full transcript
           attached and the prompt already submitted. Read the summary. Decide what's worth your time.
         </p>
       </div>

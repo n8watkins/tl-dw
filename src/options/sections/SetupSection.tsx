@@ -41,7 +41,7 @@ export function SetupSection() {
           <div className="step-num">Step 2</div>
           <div className="step-title">Summarize to your AI</div>
           <div className="step-body">
-            Press <kbd>Alt+Shift+G</kbd>. Gemini, ChatGPT, Claude, or Perplexity opens with the full analysis already running.
+            Press <kbd>Alt+Shift+G</kbd>. Gemini, ChatGPT, or Claude opens with the full analysis already running.
           </div>
         </div>
         <div className="step">

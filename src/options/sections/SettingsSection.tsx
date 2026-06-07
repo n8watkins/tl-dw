@@ -123,7 +123,7 @@ export function SettingsSection() {
             <div className="setting-label">Temporary chats</div>
             <div className="setting-sub">
               Open in incognito mode — chats won't be saved to the AI's history.
-              Works on Claude, ChatGPT, Gemini, and Perplexity.
+              Works on Claude, ChatGPT, and Gemini.
             </div>
           </div>
           <div className="setting-control">
