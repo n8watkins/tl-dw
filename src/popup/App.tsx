@@ -53,6 +53,15 @@ function MomentsIcon() {
   );
 }
 
+function YouTubeIcon() {
+  return (
+    <svg width={20} height={14} viewBox="0 0 20 14" aria-hidden="true" style={{ flex: "0 0 auto" }}>
+      <rect width="20" height="14" rx="3" fill="#FF0000" />
+      <polygon points="8,3.5 8,10.5 14.5,7" fill="white" />
+    </svg>
+  );
+}
+
 function timeAgo(iso: string): string {
   const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
   if (secs < 60) return "just now";
@@ -200,15 +209,10 @@ export function App() {
     try {
       const r = (await chrome.tabs.sendMessage(targetTabId, {
         type: "TOGGLE_MOMENTS",
+        show: true,
       })) as { ok: boolean; shown?: boolean; reason?: string } | undefined;
       if (r?.ok) {
-        // Showing the panel: close the popup so it's visible. Hiding it: keep
-        // the popup open and say so, rather than silently closing.
-        if (r.shown) {
-          window.close();
-        } else {
-          setCopyStatus("Hid key moments.");
-        }
+        window.close();
         return;
       }
       setCopyStatus(
@@ -267,6 +271,32 @@ export function App() {
     window.close();
   }
 
+  async function goToVideoTab() {
+    if (onVideo) {
+      window.close();
+      return;
+    }
+    if (linkedSearch) {
+      if (linkedSearch.sourceTabId !== undefined) {
+        try {
+          const t = await chrome.tabs.get(linkedSearch.sourceTabId);
+          await chrome.tabs.update(linkedSearch.sourceTabId, { active: true });
+          if (t.windowId !== undefined) {
+            await chrome.windows.update(t.windowId, { focused: true });
+          }
+          window.close();
+          return;
+        } catch {
+          // source tab closed — fall through to reopen
+        }
+      }
+      if (linkedSearch.videoUrl) {
+        await chrome.tabs.create({ url: linkedSearch.videoUrl, active: true });
+      }
+      window.close();
+    }
+  }
+
   return (
     <div className="tldw">
       <header>
@@ -299,13 +329,15 @@ export function App() {
       {!ready ? (
         <p className="empty">Checking current tab...</p>
       ) : onVideo ? (
-        <p className="video" title={tab?.url}>
-          {cleanTitle(tab?.title)}
-        </p>
+        <button className="video-btn" onClick={() => void goToVideoTab()} title={tab?.url}>
+          <YouTubeIcon />
+          <span className="video-btn-title">{cleanTitle(tab?.title)}</span>
+        </button>
       ) : linkedSearch ? (
-        <p className="video" title={linkedSearch.videoUrl}>
-          {linkedSearch.videoTitle ?? "YouTube video"}
-        </p>
+        <button className="video-btn" onClick={() => void goToVideoTab()} title={linkedSearch.videoUrl}>
+          <YouTubeIcon />
+          <span className="video-btn-title">{linkedSearch.videoTitle ?? "YouTube video"}</span>
+        </button>
       ) : (
         <p className="empty">Open a YouTube video or Short to use TL;DW.</p>
       )}
@@ -361,9 +393,10 @@ export function App() {
             </p>
           )}
 
-          <label className="field">
-            <span>Send to</span>
+          <div className="send-row">
+            <span className="send-label">Send to</span>
             <select
+              className="dest-select"
               value={destinationId}
               onChange={(e) => changeDestination(e.target.value)}
             >
@@ -373,18 +406,22 @@ export function App() {
                 </option>
               ))}
             </select>
-          </label>
+            <button className="ask-btn" onClick={send} disabled={busy || profiles.length === 0}>
+              <SparkIcon />
+              {destinationVerb(getDestination(destinationId))}
+            </button>
+          </div>
 
           {getDestination(destinationId).payload !== "link" &&
             getDestination(destinationId).payload !== "source" && (
               <>
                 <label className="field">
                   <span>Ask something specific (optional)</span>
-                  <input
-                    type="text"
+                  <textarea
                     value={curiosity}
                     placeholder="e.g. Does it cover pricing?"
                     onChange={(e) => setCuriosity(e.target.value)}
+                    rows={3}
                   />
                 </label>
 
@@ -398,12 +435,6 @@ export function App() {
                 </label>
               </>
             )}
-
-          <button className="primary" onClick={send} disabled={busy || profiles.length === 0}>
-            <SparkIcon />
-            {destinationVerb(getDestination(destinationId))}{" "}
-            {getDestination(destinationId).label}
-          </button>
 
           <button className="secondary" onClick={() => void showMoments()} disabled={busy}>
             <MomentsIcon />
