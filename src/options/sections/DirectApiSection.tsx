@@ -1,21 +1,39 @@
 import { useEffect, useState } from "react";
-import type { GeminiUsage, Settings } from "../../types";
+import type { GeminiCallEntry, GeminiUsage, Settings } from "../../types";
 import { DEFAULT_SETTINGS, STORAGE_KEYS } from "../../lib/constants";
-import { clearGeminiUsage, getGeminiUsage, getSettings, setSettings } from "../../lib/storage";
+import {
+  clearGeminiCallLog,
+  clearGeminiUsage,
+  getGeminiCallLog,
+  getGeminiUsage,
+  getSettings,
+  setSettings,
+} from "../../lib/storage";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 
 export function DirectApiSection() {
   const [settings, setLocal] = useState<Settings | null>(null);
-  const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({ totalCalls: 0 });
+  const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({
+    totalCalls: 0,
+    allTimeCalls: 0,
+    todayCalls: 0,
+  });
+  const [callLog, setCallLog] = useState<GeminiCallEntry[]>([]);
   const [saved, setSaved] = useState(false);
   const [pendingKeyName, setPendingKeyName] = useState("");
   const [pendingKeyValue, setPendingKeyValue] = useState("");
+  const [confirmClearStats, setConfirmClearStats] = useState(false);
+  const [confirmClearLog, setConfirmClearLog] = useState(false);
 
   useEffect(() => {
-    void Promise.all([getSettings(), getGeminiUsage()]).then(([s, u]) => {
-      setLocal(s);
-      setGeminiUsage(u);
-    });
+    void Promise.all([getSettings(), getGeminiUsage(), getGeminiCallLog()]).then(
+      ([s, u, log]) => {
+        setLocal(s);
+        setGeminiUsage(u);
+        setCallLog(log);
+      },
+    );
 
     const handleChange = (changes: Record<string, chrome.storage.StorageChange>) => {
       if (changes[STORAGE_KEYS.settings]?.newValue) {
@@ -48,13 +66,19 @@ export function DirectApiSection() {
   async function deleteApiKey() {
     if (!settings) return;
     await update({ geminiApiKey: "", geminiApiKeyName: "" });
-    await clearGeminiUsage();
-    setGeminiUsage({ totalCalls: 0 });
   }
 
-  async function clearUsage() {
+  async function doClearStats() {
     await clearGeminiUsage();
-    setGeminiUsage({ totalCalls: 0 });
+    const u = await getGeminiUsage();
+    setGeminiUsage(u);
+    setConfirmClearStats(false);
+  }
+
+  async function doClearLog() {
+    await clearGeminiCallLog();
+    setCallLog([]);
+    setConfirmClearLog(false);
   }
 
   function timeAgo(iso: string | undefined): string {
@@ -66,6 +90,29 @@ export function DirectApiSection() {
     const hrs = Math.round(mins / 60);
     if (hrs < 24) return `${hrs}h ago`;
     return `${Math.round(hrs / 24)}d ago`;
+  }
+
+  function formatTime(iso: string): string {
+    const d = new Date(iso);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    const isYesterday =
+      d.toDateString() === new Date(now.getTime() - 86400000).toDateString();
+    const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    if (isToday) return `Today ${time}`;
+    if (isYesterday) return `Yesterday ${time}`;
+    return d.toLocaleDateString([], { month: "short", day: "numeric" }) + ` ${time}`;
+  }
+
+  function displayUrl(url: string): string {
+    try {
+      const u = new URL(url);
+      return u.searchParams.get("v")
+        ? `youtube.com/watch?v=${u.searchParams.get("v") ?? ""}`
+        : url.slice(0, 40);
+    } catch {
+      return url.slice(0, 40);
+    }
   }
 
   if (!settings) return <p className="text-muted">Loading…</p>;
@@ -96,7 +143,7 @@ export function DirectApiSection() {
               aistudio.google.com
             </a>{" "}
             → Create API key. No credit card, no billing upgrade needed. The free tier
-            gives you ~500 requests/day with Gemini 2.0 Flash — plenty for daily use.
+            gives you ~500 requests/day with Gemini 2.5 Flash — plenty for daily use.
             Stay on the free tier.
           </div>
           <div className="card-desc" style={{ marginTop: 4, fontSize: 12, color: "var(--text-muted)" }}>
@@ -153,7 +200,7 @@ export function DirectApiSection() {
         </div>
       </div>
 
-      {/* Behavior toggles — only meaningful when a key is present */}
+      {/* Behavior toggles */}
       <div className="settings-group">
         <div className="settings-group-title"><Icon name="sliders" /> Behavior</div>
 
@@ -180,40 +227,120 @@ export function DirectApiSection() {
         </div>
       </div>
 
-      {/* Usage tracking */}
+      {/* Usage stats */}
       <div className="settings-group">
         <div className="settings-group-title"><Icon name="eye" /> Usage</div>
 
         <div className="card" style={{ marginBottom: 0 }}>
-          {geminiUsage.totalCalls === 0 ? (
-            <div className="card-desc">No API calls recorded yet.</div>
-          ) : (
-            <>
-              <div style={{ display: "flex", gap: 32, flexWrap: "wrap", marginBottom: 12 }}>
-                <div>
-                  <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
-                    {geminiUsage.totalCalls}
-                  </div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                    total calls
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
-                    {timeAgo(geminiUsage.lastCalledAt)}
-                  </div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                    last used
-                  </div>
-                </div>
+          {/* Always-visible all-time total */}
+          <div style={{ display: "flex", gap: 32, flexWrap: "wrap", marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
+                {geminiUsage.allTimeCalls}
               </div>
-              <button className="btn" onClick={() => void clearUsage()}>
-                Clear usage stats
-              </button>
-            </>
-          )}
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                all-time calls
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
+                {geminiUsage.todayCalls}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                today
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
+                {geminiUsage.totalCalls}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                since last clear
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1 }}>
+                {timeAgo(geminiUsage.lastCalledAt)}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                last used
+              </div>
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+            All-time total is permanent and never cleared.
+          </div>
+          <button className="btn" onClick={() => setConfirmClearStats(true)}>
+            Clear stats
+          </button>
         </div>
       </div>
+
+      {/* Per-call history */}
+      <div className="settings-group">
+        <div className="settings-group-title"><Icon name="history" /> API call history</div>
+
+        {callLog.length === 0 ? (
+          <div className="card" style={{ marginBottom: 0 }}>
+            <div className="card-desc">No API calls recorded yet.</div>
+          </div>
+        ) : (
+          <>
+            <div className="history-list" style={{ marginBottom: 12 }}>
+              {callLog.map((entry) => (
+                <div key={entry.id} className="history-card">
+                  <div className="history-row" style={{ cursor: "default" }}>
+                    <div className="history-main">
+                      <div className="history-video">
+                        {entry.videoTitle || displayUrl(entry.videoUrl)}
+                      </div>
+                      <div className="history-meta">
+                        <span>⚡ Gemini API</span>
+                        <span>·</span>
+                        <span>{formatTime(entry.at)}</span>
+                      </div>
+                    </div>
+                    <div className="history-actions" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="icon-action"
+                        title="Open video"
+                        aria-label="Open video"
+                        onClick={() => void chrome.tabs.create({ url: entry.videoUrl })}
+                      >
+                        <Icon name="external" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button className="btn btn-danger btn-icon-text" onClick={() => setConfirmClearLog(true)}>
+              <Icon name="trash" />
+              Clear history
+            </button>
+          </>
+        )}
+      </div>
+
+      {confirmClearStats && (
+        <ConfirmDialog
+          title="Clear usage stats?"
+          body="This resets the 'since last clear' counter and today's count. Your all-time total is permanent and will not be affected."
+          confirmLabel="Clear Stats"
+          tone="primary"
+          onCancel={() => setConfirmClearStats(false)}
+          onConfirm={() => void doClearStats()}
+        />
+      )}
+      {confirmClearLog && (
+        <ConfirmDialog
+          title="Clear API call history?"
+          body={`This permanently removes all ${callLog.length} entries from the Direct API call log. Usage stats are not affected.`}
+          confirmLabel="Clear History"
+          onCancel={() => setConfirmClearLog(false)}
+          onConfirm={() => void doClearLog()}
+        />
+      )}
     </div>
   );
 }

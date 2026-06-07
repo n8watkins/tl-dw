@@ -269,7 +269,7 @@ async function runSummary(
     let responseText: string | undefined;
     try {
       responseText = await callGeminiApi(prompt, apiKey!);
-      void recordGeminiCall();
+      void recordGeminiCall(video);
       const tldw = parseTldwBlock(responseText);
       if (tldw && activeTab?.id !== undefined) {
         void chrome.tabs

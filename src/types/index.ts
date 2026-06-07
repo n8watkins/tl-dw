@@ -65,8 +65,24 @@ export type HistoryLimit = 50 | 100 | 250 | "unlimited";
 
 /** Usage stats for direct Gemini API calls. */
 export type GeminiUsage = {
+  /** Calls since the last manual clear. */
   totalCalls: number;
+  /** Permanent all-time total — never reset by clearing usage. */
+  allTimeCalls: number;
+  /** Calls made on `todayDate` (resets automatically each new day). */
+  todayCalls: number;
+  /** YYYY-MM-DD of the last call, used to detect day roll-overs. */
+  todayDate?: string;
   lastCalledAt?: string;
+};
+
+/** One entry in the Direct API call log — stored per video summarized. */
+export type GeminiCallEntry = {
+  id: string;
+  videoUrl: string;
+  videoTitle?: string;
+  /** ISO timestamp of the call. */
+  at: string;
 };
 
 /** Age thresholds the history auto-expiry offers (see HISTORY_EXPIRY_OPTIONS). */

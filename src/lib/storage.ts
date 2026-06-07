@@ -1,5 +1,6 @@
 import type {
   DeliveryStatus,
+  GeminiCallEntry,
   GeminiUsage,
   OpenSearch,
   PromptProfile,
@@ -10,6 +11,7 @@ import type {
 import {
   DEFAULT_SETTINGS,
   DELIVERY_STATUS_KEY,
+  GEMINI_CALL_LOG_KEY,
   GEMINI_USAGE_KEY,
   OPEN_SEARCHES_KEY,
   PENDING_KEY,
@@ -160,25 +162,73 @@ export async function clearDeliveryStatuses(): Promise<void> {
   await chrome.storage.session.remove(DELIVERY_STATUS_KEY);
 }
 
-// --- Gemini API usage stats (local, persisted across sessions) -------------
+// --- Gemini API usage stats and call log -----------------------------------
+
+const CALL_LOG_LIMIT = 200;
+
+function emptyUsage(): GeminiUsage {
+  return { totalCalls: 0, allTimeCalls: 0, todayCalls: 0 };
+}
 
 export async function getGeminiUsage(): Promise<GeminiUsage> {
   const r = await chrome.storage.local.get(GEMINI_USAGE_KEY);
-  return (r[GEMINI_USAGE_KEY] as GeminiUsage | undefined) ?? { totalCalls: 0 };
+  const stored = r[GEMINI_USAGE_KEY] as Partial<GeminiUsage> | undefined;
+  return { ...emptyUsage(), ...stored };
 }
 
-export async function recordGeminiCall(): Promise<void> {
+export async function recordGeminiCall(
+  video?: { url: string; title?: string },
+): Promise<void> {
+  const [usage, logRaw] = await Promise.all([
+    getGeminiUsage(),
+    chrome.storage.local.get(GEMINI_CALL_LOG_KEY),
+  ]);
+
+  const now = new Date();
+  const todayDate = now.toISOString().slice(0, 10);
+  const isSameDay = usage.todayDate === todayDate;
+
+  const updatedUsage: GeminiUsage = {
+    totalCalls: usage.totalCalls + 1,
+    allTimeCalls: usage.allTimeCalls + 1,
+    todayCalls: isSameDay ? usage.todayCalls + 1 : 1,
+    todayDate,
+    lastCalledAt: now.toISOString(),
+  };
+
+  const existingLog = (logRaw[GEMINI_CALL_LOG_KEY] as GeminiCallEntry[]) ?? [];
+  const newEntry: GeminiCallEntry = {
+    id: crypto.randomUUID(),
+    videoUrl: video?.url ?? "",
+    videoTitle: video?.title,
+    at: now.toISOString(),
+  };
+  const updatedLog = [newEntry, ...existingLog].slice(0, CALL_LOG_LIMIT);
+
+  await chrome.storage.local.set({
+    [GEMINI_USAGE_KEY]: updatedUsage,
+    [GEMINI_CALL_LOG_KEY]: updatedLog,
+  });
+}
+
+/** Clears stats (totalCalls, todayCalls, lastCalledAt) but keeps allTimeCalls. */
+export async function clearGeminiUsage(): Promise<void> {
   const usage = await getGeminiUsage();
   await chrome.storage.local.set({
     [GEMINI_USAGE_KEY]: {
-      totalCalls: usage.totalCalls + 1,
-      lastCalledAt: new Date().toISOString(),
+      ...emptyUsage(),
+      allTimeCalls: usage.allTimeCalls,
     } satisfies GeminiUsage,
   });
 }
 
-export async function clearGeminiUsage(): Promise<void> {
-  await chrome.storage.local.remove(GEMINI_USAGE_KEY);
+export async function getGeminiCallLog(): Promise<GeminiCallEntry[]> {
+  const r = await chrome.storage.local.get(GEMINI_CALL_LOG_KEY);
+  return (r[GEMINI_CALL_LOG_KEY] as GeminiCallEntry[]) ?? [];
+}
+
+export async function clearGeminiCallLog(): Promise<void> {
+  await chrome.storage.local.remove(GEMINI_CALL_LOG_KEY);
 }
 
 /** Open searches whose tabs are still open; prunes any that have closed. */
