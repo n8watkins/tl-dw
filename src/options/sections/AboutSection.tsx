@@ -1,4 +1,64 @@
 import { Icon } from "../components/Icons";
+import type { IconProps } from "../components/Icons";
+
+type Feature = {
+  icon: IconProps["name"];
+  bg: string;
+  color: string;
+  title: string;
+  desc: string;
+};
+
+const FEATURES: Feature[] = [
+  {
+    icon: "send",
+    bg: "rgba(124,58,237,0.15)", color: "#a78bfa",
+    title: "One-keystroke send",
+    desc: "Press Alt+Shift+G on any YouTube video or Short. Or use the popup or right-click menu to pick a specific profile.",
+  },
+  {
+    icon: "sparkles",
+    bg: "rgba(20,184,166,0.12)", color: "#2dd4bf",
+    title: "5 AI destinations",
+    desc: "Gemini, ChatGPT, Claude, NotebookLM, and Perplexity — each handled the right way for that service.",
+  },
+  {
+    icon: "download",
+    bg: "rgba(59,130,246,0.12)", color: "#60a5fa",
+    title: "Transcript extraction",
+    desc: "For AIs that can't watch video, TL;DW pulls the full transcript and attaches it — no copy-paste needed.",
+  },
+  {
+    icon: "eye",
+    bg: "rgba(249,115,22,0.12)", color: "#fb923c",
+    title: "WATCH / SKIM / SKIP",
+    desc: "Long videos get an upfront verdict so you know whether it's worth your time before reading the summary.",
+  },
+  {
+    icon: "clock",
+    bg: "rgba(34,197,94,0.12)", color: "#4ade80",
+    title: "Key moments",
+    desc: "Clickable timestamps auto-detected from the transcript appear right on the YouTube page. Click any to seek.",
+  },
+  {
+    icon: "duplicate",
+    bg: "rgba(167,139,250,0.15)", color: "#c4b5fd",
+    title: "Prompt profiles",
+    desc: "Reusable, fully editable templates — TL;DW, Research, Learning, Tutorial. Customize any or build your own.",
+  },
+  {
+    icon: "save",
+    bg: "rgba(59,130,246,0.12)", color: "#93c5fd",
+    title: "Search history",
+    desc: "Every search saved locally with the video, profile, and prompt. Searchable, exportable, never shared.",
+  },
+  {
+    icon: "sliders",
+    bg: "rgba(239,68,68,0.12)", color: "#f87171",
+    title: "Auto-pause & auto-submit",
+    desc: "The video pauses when you send and the prompt submits automatically — so nothing interrupts your flow.",
+  },
+];
 
 export function AboutSection() {
   const version = chrome.runtime.getManifest().version;
@@ -15,103 +75,21 @@ export function AboutSection() {
         <span className="about-version">v{version}</span>
       </div>
 
-      <div className="about-grid">
-        <div className="card">
-          <div className="card-title">
-            <Icon name="send" />
-            What it does
+      <div className="about-features">
+        {FEATURES.map(({ icon, bg, color, title, desc }) => (
+          <div key={title} className="about-feature">
+            <div className="about-feature-icon" style={{ background: bg, color }}>
+              <Icon name={icon} />
+            </div>
+            <div className="about-feature-title">{title}</div>
+            <div className="about-feature-desc">{desc}</div>
           </div>
-          <div className="card-desc">
-            Press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> on any YouTube
-            video — or use the popup or right-click menu — and TL;DW opens your
-            AI of choice, fills in a saved prompt, and submits. You read the
-            answer instead of watching. For AIs that can't watch a video, it
-            attaches the transcript automatically.
-          </div>
-        </div>
-
-        <div className="privacy-card">
-          <div className="privacy-title">Privacy</div>
-          <ul className="privacy-list">
-            <li>No backend, accounts, analytics, or tracking.</li>
-            <li>Saves the prompt you sent — never the response.</li>
-            <li>Transcripts are sent, never stored in history.</li>
-            <li>Old history auto-deletes (30 days, configurable).</li>
-            <li>All data stays in local storage on your machine.</li>
-            <li>No OAuth and no AI API key required.</li>
-          </ul>
-        </div>
+        ))}
       </div>
 
-      <div className="card">
-        <div className="card-title">
-          <Icon name="send" />
-          Destinations
-        </div>
-        <div className="card-desc">
-          <ul className="profiles-list-mini">
-            <li><strong>Gemini</strong> — opens the video link; it watches the video itself.</li>
-            <li><strong>ChatGPT / Claude / Perplexity</strong> — prompt auto-typed, transcript appended.</li>
-            <li><strong>NotebookLM</strong> — adds the YouTube link as a source.</li>
-          </ul>
-          <p style={{ marginTop: 10 }}>
-            Pick a default in Settings, override per-search from the popup. If a
-            site's layout changes and auto-fill fails, the prompt is copied to
-            your clipboard so a send is never silent.
-          </p>
-        </div>
-      </div>
-
-      <div className="about-grid">
-        <div className="card">
-          <div className="card-title">
-            <Icon name="sparkles" />
-            Features
-          </div>
-          <div className="card-desc">
-            <ul className="profiles-list-mini">
-              <li>One-keystroke send — shortcut, popup, or right-click.</li>
-              <li>Transcript extraction for non-Gemini AIs.</li>
-              <li>WATCH / SKIM / SKIP verdict for long videos.</li>
-              <li>On-page key moments, click to seek.</li>
-              <li>Auto-pause the video on send.</li>
-              <li>Editable, reorderable, resettable profiles.</li>
-              <li>Private local history — searchable and exportable.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-title">
-            <Icon name="heart" />
-            Built-in profiles
-          </div>
-          <div className="card-desc">
-            <ul className="profiles-list-mini">
-              <li><strong>TL;DW</strong> — core idea, takeaways, watch/skim/skip.</li>
-              <li><strong>Research Mode</strong> — claims, evidence, what to verify.</li>
-              <li><strong>Learning Mode</strong> — concepts and what to study next.</li>
-              <li><strong>Tutorial Mode</strong> — steps, tradeoffs, next action.</li>
-              <li><strong>Moment Finder</strong> — the strongest moments to watch.</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-title">
-          <Icon name="clock" />
-          Roadmap
-        </div>
-        <div className="card-desc">
-          <ul className="profiles-list-mini">
-            <li>Key-moment markers on the YouTube scrubber</li>
-            <li>Smarter, model-authored key moments (opt-in)</li>
-            <li>Per-search curiosity field in the popup</li>
-            <li>Profile import / export</li>
-            <li>BYO-key API mode (optional response saving)</li>
-          </ul>
-        </div>
+      <div className="about-privacy-note">
+        No backend, no accounts, no tracking — everything stays in Chrome's local storage.
+        No AI API key required.
       </div>
     </div>
   );
