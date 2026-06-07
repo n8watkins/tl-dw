@@ -131,17 +131,11 @@ select:disabled { opacity: 0.4; cursor: default; }
 .primary:hover:not(:disabled) { background: #6d28d9; }
 .primary:disabled { opacity: 0.4; cursor: default; }
 
-.secondary-row {
-  display: flex;
-  gap: 8px;
-}
-
 .secondary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  flex: 1;
   background: transparent;
   color: #c4b5fd;
   border: 1px solid #4c1d95;

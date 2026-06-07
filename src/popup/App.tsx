@@ -23,37 +23,6 @@ import {
   setPendingPrompt,
 } from "../lib/storage";
 
-/**
- * Copy text to the clipboard from the popup. Tries the async Clipboard API
- * first; if it rejects (transient activation lapsed after a slow await, or the
- * document lost focus), falls back to a hidden-textarea `execCommand("copy")`,
- * which only needs the popup to be the focused document. Returns whether either
- * path succeeded.
- */
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    // fall through to the execCommand path
-  }
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed";
-    ta.style.top = "-1000px";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    const ok = document.execCommand("copy");
-    ta.remove();
-    return ok;
-  } catch {
-    return false;
-  }
-}
-
 /* Inline icons — stroke uses currentColor so they inherit each button's color. */
 const iconProps = {
   width: 16,
@@ -80,15 +49,6 @@ function MomentsIcon() {
     <svg {...iconProps} aria-hidden="true">
       <circle cx="12" cy="12" r="9" />
       <path d="M12 7v5l3 2" />
-    </svg>
-  );
-}
-
-function CopyIcon() {
-  return (
-    <svg {...iconProps} aria-hidden="true">
-      <rect x="9" y="9" width="11" height="11" rx="2" />
-      <path d="M5 15V5a2 2 0 0 1 2-2h8" />
     </svg>
   );
 }
@@ -191,46 +151,6 @@ export function App() {
       worthWatchingGate: gate,
     });
     window.close();
-  }
-
-  /**
-   * Grab the current video's transcript from its content script and copy it to
-   * the clipboard. Deliberately separate from the Ask Gemini flow so it can't
-   * slow it down or break it, and so it's visibly testable on its own.
-   *
-   * The transcript fetch can take a few seconds (it opens YouTube's panel and
-   * waits on the intercepted response). By the time it resolves, the popup's
-   * transient user-activation has lapsed, so `navigator.clipboard.writeText`
-   * may reject — we fall back to the execCommand path, which only needs the
-   * (still-focused) popup document.
-   */
-  async function copyTranscript() {
-    if (!tab?.id) return;
-    setBusy(true);
-    setCopyStatus("Fetching transcript…");
-    let transcript: string | null = null;
-    try {
-      const res = (await chrome.tabs.sendMessage(tab.id, {
-        type: "GET_TRANSCRIPT",
-      })) as { transcript: string | null } | undefined;
-      transcript = res?.transcript ?? null;
-    } catch {
-      setCopyStatus("Couldn't reach the page — reload the YouTube tab and retry.");
-      setBusy(false);
-      return;
-    }
-    if (!transcript) {
-      setCopyStatus("No transcript found (does this video have captions?).");
-      setBusy(false);
-      return;
-    }
-    const copied = await copyToClipboard(transcript);
-    setCopyStatus(
-      copied
-        ? `Copied ${transcript.length.toLocaleString()} characters.`
-        : "Couldn't copy to the clipboard — click the popup, then try again.",
-    );
-    setBusy(false);
   }
 
   /**
@@ -428,17 +348,10 @@ export function App() {
             {getDestination(destinationId).label}
           </button>
 
-          <div className="secondary-row">
-            <button className="secondary" onClick={() => void showMoments()} disabled={busy}>
-              <MomentsIcon />
-              Key moments
-            </button>
-
-            <button className="secondary" onClick={copyTranscript} disabled={busy}>
-              <CopyIcon />
-              Copy transcript
-            </button>
-          </div>
+          <button className="secondary" onClick={() => void showMoments()} disabled={busy}>
+            <MomentsIcon />
+            Key moments on video
+          </button>
           {copyStatus && <p className="copy-status">{copyStatus}</p>}
         </>
       )}
