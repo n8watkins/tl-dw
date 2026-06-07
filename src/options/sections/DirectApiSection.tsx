@@ -299,6 +299,43 @@ export function DirectApiSection() {
         <div className="settings-group-title"><Icon name="eye" /> Usage</div>
 
         <div className="card" style={{ marginBottom: 0 }}>
+          {/* Free-tier quota bar */}
+          {(() => {
+            const FREE_TIER_LIMIT = 500;
+            const pct = Math.min(100, (geminiUsage.todayCalls / FREE_TIER_LIMIT) * 100);
+            const barColor = pct >= 85 ? "#dc2626" : pct >= 60 ? "#d97706" : "#16a34a";
+            return (
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>
+                    Free tier usage today
+                  </span>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    {geminiUsage.todayCalls} / {FREE_TIER_LIMIT} requests
+                  </span>
+                </div>
+                <div style={{ background: "var(--border)", borderRadius: 999, height: 7, overflow: "hidden" }}>
+                  <div style={{
+                    width: `${pct}%`, height: "100%",
+                    background: barColor, borderRadius: 999,
+                    transition: "width 0.4s ease",
+                  }} />
+                </div>
+                <div style={{ marginTop: 5, fontSize: 11, color: "var(--text-muted)" }}>
+                  Gemini 2.5 Flash free tier · ~500 RPD ·{" "}
+                  <a
+                    href="https://ai.google.dev/pricing"
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: "var(--text-muted)", textDecoration: "underline" }}
+                  >
+                    Pricing details ↗
+                  </a>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Always-visible all-time total */}
           <div style={{ display: "flex", gap: 32, flexWrap: "wrap", marginBottom: 16 }}>
             <div>
