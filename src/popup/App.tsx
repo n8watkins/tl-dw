@@ -12,6 +12,7 @@ import {
   getDestination,
   isYouTubeVideoUrl,
 } from "../lib/constants";
+import { DestinationIcon } from "../lib/DestinationIcon";
 import {
   addOpenSearch,
   clearDeliveryStatuses,
@@ -406,26 +407,28 @@ export function App() {
             </p>
           )}
 
-          <div className="send-row">
-            <select
-              className="dest-select"
-              value={destinationId}
-              onChange={(e) => changeDestination(e.target.value)}
-            >
-              {DESTINATIONS.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
-            <button className="ask-btn" onClick={send} disabled={busy || profiles.length === 0}>
-              <SparkIcon />
-              <span className="ask-btn-label">
-                <span>{destinationVerb(getDestination(destinationId))}</span>
-                <span className="ask-btn-shortcut">Alt+Shift+G</span>
-              </span>
-            </button>
+          <div className="dest-grid">
+            {DESTINATIONS.map((d) => (
+              <button
+                key={d.id}
+                className={`dest-btn${destinationId === d.id ? " dest-btn-active" : ""}`}
+                onClick={() => changeDestination(d.id)}
+                aria-pressed={destinationId === d.id}
+                title={d.label}
+              >
+                <DestinationIcon id={d.id} size={26} />
+                <span>{d.label}</span>
+              </button>
+            ))}
           </div>
+
+          <button className="ask-btn" onClick={send} disabled={busy || profiles.length === 0}>
+            <SparkIcon />
+            <span className="ask-btn-label">
+              <span>{destinationVerb(getDestination(destinationId))} {getDestination(destinationId).label}</span>
+              <span className="ask-btn-shortcut">Alt+Shift+G</span>
+            </span>
+          </button>
 
           {getDestination(destinationId).payload !== "link" &&
             getDestination(destinationId).payload !== "source" && (

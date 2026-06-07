@@ -135,7 +135,7 @@ export function HistorySection() {
       {settings && (
         <div className="history-options">
           <div className="history-options-row">
-            <label className="history-opt">
+            <div className="history-opt">
               <span className="history-opt-label">Save history on search</span>
               <label className="toggle">
                 <input
@@ -145,9 +145,9 @@ export function HistorySection() {
                 />
                 <span className="toggle-track" />
               </label>
-            </label>
+            </div>
 
-            <label className="history-opt">
+            <div className="history-opt">
               <span className="history-opt-label">Keep at most</span>
               <select
                 className="setting-select"
@@ -162,9 +162,9 @@ export function HistorySection() {
                 <option value="250">250 entries</option>
                 <option value="unlimited">Unlimited</option>
               </select>
-            </label>
+            </div>
 
-            <label className="history-opt">
+            <div className="history-opt">
               <span className="history-opt-label">Auto-delete old</span>
               <label className="toggle">
                 <input
@@ -174,9 +174,9 @@ export function HistorySection() {
                 />
                 <span className="toggle-track" />
               </label>
-            </label>
+            </div>
 
-            <label className="history-opt">
+            <div className="history-opt">
               <span className="history-opt-label">After</span>
               <select
                 className="setting-select"
@@ -192,7 +192,7 @@ export function HistorySection() {
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
           </div>
         </div>
       )}

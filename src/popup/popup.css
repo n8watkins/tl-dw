@@ -150,47 +150,61 @@ select {
 
 select:disabled { opacity: 0.4; cursor: default; }
 
-.send-row {
+/* ── Destination picker ──────────────────────────────── */
+
+.dest-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.dest-btn {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-}
-
-.send-label {
-  font-size: 14px;
-  color: #94a3b8;
-  white-space: nowrap;
-  flex: 0 0 auto;
-}
-
-.dest-select {
-  flex: 1;
-  min-width: 0;
-  width: auto;
-  background: #2e1065;
-  color: #e9d5ff;
-  border: 1px solid #7c3aed;
-  padding: 7px 10px;
-  font-size: 18px;
+  gap: 5px;
+  padding: 9px 4px 8px;
+  background: #1e293b;
+  border: 2px solid #334155;
+  border-radius: 10px;
+  cursor: pointer;
+  color: #64748b;
+  font-size: 10px;
   font-weight: 500;
+  text-align: center;
+  line-height: 1.2;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
+
+.dest-btn:hover {
+  border-color: #7c3aed;
+  background: #1e1035;
+  color: #c4b5fd;
+}
+
+.dest-btn-active {
+  border-color: #7c3aed;
+  background: #1e1035;
+  color: #e9d5ff;
+}
+
+/* ── Send button ─────────────────────────────────────── */
 
 .ask-btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  width: 100%;
   background: #7c3aed;
   color: #fff;
   border: none;
   border-radius: 8px;
-  padding: 10px 18px;
-  font-size: 17px;
+  padding: 11px 18px;
+  font-size: 16px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;
-  white-space: nowrap;
-  flex: 0 0 auto;
 }
 
 .ask-btn:hover:not(:disabled) { background: #6d28d9; }

@@ -3,14 +3,12 @@ import type { Settings } from "../../types";
 import {
   DEFAULT_SETTINGS,
   DESTINATIONS,
-  GEMINI_URL,
-  STORAGE_KEYS,
   WATCH_THRESHOLD_OPTIONS,
 } from "../../lib/constants";
 import type { WatchThresholdMinutes } from "../../types";
 import { getSettings, setSettings } from "../../lib/storage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { Icon } from "../components/Icons";
+import { DestinationIcon, Icon } from "../components/Icons";
 
 export function SettingsSection() {
   const [settings, setLocal] = useState<Settings | null>(null);
@@ -203,49 +201,22 @@ export function SettingsSection() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group-title"><Icon name="send" /> Destination</div>
-
-        <div className="setting-row">
-          <div className="setting-info">
-            <div className="setting-label">Default destination</div>
-            <div className="setting-sub">
-              Where the shortcut and right-click menu send. Override per-session in the popup.
-            </div>
-          </div>
-          <div className="setting-control">
-            <select
-              className="setting-select"
-              value={settings.destinationId}
-              onChange={(e) => void update({ destinationId: e.target.value })}
-            >
-              {DESTINATIONS.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="settings-group-title"><Icon name="send" /> Default destination</div>
+        <div className="setting-sub" style={{ marginBottom: 12 }}>
+          Where the shortcut and right-click menu send. Override per-session in the popup.
         </div>
-      </div>
-
-      <div className="settings-group">
-        <div className="settings-group-title"><Icon name="sparkles" /> Gemini</div>
-
-        <div className="setting-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 10 }}>
-          <div className="setting-info">
-            <div className="setting-label">Gemini URL</div>
-            <div className="setting-sub">
-              Only change this if Google moves Gemini.
-            </div>
-          </div>
-          <div style={{ width: "100%" }}>
-            <input
-              type="text"
-              value={settings.geminiUrl}
-              onChange={(e) => void update({ geminiUrl: e.target.value })}
-              placeholder={GEMINI_URL}
-            />
-          </div>
+        <div className="dest-card-grid">
+          {DESTINATIONS.map((d) => (
+            <button
+              key={d.id}
+              className={`dest-card${settings.destinationId === d.id ? " dest-card-active" : ""}`}
+              onClick={() => void update({ destinationId: d.id })}
+              aria-pressed={settings.destinationId === d.id}
+            >
+              <DestinationIcon id={d.id} size={36} />
+              <span className="dest-card-label">{d.label}</span>
+            </button>
+          ))}
         </div>
       </div>
 
