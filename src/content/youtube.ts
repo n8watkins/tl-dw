@@ -16,9 +16,6 @@
  * gets no transcript — the background worker handles that.
  */
 
-import { buildMomentsPanel, deriveMoments } from "./moments";
-import type { TimedSegment } from "./moments";
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = (...args: unknown[]) => console.log("[TL;DW]", ...args);
 
@@ -28,7 +25,6 @@ const currentVideoId = (): string | null =>
 // --- intercepted transcript cache ----------------------------------------
 
 let captured: string | null = null;
-let capturedTimed: TimedSegment[] | null = null;
 let capturedVideoId: string | null = null;
 
 window.addEventListener("message", (event) => {
@@ -45,35 +41,15 @@ window.addEventListener("message", (event) => {
         ? extractFromTimedText(data.body)
         : null;
 
-  const timed =
-    data.kind === "get_transcript"
-      ? extractTimedFromGetTranscript(data.body)
-      : data.kind === "timedtext"
-        ? extractTimedFromTimedText(data.body)
-        : null;
-
-  if (text || timed) {
-    if (text) captured = text;
-    if (timed) capturedTimed = timed;
+  if (text) {
+    captured = text;
     capturedVideoId = currentVideoId();
-    log(
-      "intercepted transcript:",
-      text?.length ?? 0,
-      "chars,",
-      timed?.length ?? 0,
-      "timed segments",
-    );
+    log("intercepted transcript:", text.length, "chars");
   }
 });
 
 function cachedForCurrentVideo(): string | null {
   return captured && capturedVideoId === currentVideoId() ? captured : null;
-}
-
-function cachedTimedForCurrentVideo(): TimedSegment[] | null {
-  return capturedTimed && capturedVideoId === currentVideoId()
-    ? capturedTimed
-    : null;
 }
 
 // --- parsing YouTube's transcript payloads -------------------------------
@@ -112,32 +88,6 @@ function extractFromGetTranscript(root: unknown): string | null {
   return text.length > 20 ? text : null;
 }
 
-/** Like extractFromGetTranscript, but keeps each segment's start time. */
-function extractTimedFromGetTranscript(root: unknown): TimedSegment[] | null {
-  const out: TimedSegment[] = [];
-  const visit = (node: unknown): void => {
-    if (!node || typeof node !== "object") return;
-    if (Array.isArray(node)) {
-      node.forEach(visit);
-      return;
-    }
-    const record = node as Record<string, unknown>;
-    const seg = record.transcriptSegmentRenderer as
-      | { snippet?: SnippetLike; startMs?: string }
-      | undefined;
-    if (seg?.snippet) {
-      const text = snippetText(seg.snippet).replace(/\s+/g, " ").trim();
-      const startMs = Number(seg.startMs);
-      if (text && Number.isFinite(startMs)) {
-        out.push({ startSeconds: startMs / 1000, text });
-      }
-    }
-    for (const key in record) visit(record[key]);
-  };
-  visit(root);
-  return out.length ? out : null;
-}
-
 /** Parse a timedtext response — either json3 or the legacy XML. */
 function extractFromTimedText(body: unknown): string | null {
   if (typeof body !== "string" || !body) return null;
@@ -165,41 +115,6 @@ function extractFromTimedText(body: unknown): string | null {
   }
   const text = parts.join(" ").replace(/\s+/g, " ").trim();
   return text.length > 20 ? text : null;
-}
-
-/** Like extractFromTimedText, but keeps each cue's start time. */
-function extractTimedFromTimedText(body: unknown): TimedSegment[] | null {
-  if (typeof body !== "string" || !body) return null;
-
-  if (body.trimStart().startsWith("{")) {
-    try {
-      const json = JSON.parse(body) as {
-        events?: { tStartMs?: number; segs?: { utf8?: string }[] }[];
-      };
-      const out: TimedSegment[] = [];
-      for (const e of json.events ?? []) {
-        const text = (e.segs ?? [])
-          .map((s) => s.utf8 ?? "")
-          .join("")
-          .replace(/\s+/g, " ")
-          .trim();
-        if (text && typeof e.tStartMs === "number") {
-          out.push({ startSeconds: e.tStartMs / 1000, text });
-        }
-      }
-      return out.length ? out : null;
-    } catch {
-      return null;
-    }
-  }
-
-  const out: TimedSegment[] = [];
-  for (const m of body.matchAll(/<text\b([^>]*)>([\s\S]*?)<\/text>/g)) {
-    const start = /start="([\d.]+)"/.exec(m[1]);
-    const text = decodeEntities(m[2]).replace(/\s+/g, " ").trim();
-    if (text && start) out.push({ startSeconds: parseFloat(start[1]), text });
-  }
-  return out.length ? out : null;
 }
 
 function decodeEntities(s: string): string {
@@ -291,38 +206,11 @@ function scrapeRenderedTranscript(): string | null {
   return null;
 }
 
-/** Like scrapeRenderedTranscript, but keeps each segment's start time. */
-function scrapeTimedRenderedTranscript(): TimedSegment[] | null {
-  const out: TimedSegment[] = [];
-
-  const modern = document.querySelectorAll(
-    "transcript-segment-view-model, .ytwTranscriptSegmentViewModelHost",
-  );
-  modern.forEach((seg) => {
-    const raw = (seg.textContent ?? "").replace(/\s+/g, " ").trim();
-    const m = /^(\d{1,2}:\d{2}(?::\d{2})?)\s*(.*)$/.exec(raw);
-    if (m && m[2]) out.push({ startSeconds: hmsToSeconds(m[1]), text: m[2].trim() });
-  });
-  if (out.length) return out;
-
-  document.querySelectorAll("ytd-transcript-segment-renderer").forEach((seg) => {
-    const ts = seg.querySelector(".segment-timestamp")?.textContent?.trim();
-    const text = seg.querySelector(".segment-text")?.textContent?.trim();
-    if (ts && text) out.push({ startSeconds: hmsToSeconds(ts), text });
-  });
-  return out.length ? out : null;
-}
-
 // --- request handling -----------------------------------------------------
 
 /** Either source: intercepted network data, or the rendered panel. */
 function available(): string | null {
   return cachedForCurrentVideo() ?? scrapeRenderedTranscript();
-}
-
-/** Timestamped equivalent of available(). */
-function timedAvailable(): TimedSegment[] | null {
-  return cachedTimedForCurrentVideo() ?? scrapeTimedRenderedTranscript();
 }
 
 /** The transcript engagement panel element, if present. */
@@ -338,7 +226,6 @@ function transcriptPanelOpen(): boolean {
   if (panel) {
     return panel.getAttribute("visibility") === "ENGAGEMENT_PANEL_VISIBILITY_EXPANDED";
   }
-  // Fallback: a rendered, on-screen segment means the panel is showing.
   const seg = document.querySelector<HTMLElement>("ytd-transcript-segment-renderer");
   return !!(seg && seg.offsetParent !== null);
 }
@@ -355,7 +242,6 @@ function closeTranscriptPanel(): void {
     closeBtn.click();
     return;
   }
-  // Fallback: re-click the toggle that opened it.
   findShowTranscriptButton()?.click();
 }
 
@@ -384,8 +270,6 @@ async function openTranscriptPanel(): Promise<{ openedByUs: boolean }> {
 }
 
 async function getTranscript(): Promise<string | null> {
-  // Panel may already be open (or data already intercepted) — take it as-is so
-  // we don't toggle an open panel shut.
   const immediate = available();
   if (immediate) {
     log("transcript ready:", immediate.length, "chars");
@@ -394,13 +278,11 @@ async function getTranscript(): Promise<string | null> {
 
   const { openedByUs } = await openTranscriptPanel();
 
-  // Poll both sources until the lines appear.
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
     await sleep(300);
     const hit = available();
     if (hit) {
-      // Leave the page as we found it: close the panel only if we opened it.
       if (openedByUs) closeTranscriptPanel();
       log("transcript captured:", hit.length, "chars");
       return hit;
@@ -409,28 +291,6 @@ async function getTranscript(): Promise<string | null> {
 
   if (openedByUs) closeTranscriptPanel();
   log("no transcript captured");
-  return null;
-}
-
-/** The timestamped transcript, opening the panel if needed (for seek links). */
-async function getTimedTranscript(): Promise<TimedSegment[] | null> {
-  const immediate = timedAvailable();
-  if (immediate) return immediate;
-
-  const { openedByUs } = await openTranscriptPanel();
-
-  const deadline = Date.now() + 10000;
-  while (Date.now() < deadline) {
-    await sleep(300);
-    const hit = timedAvailable();
-    if (hit) {
-      // Leave the page as we found it: close the panel only if we opened it.
-      if (openedByUs) closeTranscriptPanel();
-      log("timed transcript captured:", hit.length, "segments");
-      return hit;
-    }
-  }
-  if (openedByUs) closeTranscriptPanel();
   return null;
 }
 
@@ -461,128 +321,12 @@ function getVideoMeta(): { durationSeconds: number; channel: string } {
   return { durationSeconds, channel };
 }
 
-// --- key-moments panel (seek links) --------------------------------------
-
-let momentsPanel: HTMLElement | null = null;
-
-/** Move the player to a timestamp and start playing from there. */
-function seekTo(seconds: number): void {
-  const video = document.querySelector<HTMLVideoElement>(
-    "video.html5-main-video, video",
-  );
-  if (!video) return;
-  video.currentTime = seconds;
-  // The click is a user gesture, so play() is allowed; ignore the rare reject.
-  void video.play().catch(() => {});
-}
-
-function removeMomentsPanel(): void {
-  momentsPanel?.remove();
-  momentsPanel = null;
-}
-
-/**
- * Toggle the on-page key-moments panel. Derives moments from the timestamped
- * transcript (no model, no reading any answer) and inserts the panel directly
- * below the player (above the title), falling back to the related-videos
- * column. Returns a result the popup surfaces on failure.
- */
-async function toggleMoments(
-  forceShow = false,
-): Promise<{ ok: boolean; shown?: boolean; reason?: string }> {
-  if (momentsPanel) {
-    // A plain toggle hides an open panel; a forced show (auto-on-summarize)
-    // leaves the existing one in place.
-    if (forceShow) return { ok: true, shown: true };
-    removeMomentsPanel();
-    return { ok: true, shown: false };
-  }
-
-  const segments = await getTimedTranscript();
-  if (!segments || segments.length === 0) {
-    return { ok: false, reason: "no transcript" };
-  }
-
-  const { durationSeconds } = getVideoMeta();
-  const moments = deriveMoments(segments, durationSeconds);
-  if (moments.length === 0) return { ok: false, reason: "no moments" };
-
-  // Prefer the under-player column (above the title), where it's plainly
-  // visible; fall back to the related-videos sidebar on unusual layouts.
-  const host =
-    document.querySelector("#below") ??
-    document.querySelector("ytd-watch-metadata") ??
-    document.querySelector("#secondary-inner") ??
-    document.querySelector("#secondary");
-  if (!host) return { ok: false, reason: "no place to show the panel" };
-
-  // Restore the accordion's last collapsed state. storage.local (not session)
-  // because content scripts can't read storage.session without a trusted
-  // access-level grant; persisting across restarts is harmless for this flag.
-  const { tldwMomentsCollapsed } = await chrome.storage.local
-    .get("tldwMomentsCollapsed")
-    .catch(() => ({ tldwMomentsCollapsed: false }));
-
-  const panel = buildMomentsPanel(moments, {
-    onSeek: seekTo,
-    onClose: removeMomentsPanel,
-    initialCollapsed: !!tldwMomentsCollapsed,
-    onToggleCollapse: (collapsed) => {
-      void chrome.storage.local.set({ tldwMomentsCollapsed: collapsed }).catch(() => {});
-    },
-  });
-  host.prepend(panel);
-  momentsPanel = panel;
-  log("showing", moments.length, "moments");
-  return { ok: true, shown: true };
-}
-
-/**
- * Show the key-moments panel using AI-derived moments forwarded from the
- * inject script. `moments` are `{t: seconds, label}` objects.
- */
-async function showAiMoments(
-  aiMoments: Array<{ t: number; label: string }>,
-): Promise<void> {
-  const moments = aiMoments.map((m) => ({ startSeconds: m.t, label: m.label }));
-  if (moments.length === 0) return;
-
-  const host =
-    document.querySelector("#below") ??
-    document.querySelector("ytd-watch-metadata") ??
-    document.querySelector("#secondary-inner") ??
-    document.querySelector("#secondary");
-  if (!host) return;
-
-  // Replace any existing panel (local or previous AI run).
-  removeMomentsPanel();
-
-  const { tldwMomentsCollapsed } = await chrome.storage.local
-    .get("tldwMomentsCollapsed")
-    .catch(() => ({ tldwMomentsCollapsed: false }));
-
-  const panel = buildMomentsPanel(moments, {
-    onSeek: seekTo,
-    onClose: removeMomentsPanel,
-    initialCollapsed: !!tldwMomentsCollapsed,
-    onToggleCollapse: (collapsed) => {
-      void chrome.storage.local.set({ tldwMomentsCollapsed: collapsed }).catch(() => {});
-    },
-  });
-  host.prepend(panel);
-  momentsPanel = panel;
-  log("showing", moments.length, "AI moments");
-}
-
-// A stale panel from the previous video shouldn't linger after SPA navigation.
-window.addEventListener("yt-navigate-finish", removeMomentsPanel);
-
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const type = (message as { type?: string })?.type;
   if (type === "GET_TRANSCRIPT") {
     log("transcript requested");
     void getTranscript().then((transcript) => sendResponse({ transcript }));
-    return true; // keep the channel open for the async response
+    return true;
   }
   if (type === "PAUSE_VIDEO") {
     const video = document.querySelector<HTMLVideoElement>(
@@ -595,16 +339,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (type === "GET_VIDEO_META") {
     sendResponse(getVideoMeta());
     return false;
-  }
-  if (type === "TOGGLE_MOMENTS") {
-    const force = !!(message as { show?: boolean })?.show;
-    void toggleMoments(force).then((result) => sendResponse(result));
-    return true; // async response
-  }
-  if (type === "SET_MOMENTS") {
-    const moments = (message as { moments?: Array<{ t: number; label: string }> })?.moments ?? [];
-    void showAiMoments(moments).then(() => sendResponse({ ok: true }));
-    return true;
   }
   return false;
 });

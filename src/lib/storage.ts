@@ -86,10 +86,6 @@ export async function resolveProfile(
 
 export type PendingData = {
   prompt: string;
-  /** Whether the inject script should watch for a TLDW_MOMENTS line in the response. */
-  autoMoments?: boolean;
-  /** YouTube tab to forward AI-derived moments to. */
-  sourceTabId?: number;
 };
 
 export async function setPendingPrompt(

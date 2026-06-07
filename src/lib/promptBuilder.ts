@@ -68,21 +68,6 @@ export function prependWorthWatchingGate(
   return `${directive}\n\n${prompt}`;
 }
 
-/**
- * Append a structured key-moments request to a prompt. The AI is asked to
- * output a single `TLDW_MOMENTS:[...]` line at the very end of its response,
- * which the inject script then parses and forwards to the YouTube tab.
- */
-export function appendMomentsRequest(prompt: string): string {
-  return (
-    prompt +
-    "\n\n---\n" +
-    "After all other content, output exactly one line with no surrounding text:\n" +
-    'TLDW_MOMENTS:[{"t":0,"label":"Short title"},{"t":60,"label":"Another moment"}]\n' +
-    "Rules: 4–8 key moments, t = seconds from video start, each label ≤ 35 chars."
-  );
-}
-
 /** Append the verbatim transcript to a prompt, when one is available. */
 export function appendTranscript(
   prompt: string,

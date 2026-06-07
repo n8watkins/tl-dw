@@ -46,15 +46,6 @@ function SparkIcon() {
   );
 }
 
-function MomentsIcon() {
-  return (
-    <svg {...iconProps} aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  );
-}
-
 function YouTubeIcon() {
   return (
     <svg width={20} height={14} viewBox="0 0 20 14" aria-hidden="true" style={{ flex: "0 0 auto" }}>
@@ -99,7 +90,6 @@ export function App() {
   const [openSearches, setOpenSearches] = useState<OpenSearch[]>([]);
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   const [statuses, setStatuses] = useState<DeliveryStatus[]>([]);
-  const [autoMoments, setAutoMoments] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -117,7 +107,6 @@ export function App() {
       setSelectedId(s.defaultProfileId ?? p[0]?.id ?? "");
       setDestinationId(s.destinationId ?? "gemini");
       setGate(s.worthWatchingGate ?? false);
-      setAutoMoments(s.autoShowMoments ?? false);
       setOpenSearches(open);
       setHistory(hist);
       setStatuses(stat);
@@ -170,67 +159,6 @@ export function App() {
     window.close();
   }
 
-  /**
-   * Toggle the on-page "key moments" panel. When called from a destination tab
-   * (pass the linked OpenSearch), it focuses the source YouTube tab first; if
-   * that tab has closed it reopens the video URL and exits. When called from the
-   * YouTube tab itself (no argument), it targets the current tab as before.
-   */
-  async function showMoments(search?: OpenSearch) {
-    setBusy(true);
-    setCopyStatus("Finding key moments…");
-
-    let targetTabId: number | undefined;
-
-    if (search?.sourceTabId !== undefined) {
-      try {
-        const t = await chrome.tabs.get(search.sourceTabId);
-        await chrome.tabs.update(search.sourceTabId, { active: true });
-        if (t.windowId !== undefined) {
-          await chrome.windows.update(t.windowId, { focused: true });
-        }
-        targetTabId = search.sourceTabId;
-      } catch {
-        // Source tab is gone — reopen the video as a fallback.
-        if (search.videoUrl) {
-          await chrome.tabs.create({ url: search.videoUrl, active: true });
-          window.close();
-          return;
-        }
-        setCopyStatus("Couldn't reach the YouTube tab — it may have been closed.");
-        setBusy(false);
-        return;
-      }
-    } else {
-      targetTabId = tab?.id;
-    }
-
-    if (!targetTabId) {
-      setBusy(false);
-      return;
-    }
-
-    try {
-      const r = (await chrome.tabs.sendMessage(targetTabId, {
-        type: "TOGGLE_MOMENTS",
-        show: true,
-      })) as { ok: boolean; shown?: boolean; reason?: string } | undefined;
-      if (r?.ok) {
-        window.close();
-        return;
-      }
-      setCopyStatus(
-        r?.reason === "no transcript"
-          ? "No transcript found (does this video have captions?)."
-          : "Couldn't show key moments — reload the YouTube tab and retry.",
-      );
-    } catch {
-      setCopyStatus("Couldn't reach the page — reload the YouTube tab and retry.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   /** Jump to a still-open search tab; if it's gone, drop it from the list. */
   async function goToSearch(s: OpenSearch) {
     try {
@@ -258,7 +186,7 @@ export function App() {
     const targetUrl = dest.id === "gemini" ? settings.geminiUrl : dest.url;
     const t = await chrome.tabs.create({ url: targetUrl, active: settings.focusGeminiTab });
     if (t.id !== undefined) {
-      await setPendingPrompt(t.id, entry.prompt);
+      await setPendingPrompt(t.id, { prompt: entry.prompt });
       await addOpenSearch({
         tabId: t.id,
         videoTitle: video.title,
@@ -273,15 +201,6 @@ export function App() {
   function openOptions() {
     void chrome.runtime.openOptionsPage();
     window.close();
-  }
-
-  async function toggleAutoMoments(checked: boolean) {
-    setAutoMoments(checked);
-    if (settings) {
-      const updated = { ...settings, autoShowMoments: checked };
-      setSettings(updated);
-      await saveSettings(updated);
-    }
   }
 
   async function goToVideoTab() {
@@ -453,33 +372,6 @@ export function App() {
               </>
             )}
 
-          <label className="check-field">
-            <input
-              type="checkbox"
-              checked={autoMoments}
-              onChange={(e) => void toggleAutoMoments(e.target.checked)}
-            />
-            <span>Show key moments on send</span>
-          </label>
-
-          <button className="secondary" onClick={() => void showMoments()} disabled={busy}>
-            <MomentsIcon />
-            Key moments on video
-          </button>
-          {copyStatus && <p className="copy-status">{copyStatus}</p>}
-        </>
-      )}
-
-      {linkedSearch?.sourceTabId !== undefined && (
-        <>
-          <button
-            className="secondary"
-            onClick={() => void showMoments(linkedSearch)}
-            disabled={busy}
-          >
-            <MomentsIcon />
-            Key moments on video
-          </button>
           {copyStatus && <p className="copy-status">{copyStatus}</p>}
         </>
       )}
