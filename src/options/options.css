@@ -312,6 +312,22 @@ nav {
   padding: 20px;
 }
 
+.step-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+.step-icon svg { width: 28px; height: 28px; }
+
+.step-icon-red    { background: rgba(239, 68, 68, 0.12);  color: #f87171; }
+.step-icon-purple { background: rgba(124, 58, 237, 0.15); color: #a78bfa; }
+.step-icon-teal   { background: rgba(20, 184, 166, 0.12); color: #2dd4bf; }
+
 .step-num {
   font-size: 11px;
   font-weight: 700;

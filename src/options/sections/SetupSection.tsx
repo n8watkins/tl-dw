@@ -1,3 +1,14 @@
+import { Icon } from "../components/Icons";
+
+function StepYouTubeIcon() {
+  return (
+    <svg width={34} height={24} viewBox="0 0 34 24" aria-hidden="true">
+      <rect width="34" height="24" rx="5" fill="currentColor" />
+      <polygon points="13,6 13,18 24.5,12" fill="white" />
+    </svg>
+  );
+}
+
 export function SetupSection() {
   function openShortcuts() {
     void chrome.tabs.create({ url: "chrome://extensions/shortcuts" });
@@ -6,34 +17,41 @@ export function SetupSection() {
   return (
     <div>
       <div className="section-header">
-        <h1 className="section-title">Setup</h1>
-        <p className="section-desc">Get TL;DW working in under two minutes.</p>
+        <h1 className="section-title">Watch what you want to watch.</h1>
+        <p className="section-desc">
+          TL;DW summarizes any YouTube video in seconds — so you decide if it's worth your time before you spend it.
+        </p>
       </div>
 
       <div className="steps">
         <div className="step">
+          <div className="step-icon step-icon-red">
+            <StepYouTubeIcon />
+          </div>
           <div className="step-num">Step 1</div>
-          <div className="step-title">Open a YouTube video</div>
+          <div className="step-title">Open YouTube</div>
           <div className="step-body">
-            Navigate to any YouTube watch page or Short. TL;DW detects the video
-            automatically — no clicking required.
+            Navigate to any video or Short. TL;DW detects it automatically — no extra clicking.
           </div>
         </div>
         <div className="step">
+          <div className="step-icon step-icon-purple">
+            <Icon name="sparkles" />
+          </div>
           <div className="step-num">Step 2</div>
-          <div className="step-title">Press Alt+Shift+G</div>
+          <div className="step-title">Summarize to your AI</div>
           <div className="step-body">
-            TL;DW builds your default prompt, opens your chosen AI (Gemini,
-            ChatGPT, Claude, Perplexity, or NotebookLM) in a new tab, and
-            auto-submits. The answer starts generating immediately.
+            Press <kbd>Alt+Shift+G</kbd>. Gemini, ChatGPT, Claude, or Perplexity opens with the full analysis already running.
           </div>
         </div>
         <div className="step">
+          <div className="step-icon step-icon-teal">
+            <Icon name="eye" />
+          </div>
           <div className="step-num">Step 3</div>
-          <div className="step-title">Read, not watch</div>
+          <div className="step-title">Watch what you want</div>
           <div className="step-body">
-            The AI analyzes the video and gives you the version you actually
-            needed. Switch profiles for different kinds of analysis.
+            Read the summary, catch the key moments, skip what doesn't matter. Your time, your call.
           </div>
         </div>
       </div>
