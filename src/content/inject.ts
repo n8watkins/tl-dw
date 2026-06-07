@@ -92,7 +92,7 @@ function configForHost(host: string): SiteConfig | null {
   return null;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function waitFor<T extends Element>(
   selectors: string[],
@@ -564,6 +564,44 @@ async function runNotebookLM(content: string): Promise<Outcome> {
   return { ok: false, reason: 'filled the source box but couldn\'t click "Insert"' };
 }
 
+/**
+ * Activate the temporary/incognito chat mode for destinations that require a
+ * UI click rather than a URL parameter. Claude and ChatGPT use incognito URLs
+ * (handled by the background); Gemini and Perplexity need a button click here.
+ */
+async function activateTemporaryMode(host: string): Promise<void> {
+  if (host.endsWith("gemini.google.com")) {
+    const btn = await waitFor<HTMLElement>(
+      ['button[aria-label="Temporary chat"]', "temp-chat-button button"],
+      6000,
+    );
+    if (btn) {
+      btn.click();
+      await sleep(600);
+    }
+  } else if (host.endsWith("perplexity.ai")) {
+    // Perplexity exposes a keyboard shortcut (Ctrl+;) that toggles incognito.
+    // Try clicking a labelled button first; fall back to the shortcut.
+    const btn = await waitFor<HTMLElement>(
+      ['button[aria-label*="incognito" i]', '[data-testid*="incognito" i]'],
+      1500,
+    );
+    if (btn) {
+      btn.click();
+    } else {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: ";",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }
+    await sleep(400);
+  }
+}
+
 async function run(): Promise<void> {
   if (location.hostname.endsWith("notebooklm.google.com")) {
     const res = (await chrome.runtime.sendMessage({ type: "GET_PENDING" })) as {
@@ -581,10 +619,15 @@ async function run(): Promise<void> {
   const res = (await chrome.runtime.sendMessage({ type: "GET_PENDING" })) as {
     prompt: string | null;
     autoSubmit?: boolean;
+    temporaryChats?: boolean;
   } | null;
 
   const prompt = res?.prompt;
   if (!prompt) return;
+
+  if (res?.temporaryChats) {
+    await activateTemporaryMode(location.hostname);
+  }
 
   const editor = await waitFor<HTMLElement>(config.editorSelectors, 12000);
   if (!editor) {

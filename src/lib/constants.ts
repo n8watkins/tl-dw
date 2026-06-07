@@ -13,9 +13,25 @@ export const GEMINI_URL = "https://gemini.google.com/app";
  * can watch the YouTube URL itself, so the rest get the transcript included.
  */
 export const DESTINATIONS: Destination[] = [
-  { id: "gemini", label: "Gemini", url: GEMINI_URL, canWatch: true },
-  { id: "chatgpt", label: "ChatGPT", url: "https://chatgpt.com/" },
-  { id: "claude", label: "Claude", url: "https://claude.ai/new" },
+  {
+    id: "gemini",
+    label: "Gemini",
+    url: GEMINI_URL,
+    canWatch: true,
+    // Gemini temporary chat has no URL param — content script clicks the button.
+  },
+  {
+    id: "chatgpt",
+    label: "ChatGPT",
+    url: "https://chatgpt.com/",
+    incognitoUrl: "https://chatgpt.com/?temporary-chat=true",
+  },
+  {
+    id: "claude",
+    label: "Claude",
+    url: "https://claude.ai/new",
+    incognitoUrl: "https://claude.ai/new?incognito=true",
+  },
   {
     id: "notebooklm",
     label: "NotebookLM",
@@ -24,11 +40,13 @@ export const DESTINATIONS: Destination[] = [
     // injector drives its "Websites" source with the YouTube URL. Switch to
     // "source" to paste the transcript via "Copied text" instead.
     payload: "link",
+    // NotebookLM has no temporary/incognito mode.
   },
   {
     id: "perplexity",
     label: "Perplexity",
     url: "https://www.perplexity.ai/",
+    // Perplexity temporary chat has no URL param — content script sends Ctrl+;.
   },
 ];
 
@@ -80,6 +98,7 @@ export const DEFAULT_SETTINGS: Settings = {
   gateBypassTerms: "",
   includeTranscript: true,
   destinationId: "gemini",
+  temporaryChats: true,
 };
 
 export function isYouTubeVideoUrl(url: string | undefined): boolean {

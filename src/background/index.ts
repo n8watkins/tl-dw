@@ -230,7 +230,14 @@ async function runSummary(
 
   // Open the destination tab and hand its injector the prompt to auto-fill.
   // Gemini's URL is user-configurable; the rest open their fixed URL.
-  const targetUrl = destination.id === "gemini" ? settings.geminiUrl : destination.url;
+  // When temporary chats are on, prefer the incognito URL if the destination
+  // has one (Claude, ChatGPT). Gemini and Perplexity have no incognito URL —
+  // their content scripts click the temp-chat button instead.
+  const baseUrl = destination.id === "gemini" ? settings.geminiUrl : destination.url;
+  const targetUrl =
+    settings.temporaryChats && destination.incognitoUrl
+      ? destination.incognitoUrl
+      : baseUrl;
   const injectTab = await chrome.tabs.create({
     url: targetUrl,
     active: settings.focusGeminiTab,
@@ -321,7 +328,8 @@ chrome.runtime.onMessage.addListener(
           sendResponse({
             prompt: pending?.prompt ?? null,
             autoSubmit: settings.autoSubmit,
-            }),
+            temporaryChats: settings.temporaryChats,
+          }),
       );
       return true;
     }

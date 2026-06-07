@@ -87,6 +87,11 @@ export type Destination = {
    * destination can't watch the video — independent of how it's delivered.
    */
   canWatch?: boolean;
+  /**
+   * URL to open when temporary/incognito mode is enabled. If absent, the
+   * content script handles the toggle (e.g. clicking the temp-chat button).
+   */
+  incognitoUrl?: string;
 };
 
 export type Settings = {
@@ -113,6 +118,8 @@ export type Settings = {
   includeTranscript: boolean;
   /** Which destination a summary is sent to (see DESTINATIONS). */
   destinationId: string;
+  /** Open chats in incognito/temporary mode — not saved to the AI's history. */
+  temporaryChats: boolean;
 };
 
 export type StorageState = {

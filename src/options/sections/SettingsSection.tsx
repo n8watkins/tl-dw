@@ -116,6 +116,30 @@ export function SettingsSection() {
       </div>
 
       <div className="settings-group">
+        <div className="settings-group-title"><Icon name="ghost" /> Privacy</div>
+
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Temporary chats</div>
+            <div className="setting-sub">
+              Open in incognito mode — chats won't be saved to the AI's history.
+              Works on Claude, ChatGPT, Gemini, and Perplexity.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.temporaryChats}
+                onChange={(e) => void update({ temporaryChats: e.target.checked })}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-group">
         <div className="settings-group-title"><Icon name="eye" /> Worth watching</div>
 
         <div className="setting-row">

@@ -19,7 +19,8 @@ export type IconProps = {
     | "upload"
     | "send"
     | "sparkles"
-    | "eye";
+    | "eye"
+    | "ghost";
 };
 
 const PATHS: Record<IconProps["name"], string[]> = {
@@ -49,6 +50,11 @@ const PATHS: Record<IconProps["name"], string[]> = {
     "M19 14l.7 1.9 1.9.7-1.9.7L19 20l-.7-1.8-1.9-.7 1.9-.7z",
   ],
   eye: ["M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z", "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"],
+  ghost: [
+    "M12 3a7 7 0 0 0-7 7v11l2.5-2 2.5 2 2.5-2 2.5 2V10a7 7 0 0 0-7-7z",
+    "M9 10h.01",
+    "M15 10h.01",
+  ],
 };
 
 export { DestinationIcon } from "../../lib/DestinationIcon";
