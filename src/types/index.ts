@@ -156,6 +156,8 @@ export type Settings = {
   geminiApiKeyName: string;
   /** Use the direct API path when a key is present (can be toggled off in the popup). */
   useDirectApi: boolean;
+  /** Profile to use for Direct API auto-runs; falls back to the default profile if unset. */
+  directApiProfileId?: string;
 };
 
 export type StorageState = {

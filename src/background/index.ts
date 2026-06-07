@@ -196,7 +196,7 @@ async function runSummary(
     return;
   }
 
-  const profile = await resolveProfile(profileId);
+  let profile = await resolveProfile(profileId);
   if (!profile) return;
 
   const settings = await getSettings();
@@ -262,6 +262,11 @@ async function runSummary(
   let prompt = buildDestinationPrompt(profile, video, promptDest, transcript, userCuriosity);
   if (gateMinutes > 0) {
     prompt = prependWorthWatchingGate(prompt, gateMinutes);
+  }
+
+  // For headless runs, use the designated Direct API profile if one is set.
+  if (willUseDirectApi && settings.directApiProfileId) {
+    profile = (await resolveProfile(settings.directApiProfileId)) ?? profile;
   }
 
   // --- headless path: call Gemini API directly (no tab) -------------------

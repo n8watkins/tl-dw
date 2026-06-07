@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import type { GeminiCallEntry, GeminiUsage, Settings } from "../../types";
+import type { GeminiCallEntry, GeminiUsage, PromptProfile, Settings } from "../../types";
 import { DEFAULT_SETTINGS, STORAGE_KEYS } from "../../lib/constants";
 import {
   clearGeminiCallLog,
   clearGeminiUsage,
   getGeminiCallLog,
   getGeminiUsage,
+  getProfiles,
   getSettings,
   setSettings,
 } from "../../lib/storage";
@@ -14,6 +15,7 @@ import { Icon } from "../components/Icons";
 
 export function DirectApiSection() {
   const [settings, setLocal] = useState<Settings | null>(null);
+  const [profiles, setProfiles] = useState<PromptProfile[]>([]);
   const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({
     totalCalls: 0,
     allTimeCalls: 0,
@@ -28,11 +30,12 @@ export function DirectApiSection() {
   const [confirmClearLog, setConfirmClearLog] = useState(false);
 
   useEffect(() => {
-    void Promise.all([getSettings(), getGeminiUsage(), getGeminiCallLog()]).then(
-      ([s, u, log]) => {
+    void Promise.all([getSettings(), getGeminiUsage(), getGeminiCallLog(), getProfiles()]).then(
+      ([s, u, log, p]) => {
         setLocal(s);
         setGeminiUsage(u);
         setCallLog(log);
+        setProfiles(p);
       },
     );
 
@@ -226,6 +229,31 @@ export function DirectApiSection() {
             </label>
           </div>
         </div>
+
+        {profiles.length > 0 && (
+          <div className="setting-row">
+            <div className="setting-info">
+              <div className="setting-label">Profile for auto-runs</div>
+              <div className="setting-sub">
+                Which prompt profile to use when Direct API fires automatically on page load.
+                Defaults to your global default profile if not set.
+              </div>
+            </div>
+            <div className="setting-control">
+              <select
+                value={settings.directApiProfileId ?? ""}
+                onChange={(e) => void update({ directApiProfileId: e.target.value || undefined })}
+                disabled={!hasKey}
+                style={{ fontSize: 13, minWidth: 140 }}
+              >
+                <option value="">Default profile</option>
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Usage stats */}
