@@ -138,3 +138,68 @@ Do not invent timestamps, quotes, or moments.`,
 export function getOriginalTemplate(id: string): string | undefined {
   return createDefaultProfiles().find((p) => p.id === id)?.promptTemplate;
 }
+
+/** Collapse whitespace and trim, so name comparisons/uniqueness are stable. */
+export function normalizeName(name: string): string {
+  return name.trim().replace(/\s+/g, " ");
+}
+
+/** A name not already taken (case-insensitive), suffixing " (2)", " (3)", … */
+export function nextAvailableName(profiles: PromptProfile[], baseName: string): string {
+  const base = normalizeName(baseName) || "New Profile";
+  const used = new Set(profiles.map((p) => normalizeName(p.name).toLowerCase()));
+  if (!used.has(base.toLowerCase())) return base;
+
+  let index = 2;
+  while (used.has(`${base} (${index})`.toLowerCase())) index += 1;
+  return `${base} (${index})`;
+}
+
+export type ImportProfilesResult =
+  | { ok: false; error: string }
+  | { ok: true; profiles: PromptProfile[]; added: number; skipped: number };
+
+/**
+ * Merge profiles parsed from an import file into the existing set. Accepts a
+ * bare array or the `{ profiles: [...] }` export envelope. Each valid entry is
+ * brought in as a *new* custom profile: fresh id, conflict-free name, and never
+ * inheriting isDefault/isCustomized from the source. Pure (no storage) so it's
+ * unit-testable; the caller persists the result.
+ */
+export function mergeImportedProfiles(
+  existing: PromptProfile[],
+  parsed: unknown,
+  makeId: () => string = () => crypto.randomUUID(),
+  timestamp: string = new Date().toISOString(),
+): ImportProfilesResult {
+  const incoming = Array.isArray(parsed)
+    ? parsed
+    : (parsed as { profiles?: unknown } | null)?.profiles;
+  if (!Array.isArray(incoming)) {
+    return { ok: false, error: "No profiles found in that file." };
+  }
+
+  const working = [...existing];
+  let added = 0;
+  let skipped = 0;
+  for (const raw of incoming as Array<Record<string, unknown>>) {
+    if (!raw || typeof raw.name !== "string" || typeof raw.promptTemplate !== "string") {
+      skipped += 1;
+      continue;
+    }
+    working.push({
+      id: makeId(),
+      name: nextAvailableName(working, normalizeName(raw.name) || "Imported Profile"),
+      description: typeof raw.description === "string" ? raw.description : "",
+      promptTemplate: raw.promptTemplate,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    added += 1;
+  }
+
+  if (added === 0) {
+    return { ok: false, error: "No valid profiles to import." };
+  }
+  return { ok: true, profiles: working, added, skipped };
+}

@@ -1,27 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import type { PromptProfile, Settings } from "../../types";
 import { getProfiles, getSettings, setProfiles, setSettings } from "../../lib/storage";
-import { getOriginalTemplate } from "../../lib/profiles";
+import {
+  getOriginalTemplate,
+  mergeImportedProfiles,
+  nextAvailableName,
+  normalizeName,
+} from "../../lib/profiles";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
-
-function normalizeName(name: string): string {
-  return name.trim().replace(/\s+/g, " ");
-}
 
 function hasDuplicateName(profiles: PromptProfile[], id: string, name: string): boolean {
   const normalized = normalizeName(name).toLowerCase();
   return profiles.some((profile) => profile.id !== id && normalizeName(profile.name).toLowerCase() === normalized);
-}
-
-function nextAvailableName(profiles: PromptProfile[], baseName: string): string {
-  const base = normalizeName(baseName) || "New Profile";
-  const used = new Set(profiles.map((profile) => normalizeName(profile.name).toLowerCase()));
-  if (!used.has(base.toLowerCase())) return base;
-
-  let index = 2;
-  while (used.has(`${base} (${index})`.toLowerCase())) index += 1;
-  return `${base} (${index})`;
 }
 
 function newProfile(profiles: PromptProfile[]): PromptProfile {
@@ -129,47 +120,19 @@ export function ProfilesSection() {
       setError("That file isn't valid JSON.");
       return;
     }
-    // Accept either a bare array or the { profiles: [...] } export envelope.
-    const incoming = Array.isArray(parsed)
-      ? parsed
-      : (parsed as { profiles?: unknown })?.profiles;
-    if (!Array.isArray(incoming)) {
-      setError("No profiles found in that file.");
+
+    const result = mergeImportedProfiles(profiles, parsed);
+    if (!result.ok) {
+      setError(result.error);
       return;
     }
 
-    const now = new Date().toISOString();
-    const working = [...profiles];
-    let added = 0;
-    let skipped = 0;
-    for (const raw of incoming as Array<Record<string, unknown>>) {
-      if (!raw || typeof raw.name !== "string" || typeof raw.promptTemplate !== "string") {
-        skipped += 1;
-        continue;
-      }
-      // Always import as a new custom profile: fresh id, conflict-free name, and
-      // never inherits isDefault/isCustomized from the source.
-      working.push({
-        id: crypto.randomUUID(),
-        name: nextAvailableName(working, normalizeName(raw.name) || "Imported Profile"),
-        description: typeof raw.description === "string" ? raw.description : "",
-        promptTemplate: raw.promptTemplate,
-        createdAt: now,
-        updatedAt: now,
-      });
-      added += 1;
-    }
-
-    if (added === 0) {
-      setError("No valid profiles to import.");
-      return;
-    }
-    setProfilesState(working);
-    await setProfiles(working);
+    setProfilesState(result.profiles);
+    await setProfiles(result.profiles);
     await chrome.runtime.sendMessage({ type: "REBUILD_MENU" });
     setNotice(
-      `Imported ${added} profile${added === 1 ? "" : "s"}` +
-        (skipped ? `, skipped ${skipped} invalid.` : "."),
+      `Imported ${result.added} profile${result.added === 1 ? "" : "s"}` +
+        (result.skipped ? `, skipped ${result.skipped} invalid.` : "."),
     );
     setTimeout(() => setNotice(null), 4000);
   }

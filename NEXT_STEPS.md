@@ -124,6 +124,8 @@ setting. Remaining (see SEEK_LINKS.md):
 ## Tests
 
 Vitest covers the pure helpers (`npm test`): `expireOldEntries` / `trimToLimit`
-(history.test.ts), `buildDestinationPrompt` (promptBuilder.test.ts), and
-`deriveMoments` (moments.test.ts) — 21 cases. DOM/content-script behavior and the
-React UI remain untested (would need jsdom + a harness).
+(history.test.ts), `buildDestinationPrompt` incl. the curiosity paths
+(promptBuilder.test.ts), `deriveMoments` (moments.test.ts), and
+`mergeImportedProfiles` / `nextAvailableName` / `normalizeName`
+(profiles.test.ts) — 34 cases. DOM/content-script behavior and the React UI
+remain untested (would need jsdom + a harness).
