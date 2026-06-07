@@ -48,7 +48,7 @@ export function SettingsSection() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group-title">Behavior</div>
+        <div className="settings-group-title"><Icon name="sliders" /> Behavior</div>
 
         <div className="setting-row">
           <div className="setting-info">
@@ -132,7 +132,7 @@ export function SettingsSection() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group-title">Worth watching</div>
+        <div className="settings-group-title"><Icon name="eye" /> Worth watching</div>
 
         <div className="setting-row">
           <div className="setting-info">
@@ -204,7 +204,7 @@ export function SettingsSection() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group-title">History</div>
+        <div className="settings-group-title"><Icon name="archive" /> History</div>
 
         <div className="setting-row">
           <div className="setting-info">
@@ -280,7 +280,7 @@ export function SettingsSection() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group-title">Destination</div>
+        <div className="settings-group-title"><Icon name="send" /> Destination</div>
 
         <div className="setting-row">
           <div className="setting-info">
@@ -310,7 +310,7 @@ export function SettingsSection() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group-title">Gemini</div>
+        <div className="settings-group-title"><Icon name="sparkles" /> Gemini</div>
 
         <div className="setting-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 10 }}>
           <div className="setting-info">
@@ -332,7 +332,7 @@ export function SettingsSection() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group-title">Reset</div>
+        <div className="settings-group-title"><Icon name="reset" /> Reset</div>
         <div className="card">
           <div className="card-title">Reset all settings</div>
           <div className="card-desc" style={{ marginBottom: 16 }}>

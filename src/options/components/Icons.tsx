@@ -13,7 +13,13 @@ type IconProps = {
     | "save"
     | "github"
     | "coffee"
-    | "heart";
+    | "heart"
+    | "sliders"
+    | "clock"
+    | "archive"
+    | "send"
+    | "sparkles"
+    | "eye";
 };
 
 const PATHS: Record<IconProps["name"], string[]> = {
@@ -34,6 +40,15 @@ const PATHS: Record<IconProps["name"], string[]> = {
   ],
   coffee: ["M4 8h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8z", "M17 9h1a3 3 0 0 1 0 6h-1", "M7 3v2", "M11 3v2", "M15 3v2"],
   heart: ["M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"],
+  sliders: ["M4 21v-7", "M4 10V3", "M12 21v-9", "M12 8V3", "M20 21v-5", "M20 12V3", "M1 14h6", "M9 8h6", "M17 16h6"],
+  clock: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "M12 7v5l3 2"],
+  archive: ["M3 4h18v4H3z", "M5 8v12h14V8", "M9 12h6"],
+  send: ["M22 2 11 13", "M22 2l-7 20-4-9-9-4 20-7z"],
+  sparkles: [
+    "M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z",
+    "M19 14l.7 1.9 1.9.7-1.9.7L19 20l-.7-1.8-1.9-.7 1.9-.7z",
+  ],
+  eye: ["M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z", "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"],
 };
 
 export function Icon({ name }: IconProps) {

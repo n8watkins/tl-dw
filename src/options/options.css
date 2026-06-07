@@ -398,10 +398,21 @@ kbd {
 
 .profile-row:hover { background: var(--surface2); }
 
-.profile-name {
+.profile-name-wrap {
   flex: 1;
+  min-width: 0;
+}
+
+.profile-name {
   font-size: 15px;
   font-weight: 600;
+}
+
+.profile-desc-inline {
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--muted);
 }
 
 .profile-row-actions {
@@ -673,12 +684,21 @@ textarea { min-height: 220px; font-family: "JetBrains Mono", "Fira Code", ui-mon
 }
 
 .settings-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--faint);
   margin-bottom: 12px;
+}
+
+.settings-group-title .icon {
+  width: 15px;
+  height: 15px;
+  color: var(--primary);
 }
 
 .setting-row {

@@ -182,7 +182,12 @@ export function ProfilesSection() {
           return (
             <div key={profile.id} className={`profile-card ${isDefault ? "default-card" : ""}`}>
               <div className="profile-row" onClick={() => setOpenId(isOpen ? null : profile.id)}>
-                <div className="profile-name">{d.name}</div>
+                <div className="profile-name-wrap">
+                  <div className="profile-name">{d.name}</div>
+                  {d.description?.trim() && (
+                    <div className="profile-desc-inline">{d.description}</div>
+                  )}
+                </div>
                 {isDefault && <span className="badge badge-default">Default</span>}
                 {!profile.isDefault && <span className="badge badge-custom">Custom</span>}
                 <div className="profile-row-actions" onClick={(event) => event.stopPropagation()}>
