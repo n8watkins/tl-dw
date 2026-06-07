@@ -6,7 +6,8 @@ import type {
 } from "../types";
 import { getHistory, setHistory } from "./storage";
 
-function trim(
+/** Keep only the newest `limit` entries ("unlimited" keeps all). Newest first. */
+export function trimToLimit(
   entries: SearchHistoryEntry[],
   limit: Settings["historyLimit"],
 ): SearchHistoryEntry[] {
@@ -52,6 +53,6 @@ export async function addHistoryEntry(args: {
   };
   const existing = await getHistory();
   const fresh = expireOldEntries([entry, ...existing], args.settings);
-  const next = trim(fresh, args.settings.historyLimit);
+  const next = trimToLimit(fresh, args.settings.historyLimit);
   await setHistory(next);
 }

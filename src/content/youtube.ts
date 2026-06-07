@@ -419,12 +419,15 @@ function getVideoMeta(): { durationSeconds: number; channel: string } {
 
 let momentsPanel: HTMLElement | null = null;
 
-/** Move the player to a timestamp, keeping the current play/pause state. */
+/** Move the player to a timestamp and start playing from there. */
 function seekTo(seconds: number): void {
   const video = document.querySelector<HTMLVideoElement>(
     "video.html5-main-video, video",
   );
-  if (video) video.currentTime = seconds;
+  if (!video) return;
+  video.currentTime = seconds;
+  // The click is a user gesture, so play() is allowed; ignore the rare reject.
+  void video.play().catch(() => {});
 }
 
 function removeMomentsPanel(): void {
@@ -438,13 +441,15 @@ function removeMomentsPanel(): void {
  * below the player (above the title), falling back to the related-videos
  * column. Returns a result the popup surfaces on failure.
  */
-async function toggleMoments(forceShow = false): Promise<{ ok: boolean; reason?: string }> {
+async function toggleMoments(
+  forceShow = false,
+): Promise<{ ok: boolean; shown?: boolean; reason?: string }> {
   if (momentsPanel) {
     // A plain toggle hides an open panel; a forced show (auto-on-summarize)
     // leaves the existing one in place.
-    if (forceShow) return { ok: true };
+    if (forceShow) return { ok: true, shown: true };
     removeMomentsPanel();
-    return { ok: true };
+    return { ok: true, shown: false };
   }
 
   const segments = await getTimedTranscript();
@@ -472,7 +477,7 @@ async function toggleMoments(forceShow = false): Promise<{ ok: boolean; reason?:
   host.prepend(panel);
   momentsPanel = panel;
   log("showing", moments.length, "moments");
-  return { ok: true };
+  return { ok: true, shown: true };
 }
 
 // A stale panel from the previous video shouldn't linger after SPA navigation.

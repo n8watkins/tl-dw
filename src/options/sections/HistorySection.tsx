@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { HistoryExpiryDays, HistoryLimit, SearchHistoryEntry, Settings } from "../../types";
 import { getHistory, getSettings, setHistory, setSettings } from "../../lib/storage";
 import { HISTORY_EXPIRY_OPTIONS } from "../../lib/constants";
-import { expireOldEntries } from "../../lib/history";
+import { expireOldEntries, trimToLimit } from "../../lib/history";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 
@@ -49,8 +49,9 @@ export function HistorySection() {
     const next = { ...settings, ...patch };
     setSettingsState(next);
     await setSettings(next);
-    // Re-apply expiry right away so the list and stored data reflect the change.
-    const pruned = expireOldEntries(entries, next);
+    // Re-apply expiry and the limit right away so the list and stored data
+    // reflect the change instead of waiting for the next saved entry.
+    const pruned = trimToLimit(expireOldEntries(entries, next), next.historyLimit);
     if (pruned.length !== entries.length) {
       setEntries(pruned);
       await setHistory(pruned);

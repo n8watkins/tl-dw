@@ -165,9 +165,15 @@ export function App() {
     try {
       const r = (await chrome.tabs.sendMessage(tab.id, {
         type: "TOGGLE_MOMENTS",
-      })) as { ok: boolean; reason?: string } | undefined;
+      })) as { ok: boolean; shown?: boolean; reason?: string } | undefined;
       if (r?.ok) {
-        window.close();
+        // Showing the panel: close the popup so it's visible. Hiding it: keep
+        // the popup open and say so, rather than silently closing.
+        if (r.shown) {
+          window.close();
+        } else {
+          setCopyStatus("Hid key moments.");
+        }
         return;
       }
       setCopyStatus(
