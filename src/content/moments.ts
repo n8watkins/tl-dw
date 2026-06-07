@@ -144,6 +144,7 @@ export function buildMomentsPanel(
     border: `1px solid ${t.border}`,
     borderRadius: "12px",
     padding: "12px 14px",
+    marginTop: "12px",
     marginBottom: "16px",
     font: "14px/1.4 Roboto, system-ui, sans-serif",
     color: t.text,

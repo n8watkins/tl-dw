@@ -434,8 +434,9 @@ function removeMomentsPanel(): void {
 
 /**
  * Toggle the on-page key-moments panel. Derives moments from the timestamped
- * transcript (no model, no reading any answer) and inserts the panel atop the
- * related-videos column. Returns a result the popup surfaces on failure.
+ * transcript (no model, no reading any answer) and inserts the panel directly
+ * below the player (above the title), falling back to the related-videos
+ * column. Returns a result the popup surfaces on failure.
  */
 async function toggleMoments(): Promise<{ ok: boolean; reason?: string }> {
   if (momentsPanel) {
@@ -452,7 +453,11 @@ async function toggleMoments(): Promise<{ ok: boolean; reason?: string }> {
   const moments = deriveMoments(segments, durationSeconds);
   if (moments.length === 0) return { ok: false, reason: "no moments" };
 
+  // Prefer the under-player column (above the title), where it's plainly
+  // visible; fall back to the related-videos sidebar on unusual layouts.
   const host =
+    document.querySelector("#below") ??
+    document.querySelector("ytd-watch-metadata") ??
     document.querySelector("#secondary-inner") ??
     document.querySelector("#secondary");
   if (!host) return { ok: false, reason: "no place to show the panel" };
