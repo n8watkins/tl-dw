@@ -278,7 +278,7 @@ export function DirectApiSection() {
 
       {/* Per-call history */}
       <div className="settings-group">
-        <div className="settings-group-title"><Icon name="history" /> API call history</div>
+        <div className="settings-group-title"><Icon name="clock" /> API call history</div>
 
         {callLog.length === 0 ? (
           <div className="card" style={{ marginBottom: 0 }}>
