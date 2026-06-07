@@ -573,12 +573,12 @@ textarea { min-height: 220px; font-family: "JetBrains Mono", "Fira Code", ui-mon
   gap: 8px;
 }
 
-/* Moved-in history settings, pinned below the scrolling list. */
+/* Moved-in history settings, pinned above the scrolling list. */
 .history-options {
   flex: 0 0 auto;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
 }
 
 .history-options-row {

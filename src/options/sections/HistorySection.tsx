@@ -131,6 +131,71 @@ export function HistorySection() {
         )}
       </div>
 
+      {settings && (
+        <div className="history-options">
+          <div className="history-options-row">
+            <label className="history-opt">
+              <span className="history-opt-label">Save history on search</span>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.saveHistoryOnSearch}
+                  onChange={(e) => void updateSettings({ saveHistoryOnSearch: e.target.checked })}
+                />
+                <span className="toggle-track" />
+              </label>
+            </label>
+
+            <label className="history-opt">
+              <span className="history-opt-label">Keep at most</span>
+              <select
+                className="setting-select"
+                value={String(settings.historyLimit)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  void updateSettings({ historyLimit: (v === "unlimited" ? "unlimited" : Number(v)) as HistoryLimit });
+                }}
+              >
+                <option value="50">50 entries</option>
+                <option value="100">100 entries</option>
+                <option value="250">250 entries</option>
+                <option value="unlimited">Unlimited</option>
+              </select>
+            </label>
+
+            <label className="history-opt">
+              <span className="history-opt-label">Auto-delete old</span>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.autoExpireHistory}
+                  onChange={(e) => void updateSettings({ autoExpireHistory: e.target.checked })}
+                />
+                <span className="toggle-track" />
+              </label>
+            </label>
+
+            <label className="history-opt">
+              <span className="history-opt-label">After</span>
+              <select
+                className="setting-select"
+                value={String(settings.historyExpiryDays)}
+                disabled={!settings.autoExpireHistory}
+                onChange={(e) =>
+                  void updateSettings({ historyExpiryDays: Number(e.target.value) as HistoryExpiryDays })
+                }
+              >
+                {HISTORY_EXPIRY_OPTIONS.map((d) => (
+                  <option key={d} value={d}>
+                    {d} days
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+      )}
+
       {entries.length > 0 && (
         <p className="history-stats">
           {filtered.length} of {entries.length} {entries.length === 1 ? "entry" : "entries"}
@@ -220,71 +285,6 @@ export function HistorySection() {
           </div>
         )}
       </div>
-
-      {settings && (
-        <div className="history-options">
-          <div className="history-options-row">
-            <label className="history-opt">
-              <span className="history-opt-label">Save history on search</span>
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={settings.saveHistoryOnSearch}
-                  onChange={(e) => void updateSettings({ saveHistoryOnSearch: e.target.checked })}
-                />
-                <span className="toggle-track" />
-              </label>
-            </label>
-
-            <label className="history-opt">
-              <span className="history-opt-label">Keep at most</span>
-              <select
-                className="setting-select"
-                value={String(settings.historyLimit)}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  void updateSettings({ historyLimit: (v === "unlimited" ? "unlimited" : Number(v)) as HistoryLimit });
-                }}
-              >
-                <option value="50">50 entries</option>
-                <option value="100">100 entries</option>
-                <option value="250">250 entries</option>
-                <option value="unlimited">Unlimited</option>
-              </select>
-            </label>
-
-            <label className="history-opt">
-              <span className="history-opt-label">Auto-delete old</span>
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={settings.autoExpireHistory}
-                  onChange={(e) => void updateSettings({ autoExpireHistory: e.target.checked })}
-                />
-                <span className="toggle-track" />
-              </label>
-            </label>
-
-            <label className="history-opt">
-              <span className="history-opt-label">After</span>
-              <select
-                className="setting-select"
-                value={String(settings.historyExpiryDays)}
-                disabled={!settings.autoExpireHistory}
-                onChange={(e) =>
-                  void updateSettings({ historyExpiryDays: Number(e.target.value) as HistoryExpiryDays })
-                }
-              >
-                {HISTORY_EXPIRY_OPTIONS.map((d) => (
-                  <option key={d} value={d}>
-                    {d} days
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </div>
-      )}
 
       {confirmClear && (
         <ConfirmDialog
