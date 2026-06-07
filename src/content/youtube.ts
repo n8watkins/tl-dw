@@ -325,8 +325,47 @@ function timedAvailable(): TimedSegment[] | null {
   return cachedTimedForCurrentVideo() ?? scrapeTimedRenderedTranscript();
 }
 
-/** Open YouTube's transcript panel so its segments render (and any fetch fires). */
-async function openTranscriptPanel(): Promise<void> {
+/** The transcript engagement panel element, if present. */
+function transcriptPanelEl(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]',
+  );
+}
+
+/** Whether YouTube's transcript panel is currently open. */
+function transcriptPanelOpen(): boolean {
+  const panel = transcriptPanelEl();
+  if (panel) {
+    return panel.getAttribute("visibility") === "ENGAGEMENT_PANEL_VISIBILITY_EXPANDED";
+  }
+  // Fallback: a rendered, on-screen segment means the panel is showing.
+  const seg = document.querySelector<HTMLElement>("ytd-transcript-segment-renderer");
+  return !!(seg && seg.offsetParent !== null);
+}
+
+/** Collapse the transcript panel (best-effort) — used to undo a panel we opened. */
+function closeTranscriptPanel(): void {
+  const panel = transcriptPanelEl();
+  const closeBtn =
+    panel?.querySelector<HTMLElement>("#visibility-button button") ??
+    panel?.querySelector<HTMLElement>('button[aria-label*="lose" i]') ??
+    null;
+  if (closeBtn) {
+    log("closing transcript panel we opened");
+    closeBtn.click();
+    return;
+  }
+  // Fallback: re-click the toggle that opened it.
+  findShowTranscriptButton()?.click();
+}
+
+/**
+ * Open YouTube's transcript panel so its segments render (and any fetch fires).
+ * Returns whether *we* opened it, so the caller can close it again afterward
+ * without disturbing a panel the user had already open.
+ */
+async function openTranscriptPanel(): Promise<{ openedByUs: boolean }> {
+  if (transcriptPanelOpen()) return { openedByUs: false };
   expandDescription();
   let button: HTMLElement | null = null;
   const buttonDeadline = Date.now() + 4000;
@@ -338,9 +377,10 @@ async function openTranscriptPanel(): Promise<void> {
   if (button) {
     log("opening transcript panel");
     button.click();
-  } else {
-    log("no 'Show transcript' button found");
+    return { openedByUs: true };
   }
+  log("no 'Show transcript' button found");
+  return { openedByUs: false };
 }
 
 async function getTranscript(): Promise<string | null> {
@@ -352,7 +392,7 @@ async function getTranscript(): Promise<string | null> {
     return immediate;
   }
 
-  await openTranscriptPanel();
+  const { openedByUs } = await openTranscriptPanel();
 
   // Poll both sources until the lines appear.
   const deadline = Date.now() + 10000;
@@ -360,11 +400,14 @@ async function getTranscript(): Promise<string | null> {
     await sleep(300);
     const hit = available();
     if (hit) {
+      // Leave the page as we found it: close the panel only if we opened it.
+      if (openedByUs) closeTranscriptPanel();
       log("transcript captured:", hit.length, "chars");
       return hit;
     }
   }
 
+  if (openedByUs) closeTranscriptPanel();
   log("no transcript captured");
   return null;
 }
@@ -374,17 +417,20 @@ async function getTimedTranscript(): Promise<TimedSegment[] | null> {
   const immediate = timedAvailable();
   if (immediate) return immediate;
 
-  await openTranscriptPanel();
+  const { openedByUs } = await openTranscriptPanel();
 
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
     await sleep(300);
     const hit = timedAvailable();
     if (hit) {
+      // Leave the page as we found it: close the panel only if we opened it.
+      if (openedByUs) closeTranscriptPanel();
       log("timed transcript captured:", hit.length, "segments");
       return hit;
     }
   }
+  if (openedByUs) closeTranscriptPanel();
   return null;
 }
 
