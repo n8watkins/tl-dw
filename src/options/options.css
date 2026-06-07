@@ -478,6 +478,20 @@ kbd {
 }
 .chevron.open { transform: rotate(180deg); }
 
+.profile-editor-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.22s ease;
+}
+
+.profile-editor-wrapper.open {
+  grid-template-rows: 1fr;
+}
+
+.profile-editor-inner {
+  overflow: hidden;
+}
+
 .profile-editor {
   border-top: 1px solid var(--border);
   padding: 20px;
@@ -517,7 +531,7 @@ input[type="text"]:focus, textarea:focus, select:focus {
   border-color: var(--primary);
 }
 
-textarea { min-height: 220px; font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace; font-size: 12px; line-height: 1.6; }
+textarea { min-height: 176px; font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace; font-size: 12px; line-height: 1.6; }
 
 .editor-actions {
   display: flex;
@@ -628,10 +642,21 @@ textarea { min-height: 220px; font-family: "JetBrains Mono", "Fira Code", ui-mon
   gap: 10px;
 }
 
+.history-opt-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .history-opt-label {
   font-size: 13px;
   color: var(--muted);
   white-space: nowrap;
+}
+
+.history-opt-sub {
+  font-size: 11px;
+  color: var(--faint);
 }
 
 .history-card {

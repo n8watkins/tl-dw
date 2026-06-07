@@ -216,7 +216,7 @@ export function ProfilesSection() {
             <Icon name="upload" />
             Import
           </button>
-          <button className="btn btn-primary" onClick={addProfile}>+ New Profile</button>
+          <button className="btn btn-primary btn-icon-text" onClick={addProfile}>+ New Profile</button>
           <input
             ref={fileInput}
             type="file"
@@ -275,77 +275,79 @@ export function ProfilesSection() {
                 </span>
               </div>
 
-              {isOpen && (
-                <div className="profile-editor">
-                  <div className="field-group">
-                    <label className="field-label">Name</label>
-                    <input
-                      type="text"
-                      value={d.name}
-                      onChange={(e) => updateDraft(profile.id, { name: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="field-group">
-                    <label className="field-label">Description</label>
-                    <input
-                      type="text"
-                      value={d.description ?? ""}
-                      onChange={(e) => updateDraft(profile.id, { description: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="field-group">
-                    <label className="field-label">Prompt Template</label>
-                    <textarea
-                      value={d.promptTemplate}
-                      onChange={(e) => updateDraft(profile.id, { promptTemplate: e.target.value })}
-                      rows={14}
-                    />
-                    <p className="var-hints mt-8">
-                      Variables:
-                      <code>{"{{url}}"}</code>
-                      <code>{"{{title}}"}</code>
-                      <code>{"{{channel}}"}</code>
-                      <code>{"{{date}}"}</code>
-                      <code>{"{{userCuriosity}}"}</code>
-                      (optional — line removed if not provided)
-                    </p>
-                  </div>
-
-                  <div className="editor-actions">
-                    <button className="btn btn-primary btn-icon-text" onClick={() => save(d)}>
-                      <Icon name="save" />
-                      {saved === profile.id ? "Saved ✓" : "Save"}
-                    </button>
-                    {!isDefault && (
-                      <button className="btn btn-ghost btn-icon-text" onClick={() => setDefault(profile.id)}>
-                        <Icon name="heart" />
-                        Set as Default
+              <div className={`profile-editor-wrapper${isOpen ? " open" : ""}`}>
+                <div className="profile-editor-inner">
+                  <div className="profile-editor">
+                    <div className="editor-actions">
+                      <button className="btn btn-primary btn-icon-text" onClick={() => save(d)}>
+                        <Icon name="save" />
+                        {saved === profile.id ? "Saved ✓" : "Save"}
                       </button>
-                    )}
-                    <button className="btn btn-ghost btn-icon-text" onClick={() => void duplicateProfile(d)}>
-                      <Icon name="duplicate" />
-                      Duplicate
-                    </button>
-                    {profile.isDefault && profile.isCustomized && (
-                      <button className="btn btn-ghost btn-icon-text" onClick={() => resetTemplate(profile)}>
-                        <Icon name="reset" />
-                        Reset to Original
+                      {!isDefault && (
+                        <button className="btn btn-ghost btn-icon-text" onClick={() => setDefault(profile.id)}>
+                          <Icon name="heart" />
+                          Set as Default
+                        </button>
+                      )}
+                      <button className="btn btn-ghost btn-icon-text" onClick={() => void duplicateProfile(d)}>
+                        <Icon name="duplicate" />
+                        Duplicate
                       </button>
-                    )}
-                    {!profile.isDefault && (
-                      <button
-                        className="btn btn-danger btn-icon-text"
-                        onClick={() => setDeleteId(profile.id)}
-                      >
-                        <Icon name="trash" />
-                        Delete
-                      </button>
-                    )}
+                      {profile.isDefault && profile.isCustomized && (
+                        <button className="btn btn-ghost btn-icon-text" onClick={() => resetTemplate(profile)}>
+                          <Icon name="reset" />
+                          Reset to Original
+                        </button>
+                      )}
+                      {!profile.isDefault && (
+                        <button
+                          className="btn btn-danger btn-icon-text"
+                          onClick={() => setDeleteId(profile.id)}
+                        >
+                          <Icon name="trash" />
+                          Delete
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="field-group">
+                      <label className="field-label">Name</label>
+                      <input
+                        type="text"
+                        value={d.name}
+                        onChange={(e) => updateDraft(profile.id, { name: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="field-group">
+                      <label className="field-label">Description</label>
+                      <input
+                        type="text"
+                        value={d.description ?? ""}
+                        onChange={(e) => updateDraft(profile.id, { description: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="field-group">
+                      <label className="field-label">Prompt Template</label>
+                      <textarea
+                        value={d.promptTemplate}
+                        onChange={(e) => updateDraft(profile.id, { promptTemplate: e.target.value })}
+                        rows={11}
+                      />
+                      <p className="var-hints mt-8">
+                        Variables:
+                        <code>{"{{url}}"}</code>
+                        <code>{"{{title}}"}</code>
+                        <code>{"{{channel}}"}</code>
+                        <code>{"{{date}}"}</code>
+                        <code>{"{{userCuriosity}}"}</code>
+                        (optional — line removed if not provided)
+                      </p>
+                    </div>
                   </div>
                 </div>
-              )}
+              </div>
             </div>
           );
         })}

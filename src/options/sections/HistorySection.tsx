@@ -140,7 +140,10 @@ export function HistorySection() {
         <div className="history-options">
           <div className="history-options-row">
             <div className="history-opt">
-              <span className="history-opt-label">Save history on search</span>
+              <div className="history-opt-info">
+                <span className="history-opt-label">Save history on search</span>
+                <span className="history-opt-sub">Records the video, profile, and prompt locally each time you search</span>
+              </div>
               <label className="toggle">
                 <input
                   type="checkbox"
