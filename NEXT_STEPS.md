@@ -117,7 +117,13 @@ setting. Remaining (see SEEK_LINKS.md):
   payload: "Add to" for source/link destinations, "Ask" for chat.
 - ~~`worthWatchingMinutes` is typed as `number`~~ **Done** — now the
   `WatchThresholdMinutes` union; `historyExpiryDays` is likewise `HistoryExpiryDays`.
-- `PLAN.md` still frames the product as Gemini-only ("Alt+G", §1–§4). It predates the
-  multi-destination work; worth a refresh so it matches reality. _(still stale)_
-- The `archive` icon in `Icons.tsx` is now unused since the Settings "History" group
-  moved out — harmless dead path, could be pruned.
+- ~~`PLAN.md` still frames the product as Gemini-only~~ **Done** — refreshed to the
+  multi-destination reality and this pass's additions.
+- ~~The `archive` icon in `Icons.tsx` is unused~~ **Done** — pruned.
+
+## Tests
+
+Vitest covers the pure helpers (`npm test`): `expireOldEntries` / `trimToLimit`
+(history.test.ts), `buildDestinationPrompt` (promptBuilder.test.ts), and
+`deriveMoments` (moments.test.ts) — 21 cases. DOM/content-script behavior and the
+React UI remain untested (would need jsdom + a harness).

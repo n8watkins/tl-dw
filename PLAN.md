@@ -102,6 +102,10 @@ For destinations that can't watch the video, TL;DW extracts the transcript by in
 - [x] Open-search "jump back" + failure surfacing in the popup (badge + alert)
 - [x] Selector resilience (visibility-filtered matching, broadened fallbacks)
 - [x] Per-destination CTA verb ("Add to NotebookLM" vs "Ask ChatGPT")
+- [x] History hygiene — store a transcript-free prompt, opt-out auto-expiry
+  (7/30/90/365 days), history settings live on the History page
+- [x] Key-moments panel matured — below the player, horizontal hover-timestamp
+  chips, persisted accordion, click-to-seek-and-play, auto-show-on-summarize
 
 ### Declined
 
@@ -110,10 +114,13 @@ For destinations that can't watch the video, TL;DW extracts the transcript by in
 
 ### Next — the real depth
 
-- [x] **Clickable seek links (v1)** — on-page key-moments panel derived from the
-  timestamped transcript, click-to-seek (see SEEK_LINKS.md; markers + smarter
-  sources still to come)
+- [x] **Clickable seek links (v2)** — on-page key-moments panel derived from the
+  timestamped transcript, click-to-seek-and-play (see SEEK_LINKS.md)
+- [ ] **Progress-bar tick markers** on the YouTube scrubber (seek-links phase 4)
+- [ ] **Model-authored key moments** (seek-links phase 5) — current labels are a
+  frequency heuristic; parked pending a BYO-key vs. scrape vs. better-heuristic call
 - [ ] Import / export profiles as JSON (validation, name-conflict "Copy")
+- [ ] Per-search curiosity field in the popup (templates already support `{{userCuriosity}}`)
 
 ---
 
@@ -134,7 +141,10 @@ Current (`manifest.config.ts`):
 ## 7. Privacy
 
 - All persistent data is local (`chrome.storage.local`); session state (handoff, open searches, delivery status) is `chrome.storage.session`. No backend, no account, no analytics.
-- We log the **prompt + URL + timestamp** at the moment of firing.
+- We log the **prompt + URL + timestamp** at the moment of firing — a
+  transcript-free prompt, so transcripts are sent to the AI but never stored.
+- Old history auto-expires (30 days by default, configurable/off) so it can't
+  grow unbounded toward the `storage.local` quota.
 - We **never** read or store the model's response.
 
 ---
@@ -145,3 +155,4 @@ Current (`manifest.config.ts`):
 - TypeScript + Vite + `@crxjs/vite-plugin`
 - React for popup / options; vanilla TS for the content scripts
 - `chrome.storage.local` for data, `chrome.storage.session` for ephemeral state
+- Vitest for unit tests on the pure helpers (`npm test`)
