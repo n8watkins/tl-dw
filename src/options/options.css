@@ -552,16 +552,52 @@ textarea { min-height: 220px; font-family: "JetBrains Mono", "Fira Code", ui-mon
   margin-bottom: 16px;
 }
 
+/* The History page fills one viewport: header/toolbar/options stay put while
+   only the list scrolls, so a long history never stretches the whole page. */
+.history-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 64px);
+}
+
+.history-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .history-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  /* Cap the list so a long history scrolls inside this frame instead of
-     stretching the whole page — keeps the viewport near one screen and leaves
-     room for anything placed below. */
-  max-height: calc(100vh - 250px);
-  overflow-y: auto;
-  padding-right: 4px;
+}
+
+/* Moved-in history settings, pinned below the scrolling list. */
+.history-options {
+  flex: 0 0 auto;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.history-options-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 22px;
+}
+
+.history-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.history-opt-label {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .history-card {

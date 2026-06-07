@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
-import type { HistoryLimit, Settings } from "../../types";
+import type { Settings } from "../../types";
 import {
   DEFAULT_SETTINGS,
   DESTINATIONS,
   GEMINI_URL,
-  HISTORY_EXPIRY_OPTIONS,
   WATCH_THRESHOLD_OPTIONS,
 } from "../../lib/constants";
-import type { HistoryExpiryDays, WatchThresholdMinutes } from "../../types";
+import type { WatchThresholdMinutes } from "../../types";
 import { getSettings, setSettings } from "../../lib/storage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
@@ -107,24 +106,6 @@ export function SettingsSection() {
           </div>
         </div>
 
-        <div className="setting-row">
-          <div className="setting-info">
-            <div className="setting-label">Save history on search</div>
-            <div className="setting-sub">
-              Log the prompt and video URL per search. Responses are never saved.
-            </div>
-          </div>
-          <div className="setting-control">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={settings.saveHistoryOnSearch}
-                onChange={(e) => void update({ saveHistoryOnSearch: e.target.checked })}
-              />
-              <span className="toggle-track" />
-            </label>
-          </div>
-        </div>
       </div>
 
       <div className="settings-group">
@@ -190,77 +171,6 @@ export function SettingsSection() {
               placeholder={"Veritasium\n3blue1brown\nlecture"}
               style={{ width: "100%", minHeight: 90, resize: "vertical", fontFamily: "inherit", fontSize: 14 }}
             />
-          </div>
-        </div>
-      </div>
-
-      <div className="settings-group">
-        <div className="settings-group-title"><Icon name="archive" /> History</div>
-
-        <div className="setting-row">
-          <div className="setting-info">
-            <div className="setting-label">History limit</div>
-            <div className="setting-sub">
-              Oldest entries drop once the limit is reached.
-            </div>
-          </div>
-          <div className="setting-control">
-            <select
-              className="setting-select"
-              value={String(settings.historyLimit)}
-              onChange={(e) => {
-                const v = e.target.value;
-                void update({ historyLimit: (v === "unlimited" ? "unlimited" : Number(v)) as HistoryLimit });
-              }}
-            >
-              <option value="50">50 entries</option>
-              <option value="100">100 entries</option>
-              <option value="250">250 entries</option>
-              <option value="unlimited">Unlimited</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="setting-row">
-          <div className="setting-info">
-            <div className="setting-label">Auto-delete old history</div>
-            <div className="setting-sub">
-              Remove entries older than the age below.
-            </div>
-          </div>
-          <div className="setting-control">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={settings.autoExpireHistory}
-                onChange={(e) => void update({ autoExpireHistory: e.target.checked })}
-              />
-              <span className="toggle-track" />
-            </label>
-          </div>
-        </div>
-
-        <div className="setting-row">
-          <div className="setting-info">
-            <div className="setting-label">Delete entries after</div>
-          </div>
-          <div className="setting-control">
-            <select
-              className="setting-select"
-              value={String(settings.historyExpiryDays)}
-              disabled={!settings.autoExpireHistory}
-              onChange={(e) =>
-                void update({
-                  historyExpiryDays: Number(e.target.value) as HistoryExpiryDays,
-                })
-              }
-            >
-              {HISTORY_EXPIRY_OPTIONS.map((d) => (
-                <option key={d} value={d}>
-                  {d} days
-                </option>
-              ))}
-            </select>
           </div>
         </div>
       </div>
