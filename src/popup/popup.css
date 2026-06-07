@@ -32,13 +32,21 @@ header {
   min-width: 0;
 }
 
+.header-version {
+  font-size: 12px;
+  color: #475569;
+  margin-left: auto;
+  margin-right: 6px;
+  white-space: nowrap;
+  align-self: center;
+}
+
 .icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 42px;
   height: 42px;
-  margin-left: auto;
   color: #c4b5fd;
   background: #1e293b;
   border: 1px solid #334155;
@@ -162,21 +170,22 @@ select:disabled { opacity: 0.4; cursor: default; }
   background: #2e1065;
   color: #e9d5ff;
   border: 1px solid #7c3aed;
-  padding: 9px 10px;
-  font-size: 14px;
+  padding: 7px 10px;
+  font-size: 18px;
+  font-weight: 500;
 }
 
 .ask-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 8px;
   background: #7c3aed;
   color: #fff;
   border: none;
   border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 15px;
+  padding: 10px 18px;
+  font-size: 17px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;
@@ -186,6 +195,20 @@ select:disabled { opacity: 0.4; cursor: default; }
 
 .ask-btn:hover:not(:disabled) { background: #6d28d9; }
 .ask-btn:disabled { opacity: 0.4; cursor: default; }
+
+.ask-btn-label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.ask-btn-shortcut {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.75;
+  letter-spacing: 0.02em;
+}
 
 textarea {
   background: #1e293b;
@@ -340,12 +363,29 @@ textarea:focus { outline: none; border-color: #7c3aed; }
 }
 
 .pop-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: 13px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #64748b;
 }
+
+.section-link {
+  background: transparent;
+  border: none;
+  color: #7c3aed;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: normal;
+  padding: 0;
+}
+
+.section-link:hover { color: #a78bfa; text-decoration: underline; }
 
 .search-list {
   display: flex;

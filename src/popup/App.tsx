@@ -20,6 +20,7 @@ import {
   getOpenSearches,
   getProfiles,
   getSettings,
+  setSettings as saveSettings,
   setPendingPrompt,
 } from "../lib/storage";
 
@@ -97,6 +98,7 @@ export function App() {
   const [openSearches, setOpenSearches] = useState<OpenSearch[]>([]);
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   const [statuses, setStatuses] = useState<DeliveryStatus[]>([]);
+  const [autoMoments, setAutoMoments] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -114,6 +116,7 @@ export function App() {
       setSelectedId(s.defaultProfileId ?? p[0]?.id ?? "");
       setDestinationId(s.destinationId ?? "gemini");
       setGate(s.worthWatchingGate ?? false);
+      setAutoMoments(s.autoShowMoments ?? false);
       setOpenSearches(open);
       setHistory(hist);
       setStatuses(stat);
@@ -271,6 +274,15 @@ export function App() {
     window.close();
   }
 
+  async function toggleAutoMoments(checked: boolean) {
+    setAutoMoments(checked);
+    if (settings) {
+      const updated = { ...settings, autoShowMoments: checked };
+      setSettings(updated);
+      await saveSettings(updated);
+    }
+  }
+
   async function goToVideoTab() {
     if (onVideo) {
       window.close();
@@ -305,6 +317,7 @@ export function App() {
           <span className="logo">TL;DW</span>
           <span className="tag">Too Long; Didn't Watch</span>
         </div>
+        <span className="header-version">v{VERSION}</span>
         <button
           className="icon-button"
           onClick={openOptions}
@@ -373,28 +386,7 @@ export function App() {
 
       {onVideo && (
         <>
-          {profiles.length > 0 ? (
-            <label className="field">
-              <span>Profile</span>
-              <select
-                value={selectedId}
-                onChange={(e) => setSelectedId(e.target.value)}
-              >
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <p className="empty">
-              No prompt profiles found. Open Settings to restore or create one.
-            </p>
-          )}
-
           <div className="send-row">
-            <span className="send-label">Send to</span>
             <select
               className="dest-select"
               value={destinationId}
@@ -408,7 +400,10 @@ export function App() {
             </select>
             <button className="ask-btn" onClick={send} disabled={busy || profiles.length === 0}>
               <SparkIcon />
-              {destinationVerb(getDestination(destinationId))}
+              <span className="ask-btn-label">
+                <span>{destinationVerb(getDestination(destinationId))}</span>
+                <span className="ask-btn-shortcut">Alt+Shift+G</span>
+              </span>
             </button>
           </div>
 
@@ -435,6 +430,15 @@ export function App() {
                 </label>
               </>
             )}
+
+          <label className="check-field">
+            <input
+              type="checkbox"
+              checked={autoMoments}
+              onChange={(e) => void toggleAutoMoments(e.target.checked)}
+            />
+            <span>Show key moments on send</span>
+          </label>
 
           <button className="secondary" onClick={() => void showMoments()} disabled={busy}>
             <MomentsIcon />
@@ -487,9 +491,12 @@ export function App() {
 
       {history.length > 0 && (
         <div className="pop-section">
-          <div className="pop-section-title">Recent — click to ask again</div>
+          <div className="pop-section-title">
+            <span>Recent</span>
+            <button className="section-link" onClick={openOptions}>History →</button>
+          </div>
           <div className="search-list">
-            {history.slice(0, 5).map((h) => (
+            {history.slice(0, 2).map((h) => (
               <button
                 key={h.id}
                 className="search-item"
@@ -509,17 +516,6 @@ export function App() {
           </div>
         </div>
       )}
-
-      <footer>
-        {onVideo && (
-          <span className="hint">
-            <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>
-            {settings && !settings.autoSubmit ? " · auto-submit off" : ""}
-          </span>
-        )}
-      </footer>
-
-      <div className="version">v{VERSION}</div>
     </div>
   );
 }
