@@ -23,6 +23,7 @@ export function DirectApiSection() {
   const [saved, setSaved] = useState(false);
   const [pendingKeyName, setPendingKeyName] = useState("");
   const [pendingKeyValue, setPendingKeyValue] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
   const [confirmClearStats, setConfirmClearStats] = useState(false);
   const [confirmClearLog, setConfirmClearLog] = useState(false);
 
@@ -287,32 +288,65 @@ export function DirectApiSection() {
         ) : (
           <>
             <div className="history-list" style={{ marginBottom: 12 }}>
-              {callLog.map((entry) => (
-                <div key={entry.id} className="history-card">
-                  <div className="history-row" style={{ cursor: "default" }}>
-                    <div className="history-main">
-                      <div className="history-video">
-                        {entry.videoTitle || displayUrl(entry.videoUrl)}
+              {callLog.map((entry) => {
+                const isOpen = openId === entry.id;
+                return (
+                  <div key={entry.id} className="history-card">
+                    <div
+                      className="history-row"
+                      onClick={() => setOpenId(isOpen ? null : entry.id)}
+                    >
+                      <div className="history-main">
+                        <div className="history-video">
+                          {entry.videoTitle || displayUrl(entry.videoUrl)}
+                        </div>
+                        <div className="history-meta">
+                          <span>⚡ Gemini API</span>
+                          <span>·</span>
+                          <span>{formatTime(entry.at)}</span>
+                        </div>
                       </div>
-                      <div className="history-meta">
-                        <span>⚡ Gemini API</span>
-                        <span>·</span>
-                        <span>{formatTime(entry.at)}</span>
+                      <div className="history-actions" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          className="icon-action"
+                          title="Open video"
+                          aria-label="Open video"
+                          onClick={() => void chrome.tabs.create({ url: entry.videoUrl })}
+                        >
+                          <Icon name="external" />
+                        </button>
                       </div>
+                      <span className={`chevron ${isOpen ? "open" : ""}`} style={{ marginLeft: 8 }}>
+                        <Icon name="chevron" />
+                      </span>
                     </div>
-                    <div className="history-actions" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        className="icon-action"
-                        title="Open video"
-                        aria-label="Open video"
-                        onClick={() => void chrome.tabs.create({ url: entry.videoUrl })}
-                      >
-                        <Icon name="external" />
-                      </button>
+
+                    <div className={`history-detail-wrapper${isOpen ? " open" : ""}`}>
+                      <div className="history-detail-inner">
+                        {entry.prompt && (
+                          <div className="history-detail">
+                            <p className="field-label" style={{ marginBottom: 6 }}>Prompt sent</p>
+                            <pre className="prompt-preview">{entry.prompt}</pre>
+                          </div>
+                        )}
+                        {entry.response && (
+                          <div className="history-detail" style={{ marginTop: 12 }}>
+                            <p className="field-label" style={{ marginBottom: 6 }}>⚡ Gemini API response</p>
+                            <pre className="prompt-preview">{entry.response}</pre>
+                          </div>
+                        )}
+                        {!entry.prompt && !entry.response && (
+                          <div className="history-detail">
+                            <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                              No prompt/response stored for this entry.
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             <button className="btn btn-danger btn-icon-text" onClick={() => setConfirmClearLog(true)}>
               <Icon name="trash" />

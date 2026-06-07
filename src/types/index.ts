@@ -83,6 +83,10 @@ export type GeminiCallEntry = {
   videoTitle?: string;
   /** ISO timestamp of the call. */
   at: string;
+  /** Transcript-free prompt sent to the API. */
+  prompt?: string;
+  /** Raw text response from the API. */
+  response?: string;
 };
 
 /** Age thresholds the history auto-expiry offers (see HISTORY_EXPIRY_OPTIONS). */

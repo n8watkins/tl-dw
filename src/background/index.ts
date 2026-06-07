@@ -266,10 +266,14 @@ async function runSummary(
 
   // --- headless path: call Gemini API directly (no tab) -------------------
   if (willUseDirectApi) {
+    // Build the transcript-free prompt once for both the call log and history.
+    let logPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity);
+    if (gateMinutes > 0) logPrompt = prependWorthWatchingGate(logPrompt, gateMinutes);
+
     let responseText: string | undefined;
     try {
       responseText = await callGeminiApi(prompt, apiKey!);
-      void recordGeminiCall(video);
+      void recordGeminiCall(video, logPrompt, responseText);
       const tldw = parseTldwBlock(responseText);
       if (tldw && activeTab?.id !== undefined) {
         void chrome.tabs
@@ -288,10 +292,8 @@ async function runSummary(
       });
     }
     if (settings.saveHistoryOnSearch) {
-      let historyPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity);
-      if (gateMinutes > 0) historyPrompt = prependWorthWatchingGate(historyPrompt, gateMinutes);
       await addHistoryEntry({
-        video, profile, prompt: historyPrompt, settings,
+        video, profile, prompt: logPrompt, settings,
         destinationId: destination.id,
         apiResponse: responseText,
       });

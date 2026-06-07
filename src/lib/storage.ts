@@ -178,6 +178,8 @@ export async function getGeminiUsage(): Promise<GeminiUsage> {
 
 export async function recordGeminiCall(
   video?: { url: string; title?: string },
+  prompt?: string,
+  response?: string,
 ): Promise<void> {
   const [usage, logRaw] = await Promise.all([
     getGeminiUsage(),
@@ -202,6 +204,8 @@ export async function recordGeminiCall(
     videoUrl: video?.url ?? "",
     videoTitle: video?.title,
     at: now.toISOString(),
+    prompt,
+    response,
   };
   const updatedLog = [newEntry, ...existingLog].slice(0, CALL_LOG_LIMIT);
 
