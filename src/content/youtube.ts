@@ -269,6 +269,9 @@ async function openTranscriptPanel(): Promise<{ openedByUs: boolean }> {
   return { openedByUs: false };
 }
 
+// Serialises concurrent calls so only one panel-open attempt runs at a time.
+let activeTranscriptFetch: Promise<string | null> | null = null;
+
 async function getTranscript(): Promise<string | null> {
   const immediate = available();
   if (immediate) {
@@ -276,22 +279,30 @@ async function getTranscript(): Promise<string | null> {
     return immediate;
   }
 
-  const { openedByUs } = await openTranscriptPanel();
+  if (activeTranscriptFetch) return activeTranscriptFetch;
 
-  const deadline = Date.now() + 10000;
-  while (Date.now() < deadline) {
-    await sleep(300);
-    const hit = available();
-    if (hit) {
-      if (openedByUs) closeTranscriptPanel();
-      log("transcript captured:", hit.length, "chars");
-      return hit;
+  activeTranscriptFetch = (async () => {
+    const { openedByUs } = await openTranscriptPanel();
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      await sleep(300);
+      const hit = available();
+      if (hit) {
+        if (openedByUs) closeTranscriptPanel();
+        log("transcript captured:", hit.length, "chars");
+        return hit;
+      }
     }
-  }
+    if (openedByUs) closeTranscriptPanel();
+    log("no transcript captured");
+    return null;
+  })();
 
-  if (openedByUs) closeTranscriptPanel();
-  log("no transcript captured");
-  return null;
+  try {
+    return await activeTranscriptFetch;
+  } finally {
+    activeTranscriptFetch = null;
+  }
 }
 
 /** Parse "12:34" / "1:02:03" into seconds. */
@@ -362,6 +373,73 @@ function pill(text: string, bg: string, color: string): HTMLElement {
   return el;
 }
 
+function ensureShimmerStyle(): void {
+  if (document.getElementById("tldw-shimmer-style")) return;
+  const s = document.createElement("style");
+  s.id = "tldw-shimmer-style";
+  s.textContent = "@keyframes tldw-shimmer{0%,100%{opacity:0.35}50%{opacity:0.75}}";
+  document.head.appendChild(s);
+}
+
+function panelHost(): Element | null {
+  return (
+    document.querySelector("#below") ??
+    document.querySelector("ytd-watch-metadata") ??
+    document.querySelector("#secondary-inner") ??
+    document.querySelector("#secondary")
+  );
+}
+
+/** Show an instant skeleton panel while the API call is in flight. */
+function showLoadingPanel(): void {
+  const host = panelHost();
+  if (!host) return;
+  removeSummaryPanel();
+  ensureShimmerStyle();
+
+  const t = theme();
+  const panel = document.createElement("div");
+  panel.id = "tldw-summary";
+  Object.assign(panel.style, {
+    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
+    padding: "10px 14px", marginTop: "12px", marginBottom: "16px",
+    font: "14px/1.4 Roboto, system-ui, sans-serif",
+  });
+
+  const head = document.createElement("div");
+  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" });
+
+  const headIcon = document.createElement("img");
+  headIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
+  Object.assign(headIcon.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
+
+  const titleEl = document.createElement("span");
+  titleEl.textContent = "TL;DW";
+  Object.assign(titleEl.style, { fontWeight: "700", fontSize: "15px", color: t.text });
+
+  const analyzing = document.createElement("span");
+  analyzing.textContent = "Analyzing…";
+  Object.assign(analyzing.style, { fontSize: "12px", color: t.sub, animation: "tldw-shimmer 1.4s infinite" });
+
+  const spacer = document.createElement("div");
+  spacer.style.flex = "1";
+  head.append(headIcon, titleEl, spacer, analyzing);
+
+  const shimmerLine = (width: string) => {
+    const d = document.createElement("div");
+    Object.assign(d.style, {
+      background: t.border, borderRadius: "4px", height: "13px",
+      width, marginBottom: "8px", animation: "tldw-shimmer 1.4s infinite",
+    });
+    return d;
+  };
+
+  panel.append(head, shimmerLine("90%"), shimmerLine("65%"));
+  summaryPanel = panel;
+  host.prepend(panel);
+  log("loading panel shown");
+}
+
 function buildSummaryPanel(tldw: TldwSummary): HTMLElement {
   const t = theme();
   const panel = document.createElement("div");
@@ -377,14 +455,9 @@ function buildSummaryPanel(tldw: TldwSummary): HTMLElement {
     color: t.text,
   });
 
-  // --- single header row: icon · TL;DW · verdict pill · rating pill · spacer · close ---
+  // --- header row ---
   const head = document.createElement("div");
-  Object.assign(head.style, {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    marginBottom: "8px",
-  });
+  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" });
 
   const headIcon = document.createElement("img");
   headIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
@@ -395,7 +468,6 @@ function buildSummaryPanel(tldw: TldwSummary): HTMLElement {
   Object.assign(titleEl.style, { fontWeight: "700", fontSize: "15px" });
 
   const verdictPill = pill(tldw.verdict, verdictColor(tldw.verdict), "#fff");
-
   const ratingPill = pill(tldw.rating, t.border, t.text);
 
   const spacer = document.createElement("div");
@@ -413,71 +485,80 @@ function buildSummaryPanel(tldw: TldwSummary): HTMLElement {
   closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
   closeBtn.addEventListener("click", removeSummaryPanel);
 
-  const children: (HTMLElement | Text)[] = [headIcon, titleEl, verdictPill, ratingPill, spacer];
+  const headChildren: HTMLElement[] = [headIcon, titleEl, verdictPill, ratingPill, spacer];
   if (tldw.source) {
-    const srcTag = document.createElement("span");
-    srcTag.textContent = `⚡ ${tldw.source}`;
-    Object.assign(srcTag.style, { fontSize: "11px", color: t.sub, whiteSpace: "nowrap", marginRight: "4px" });
-    children.push(srcTag);
+    const srcBtn = document.createElement("button");
+    srcBtn.textContent = `⚡ ${tldw.source}`;
+    Object.assign(srcBtn.style, {
+      fontSize: "11px", color: t.sub, background: "transparent", border: "none",
+      cursor: "pointer", padding: "0", textDecoration: "underline",
+      textUnderlineOffset: "2px", whiteSpace: "nowrap", marginRight: "2px",
+    });
+    srcBtn.title = "Open Direct API settings";
+    srcBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS" });
+    });
+    headChildren.push(srcBtn);
   }
-  children.push(closeBtn);
-  head.append(...children);
+  headChildren.push(closeBtn);
+  head.append(...headChildren);
 
-  // --- summary sentence ---
+  // --- body: summary always visible; clicking it toggles details if present ---
+  const hasDetails = !!tldw.details;
+
+  const body = document.createElement("div");
+  if (hasDetails) {
+    Object.assign(body.style, { cursor: "pointer", userSelect: "none" });
+  }
+
+  const summaryRow = document.createElement("div");
+  Object.assign(summaryRow.style, { display: "flex", alignItems: "flex-start", gap: "6px" });
+
   const summaryEl = document.createElement("div");
   summaryEl.textContent = tldw.summary;
-  Object.assign(summaryEl.style, { fontSize: "13px", lineHeight: "1.5", color: t.text });
+  Object.assign(summaryEl.style, { fontSize: "13px", lineHeight: "1.5", color: t.text, flex: "1" });
+  summaryRow.append(summaryEl);
 
-  panel.append(head, summaryEl);
+  body.append(summaryRow);
 
-  // --- expandable details section ---
-  if (tldw.details) {
+  if (hasDetails) {
+    const chevron = document.createElement("span");
+    chevron.textContent = "▾";
+    Object.assign(chevron.style, { fontSize: "11px", color: t.sub, flexShrink: "0", marginTop: "3px" });
+    summaryRow.append(chevron);
+
     const detailsWrap = document.createElement("div");
     Object.assign(detailsWrap.style, {
-      display: "grid",
-      gridTemplateRows: "0fr",
-      overflow: "hidden",
-      transition: "grid-template-rows 0.22s ease",
+      display: "grid", gridTemplateRows: "0fr",
+      overflow: "hidden", transition: "grid-template-rows 0.2s ease",
     });
     const detailsInner = document.createElement("div");
-    detailsInner.textContent = tldw.details;
+    detailsInner.textContent = tldw.details!;
     Object.assign(detailsInner.style, {
-      overflow: "hidden",
-      paddingTop: "8px",
-      fontSize: "13px",
-      lineHeight: "1.55",
-      color: t.sub,
+      overflow: "hidden", paddingTop: "8px",
+      fontSize: "13px", lineHeight: "1.55", color: t.sub,
     });
     detailsWrap.append(detailsInner);
+    body.append(detailsWrap);
 
     let expanded = false;
-    const detailsBtn = document.createElement("button");
-    detailsBtn.textContent = "▾ Details";
-    Object.assign(detailsBtn.style, {
-      background: "transparent", border: "none", color: t.sub,
-      cursor: "pointer", fontSize: "12px", padding: "6px 0 0",
-      display: "block", textAlign: "left",
-    });
-    detailsBtn.addEventListener("mouseenter", () => (detailsBtn.style.color = t.text));
-    detailsBtn.addEventListener("mouseleave", () => (detailsBtn.style.color = t.sub));
-    detailsBtn.addEventListener("click", () => {
+    body.addEventListener("click", () => {
       expanded = !expanded;
       detailsWrap.style.gridTemplateRows = expanded ? "1fr" : "0fr";
-      detailsBtn.textContent = expanded ? "▴ Details" : "▾ Details";
+      chevron.textContent = expanded ? "▴" : "▾";
+      body.style.opacity = "1";
     });
-
-    panel.append(detailsBtn, detailsWrap);
+    body.addEventListener("mouseenter", () => { body.style.opacity = "0.8"; });
+    body.addEventListener("mouseleave", () => { body.style.opacity = "1"; });
   }
 
+  panel.append(head, body);
   return panel;
 }
 
 function showSummaryPanel(tldw: TldwSummary): void {
-  const host =
-    document.querySelector("#below") ??
-    document.querySelector("ytd-watch-metadata") ??
-    document.querySelector("#secondary-inner") ??
-    document.querySelector("#secondary");
+  const host = panelHost();
   if (!host) return;
   removeSummaryPanel();
   summaryPanel = buildSummaryPanel(tldw);
@@ -485,31 +566,27 @@ function showSummaryPanel(tldw: TldwSummary): void {
   log("summary panel injected");
 }
 
-// --- auto TL;DW for long videos ------------------------------------------
+// --- auto TL;DW ----------------------------------------------------------
 
 const autoRunVideoIds = new Set<string>();
 
-async function autoRunIfLong(): Promise<void> {
+/**
+ * Direct API path: fires immediately on navigation — shows a loading skeleton
+ * right away and pre-fetches the transcript in parallel so the user sees
+ * something instantly rather than waiting 2.5 s for the video duration check.
+ */
+async function maybeStartDirectApiRun(): Promise<void> {
   const vid = currentVideoId();
-  // Don't run if: no video ID, already ran for this video, or panel already showing.
   if (!vid || autoRunVideoIds.has(vid) || summaryPanel) return;
 
   const r = await chrome.storage.local.get("settings");
   const s = r["settings"] as Record<string, unknown> | undefined;
-  const threshold = (s?.autoTldwMinutes as number) ?? 0;
-  const useDirectApi = !!(s?.useDirectApi as boolean);
-  const hasKey = !!(s?.geminiApiKey as string);
-
-  // Direct API enabled: auto-run headlessly on every video (no duration threshold).
-  // Classic auto-TL;DW: run when video exceeds the configured threshold.
-  const isDirectAutoRun = useDirectApi && hasKey;
-  const { durationSeconds } = getVideoMeta();
-  const isLongVideoRun = threshold > 0 && durationSeconds > 0 && durationSeconds / 60 >= threshold;
-
-  if (!isDirectAutoRun && !isLongVideoRun) return;
+  if (!(s?.useDirectApi as boolean) || !(s?.geminiApiKey as string)) return;
 
   autoRunVideoIds.add(vid);
-  log("auto-running TL;DW", isDirectAutoRun ? "(direct API)" : `(${Math.round(durationSeconds / 60)} min video)`);
+  showLoadingPanel();
+  void getTranscript(); // pre-fetch so it's cached when the background asks
+  log("direct API auto-run started");
   try {
     await chrome.runtime.sendMessage({ type: "ASK" });
   } catch {
@@ -517,11 +594,36 @@ async function autoRunIfLong(): Promise<void> {
   }
 }
 
-// Remove a stale panel when the user navigates to another video; also check auto-run.
+/**
+ * Threshold path: waits 2500ms so the video element has its duration, then
+ * runs for videos over the configured length (opens a tab — not headless).
+ */
+async function autoRunIfLong(): Promise<void> {
+  const vid = currentVideoId();
+  if (!vid || autoRunVideoIds.has(vid) || summaryPanel) return;
+
+  const r = await chrome.storage.local.get("settings");
+  const s = r["settings"] as Record<string, unknown> | undefined;
+  const threshold = (s?.autoTldwMinutes as number) ?? 0;
+  if (!threshold) return;
+
+  const { durationSeconds } = getVideoMeta();
+  if (!durationSeconds || durationSeconds / 60 < threshold) return;
+
+  autoRunVideoIds.add(vid);
+  log("auto-running TL;DW for", Math.round(durationSeconds / 60), "min video");
+  try {
+    await chrome.runtime.sendMessage({ type: "ASK" });
+  } catch {
+    /* best effort */
+  }
+}
+
 window.addEventListener("yt-navigate-finish", () => {
   removeSummaryPanel();
-  // Small delay so the video element has loaded its duration.
-  setTimeout(() => { void autoRunIfLong(); }, 2500);
+  activeTranscriptFetch = null; // reset lock for new video
+  void maybeStartDirectApiRun();                    // immediate: loading panel + API
+  setTimeout(() => { void autoRunIfLong(); }, 2500); // deferred: needs video duration
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

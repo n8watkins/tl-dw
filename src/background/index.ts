@@ -399,6 +399,11 @@ chrome.runtime.onMessage.addListener(
       void clearGeminiUsage().then(() => sendResponse({ ok: true }));
       return true;
     }
+    if (message.type === "OPEN_OPTIONS") {
+      void chrome.runtime.openOptionsPage();
+      sendResponse({ ok: true });
+      return false;
+    }
     if (message.type === "REBUILD_MENU") {
       void rebuildContextMenu().then(() => sendResponse({ ok: true }));
       return true;
