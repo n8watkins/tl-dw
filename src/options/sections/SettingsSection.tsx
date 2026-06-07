@@ -54,8 +54,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label">Auto-submit</div>
             <div className="setting-sub">
-              Automatically press Send after filling the prompt box (Gemini,
-              ChatGPT, Claude). Turn off to review the prompt before it sends.
+              Press Send automatically. Off lets you review the prompt first.
             </div>
           </div>
           <div className="setting-control">
@@ -74,8 +73,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label">Switch to the new tab</div>
             <div className="setting-sub">
-              Bring the new destination tab to the front. Turn off to open it in
-              the background and stay on the YouTube video you're watching.
+              Bring the destination tab to the front. Off opens it in the background.
             </div>
           </div>
           <div className="setting-control">
@@ -94,8 +92,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label">Pause the video on summarize</div>
             <div className="setting-sub">
-              Pause the YouTube video you're watching when you send it for a
-              summary, so it doesn't keep playing while you read.
+              Pause the YouTube video the moment you send it.
             </div>
           </div>
           <div className="setting-control">
@@ -114,8 +111,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label">Save history on search</div>
             <div className="setting-sub">
-              Log the prompt and video URL each time you search. Nothing from
-              Gemini's response is ever saved.
+              Log the prompt and video URL per search. Responses are never saved.
             </div>
           </div>
           <div className="setting-control">
@@ -138,10 +134,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label">Verdict for long videos</div>
             <div className="setting-sub">
-              For videos over the length below, the summary leads with a
-              WATCH / SKIM / SKIP verdict and a one-line reason before the full
-              write-up. Only applies to chat destinations (Gemini, ChatGPT,
-              Claude, Perplexity).
+              Long videos lead with a WATCH / SKIM / SKIP verdict. Chat destinations only.
             </div>
           </div>
           <div className="setting-control">
@@ -160,8 +153,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label">Length threshold</div>
             <div className="setting-sub">
-              Videos longer than this get the verdict. Shorter ones are
-              summarized normally.
+              Videos longer than this get the verdict.
             </div>
           </div>
           <div className="setting-control">
@@ -187,8 +179,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label">Trusted channels &amp; keywords</div>
             <div className="setting-sub">
-              One per line. Videos whose channel name or title contains any of
-              these skip the verdict and get a full summary every time.
+              One per line. Matching channels or titles always get a full summary.
             </div>
           </div>
           <div style={{ width: "100%" }}>
@@ -210,8 +201,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label">History limit</div>
             <div className="setting-sub">
-              Maximum number of search entries to keep. Oldest entries are
-              removed when the limit is reached.
+              Oldest entries drop once the limit is reached.
             </div>
           </div>
           <div className="setting-control">
@@ -235,8 +225,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label">Auto-delete old history</div>
             <div className="setting-sub">
-              Automatically remove entries older than the age below. Keeps history
-              from piling up. Turn off to keep entries until you clear them.
+              Remove entries older than the age below.
             </div>
           </div>
           <div className="setting-control">
@@ -254,9 +243,6 @@ export function SettingsSection() {
         <div className="setting-row">
           <div className="setting-info">
             <div className="setting-label">Delete entries after</div>
-            <div className="setting-sub">
-              How long an entry is kept before auto-delete removes it.
-            </div>
           </div>
           <div className="setting-control">
             <select
@@ -286,11 +272,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label">Default destination</div>
             <div className="setting-sub">
-              Where the right-click menu and keyboard shortcut send summaries.
-              Gemini, ChatGPT, Claude, and Perplexity get the prompt typed in
-              automatically; NotebookLM has the transcript added as a source
-              automatically. You can override this per-session from the popup
-              without changing the default.
+              Where the shortcut and right-click menu send. Override per-session in the popup.
             </div>
           </div>
           <div className="setting-control">
@@ -316,8 +298,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label">Gemini URL</div>
             <div className="setting-sub">
-              The URL TL;DW opens for Gemini. Only change this if Google moves
-              Gemini to a different address.
+              Only change this if Google moves Gemini.
             </div>
           </div>
           <div style={{ width: "100%" }}>
@@ -336,8 +317,7 @@ export function SettingsSection() {
         <div className="card">
           <div className="card-title">Reset all settings</div>
           <div className="card-desc" style={{ marginBottom: 16 }}>
-            Restores all settings to their defaults. Your profiles and search
-            history are not affected.
+            Restore defaults. Profiles and history are untouched.
           </div>
           <button className="btn btn-danger btn-icon-text" onClick={() => setConfirmReset(true)}>
             <Icon name="reset" />

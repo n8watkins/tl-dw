@@ -90,8 +90,7 @@ export function HistorySection() {
       <div className="section-header">
         <h1 className="section-title">History</h1>
         <p className="section-desc">
-          Every summary you've sent. The prompt and video only — never the
-          transcript or the AI's response.
+          Prompt and video only — never the transcript or response.
         </p>
       </div>
 
