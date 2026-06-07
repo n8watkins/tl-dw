@@ -185,8 +185,8 @@ nav {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 24px;
-  margin-bottom: 16px;
+  padding: 18px;
+  margin-bottom: 12px;
 }
 
 .card-title {
@@ -914,8 +914,8 @@ textarea { min-height: 220px; font-family: "JetBrains Mono", "Fira Code", ui-mon
   background: linear-gradient(135deg, #1a0533 0%, #0d1a3a 100%);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 32px;
-  margin-bottom: 24px;
+  padding: 24px 28px;
+  margin-bottom: 18px;
 }
 
 .about-icon {
@@ -926,11 +926,11 @@ textarea { min-height: 220px; font-family: "JetBrains Mono", "Fira Code", ui-mon
 }
 
 .about-logo {
-  font-size: 48px;
+  font-size: 40px;
   font-weight: 900;
   color: var(--accent);
   letter-spacing: 0.1em;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .about-tagline {
