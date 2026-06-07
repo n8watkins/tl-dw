@@ -231,8 +231,8 @@ async function runSummary(
   // Open the destination tab and hand its injector the prompt to auto-fill.
   // Gemini's URL is user-configurable; the rest open their fixed URL.
   // When temporary chats are on, prefer the incognito URL if the destination
-  // has one (Claude, ChatGPT). Gemini and Perplexity have no incognito URL —
-  // their content scripts click the temp-chat button instead.
+  // has one (Claude, ChatGPT). Gemini has no incognito URL —
+  // its content script clicks the temp-chat button instead.
   const baseUrl = destination.id === "gemini" ? settings.geminiUrl : destination.url;
   const targetUrl =
     settings.temporaryChats && destination.incognitoUrl

@@ -1,5 +1,5 @@
 /**
- * Auto-fill injector for chat destinations (Gemini, ChatGPT, Claude). On load
+ * Auto-fill injector for chat destinations (Gemini, ChatGPT, Claude, NotebookLM). On load
  * it asks the background worker whether this tab has a pending prompt; if so it
  * types the prompt into the site's composer and (optionally) submits. If the
  * composer can't be found or filled, it falls back to copying the prompt to the
@@ -94,32 +94,6 @@ function configForHost(host: string): SiteConfig | null {
       responseSelectors: [
         '[data-testid="assistant-message"]',
         ".font-claude-message",
-      ],
-    };
-  }
-  if (host.endsWith("perplexity.ai")) {
-    return {
-      name: "Perplexity",
-      editorSelectors: [
-        'div[contenteditable="true"]#ask-input',
-        "#ask-input",
-        'div[contenteditable="true"][role="textbox"]',
-        'textarea[placeholder*="Ask" i]',
-        'div[contenteditable="true"]',
-        "textarea",
-      ],
-      sendSelectors: [
-        'button[aria-label*="Submit" i]',
-        'button[data-testid="submit-button"]',
-        'button[aria-label*="Send" i]',
-        'form button[type="submit"]',
-      ],
-      stopSelectors: [
-        'button[aria-label*="Stop" i]',
-      ],
-      responseSelectors: [
-        ".prose",
-        '[data-testid="answer"]',
       ],
     };
   }
@@ -717,7 +691,7 @@ async function pasteIntoEditor(editor: HTMLElement, text: string): Promise<boole
 /**
  * Activate the temporary/incognito chat mode for destinations that require a
  * UI click rather than a URL parameter. Claude and ChatGPT use incognito URLs
- * (handled by the background); Gemini and Perplexity need a button click here.
+ * (handled by the background); Gemini needs a button click here.
  */
 async function activateTemporaryMode(host: string): Promise<void> {
   if (host.endsWith("gemini.google.com")) {
@@ -729,27 +703,6 @@ async function activateTemporaryMode(host: string): Promise<void> {
       btn.click();
       await sleep(600);
     }
-  } else if (host.endsWith("perplexity.ai")) {
-    // Perplexity's incognito button: aria-label contains "incognito".
-    // Wait generously — React hydration takes longer than 1.5 s on cold load.
-    const btn = await waitFor<HTMLElement>(
-      ['button[aria-label*="incognito" i]', '[data-testid*="incognito" i]'],
-      6000,
-    );
-    if (btn) {
-      btn.click();
-    } else {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: ";",
-          ctrlKey: true,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    }
-    // Wait for Perplexity to flip to incognito mode and re-render the input.
-    await sleep(800);
   }
 }
 
@@ -791,8 +744,7 @@ async function run(): Promise<void> {
     return;
   }
 
-  // Try execCommand / textContent approach first; fall back to ClipboardEvent
-  // paste (more reliable for React-controlled contenteditables like Perplexity).
+  // Try execCommand / textContent approach first; fall back to ClipboardEvent paste.
   let inserted = insertText(editor, prompt);
   if (!inserted) {
     inserted = await pasteIntoEditor(editor, prompt);

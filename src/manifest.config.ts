@@ -7,7 +7,7 @@ export default defineManifest({
   short_name: "TL;DW",
   version: pkg.version,
   description:
-    "Too Long; Didn't Watch for YouTube. Send the current video to Gemini, ChatGPT, Claude, Perplexity, or NotebookLM in one keystroke.",
+    "Too Long; Didn't Watch for YouTube. Send the current video to Gemini, ChatGPT, Claude, or NotebookLM in one keystroke.",
   icons: {
     16: "icons/tl-dw-16.png",
     32: "icons/tl-dw-32.png",
@@ -39,8 +39,6 @@ export default defineManifest({
         "https://chatgpt.com/*",
         "https://chat.openai.com/*",
         "https://claude.ai/*",
-        "https://www.perplexity.ai/*",
-        "https://perplexity.ai/*",
         "https://notebooklm.google.com/*",
       ],
       js: ["src/content/inject.ts"],
@@ -81,8 +79,6 @@ export default defineManifest({
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
     "https://claude.ai/*",
-    "https://www.perplexity.ai/*",
-    "https://perplexity.ai/*",
     "https://notebooklm.google.com/*",
   ],
 });
