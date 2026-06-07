@@ -3,6 +3,7 @@ export function DestinationIcon({ id, size = 28 }: { id: string; size?: number }
   const rx = Math.round(size * 0.28);
   switch (id) {
     case "gemini":
+      // Google Gemini — Simple Icons official path (smooth bezier 4-pointed star)
       return (
         <svg width={size} height={size} viewBox="0 0 28 28" fill="none">
           <defs>
@@ -12,19 +13,20 @@ export function DestinationIcon({ id, size = 28 }: { id: string; size?: number }
             </linearGradient>
           </defs>
           <rect width="28" height="28" rx={rx} fill="url(#tldw-gm)" />
-          {/* Google Gemini 4-pointed star */}
-          <path
-            d="M14 3C14 10.2 16.3 13 25 14C16.3 14 14 16.8 14 25C14 16.8 11.7 14 3 14C11.7 14 14 10.2 14 3Z"
-            fill="white"
-          />
+          <svg x="4" y="4" width="20" height="20" viewBox="0 0 24 24">
+            <path
+              fill="white"
+              d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"
+            />
+          </svg>
         </svg>
       );
 
     case "chatgpt":
+      // OpenAI — official brand path (not in Simple Icons; sourced from openai.com)
       return (
         <svg width={size} height={size} viewBox="0 0 28 28" fill="none">
           <rect width="28" height="28" rx={rx} fill="#10a37f" />
-          {/* OpenAI logo — actual Simple Icons path, scaled into 20×20 at (4,4) */}
           <svg x="4" y="4" width="20" height="20" viewBox="0 0 24 24">
             <path
               fill="white"
@@ -35,43 +37,44 @@ export function DestinationIcon({ id, size = 28 }: { id: string; size?: number }
       );
 
     case "claude":
+      // Anthropic — Simple Icons official path (double-A lettermark)
       return (
         <svg width={size} height={size} viewBox="0 0 28 28" fill="none">
           <rect width="28" height="28" rx={rx} fill="#D97757" />
-          {/* Anthropic 'A' logomark — actual Simple Icons path */}
           <svg x="4" y="4" width="20" height="20" viewBox="0 0 24 24">
             <path
               fill="white"
-              fillRule="evenodd"
-              d="M13.527 6.684h-3.054L4.919 17.316H7.79l1.463-3.967h5.494l1.463 3.967h2.871zM10.146 11.28l1.854-5.023 1.854 5.023z"
+              d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"
             />
           </svg>
         </svg>
       );
 
     case "notebooklm":
+      // NotebookLM — Simple Icons official path (concentric nested arcs)
       return (
         <svg width={size} height={size} viewBox="0 0 28 28" fill="none">
           <rect width="28" height="28" rx={rx} fill="#1a73e8" />
-          {/* Notebook with spine rings */}
-          <rect x="9" y="5" width="13" height="18" rx="1.5" fill="white" />
-          <rect x="6" y="8" width="3" height="2.5" rx="1" fill="white" />
-          <rect x="6" y="12.75" width="3" height="2.5" rx="1" fill="white" />
-          <rect x="6" y="17.5" width="3" height="2.5" rx="1" fill="white" />
-          <path d="M12 10h7M12 13.5h7M12 17h4.5" stroke="#1a73e8" strokeWidth="1.4" strokeLinecap="round" />
+          <svg x="4" y="4" width="20" height="20" viewBox="0 0 24 24">
+            <path
+              fill="white"
+              d="M11.999 3.201C5.372 3.201 0 8.528 0 15.101V20.8h2.212v-.568c0-2.666 2.178-4.827 4.866-4.827 2.688 0 4.866 2.16 4.866 4.827v.568h2.212v-.568c0-3.877-3.17-7.019-7.078-7.019A7.075 7.075 0 0 0 2.992 14.5a7.355 7.355 0 0 1 6.568-4.016c4.057 0 7.347 3.264 7.347 7.287V20.8h2.212V17.77c0-5.235-4.28-9.481-9.56-9.481a9.563 9.563 0 0 0-6.217 2.28A9.795 9.795 0 0 1 12 5.393c5.406 0 9.788 4.346 9.788 9.707V20.8H24V15.1c-.001-6.573-5.373-11.9-12.001-11.9Z"
+            />
+          </svg>
         </svg>
       );
 
     case "perplexity":
+      // Perplexity — Simple Icons official path (geometric diamond grid)
       return (
         <svg width={size} height={size} viewBox="0 0 28 28" fill="none">
-          <rect width="28" height="28" rx={rx} fill="#20808d" />
-          {/* Perplexity logo — diamond/thread mark */}
-          <path
-            d="M14 4L21 10.5V13h-5.5v8h-3v-8H7v-2.5z"
-            fill="white"
-          />
-          <path d="M7 21h14" stroke="white" strokeWidth="1.6" strokeLinecap="round" />
+          <rect width="28" height="28" rx={rx} fill="#1FB8CD" />
+          <svg x="4" y="4" width="20" height="20" viewBox="0 0 24 24">
+            <path
+              fill="white"
+              d="M22.3977 7.0896h-2.3106V.0676l-7.5094 6.3542V.1577h-1.1554v6.1966L4.4904 0v7.0896H1.6023v10.3976h2.8882V24l6.932-6.3591v6.2005h1.1554v-6.0469l6.9318 6.1807v-6.4879h2.8882V7.0896zm-3.4657-4.531v4.531h-5.355l5.355-4.531zm-13.2862.0676 4.8691 4.4634H5.6458V2.6262zM2.7576 16.332V8.245h7.8476l-6.1149 6.1147v1.9723H2.7576zm2.8882 5.0404v-3.8852h.0001v-2.6488l5.7763-5.7764v7.0111l-5.7764 5.2993zm12.7086.0248-5.7766-5.1509V9.0618l5.7766 5.7766v6.5588zm2.8882-5.0652h-1.733v-1.9723L13.3948 8.245h7.8478v8.087z"
+            />
+          </svg>
         </svg>
       );
 
