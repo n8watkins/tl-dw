@@ -7,7 +7,7 @@ export default defineManifest({
   short_name: "TL;DW",
   version: pkg.version,
   description:
-    "Too Long; Didn't Watch for YouTube. Send the current video to Gemini in one keystroke.",
+    "Too Long; Didn't Watch for YouTube. Send the current video to Gemini, ChatGPT, Claude, Perplexity, or NotebookLM in one keystroke.",
   icons: {
     16: "icons/tl-dw-16.png",
     32: "icons/tl-dw-32.png",
@@ -16,7 +16,7 @@ export default defineManifest({
   },
   action: {
     default_popup: "src/popup/index.html",
-    default_title: "TL;DW — Ask Gemini about this video",
+    default_title: "TL;DW — Ask AI about this video",
     default_icon: {
       16: "icons/tl-dw-16.png",
       32: "icons/tl-dw-32.png",
