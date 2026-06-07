@@ -2,7 +2,7 @@
 
 _Originally reviewed 2026-06-06 after shipping the destination system, NotebookLM
 automation, auto-pause, the worth-watching verdict gate, and open-search/history in
-the popup. Last updated 2026-06-06 (v0.1.35)._
+the popup. Last updated 2026-06-06 (v0.1.47)._
 
 ---
 
@@ -25,6 +25,35 @@ the popup. Last updated 2026-06-06 (v0.1.35)._
 ---
 
 ## Completed
+
+### This pass (v0.1.40 – v0.1.47)
+
+- **History stops storing transcripts + auto-expiry.** History saves a
+  transcript-free prompt (was bloating `storage.local` toward its ~10 MB quota and
+  quietly dragging the transcript through "Copy prompt"), plus opt-out 30-day
+  auto-expiry (7/30/90/365) that prunes on write and on page load. _(v0.1.40)_
+- **Key moments, fully reworked.** Panel moved from the related-videos sidebar to
+  below the player (`#below`, above the title); laid out as a horizontal wrapping
+  strip of chips with the timestamp revealed in a hover tooltip (below the chip);
+  added an accordion collapse/expand (state persisted to `storage.local`) alongside
+  close; clicking a chip now seeks **and plays**. New "Show key moments on
+  summarize" setting (`autoShowMoments`, default off) auto-opens the panel after a
+  send (a forced show leaves an open panel in place). _(v0.1.43 – v0.1.47)_
+- **Options pages tightened.** Per-row helper copy cut to single lines, spacing
+  reduced: Settings ~2034px → ~1300px, About 1758px → 1255px. History list capped to
+  one viewport with internal scroll (cards get `flex:0 0 auto` so they don't squash).
+  _(v0.1.41)_
+- **History settings live on the History page.** Save-on-search, limit, auto-delete,
+  and delete-after moved out of Settings into a compact bar docked above the entries;
+  lowering the limit now trims the visible list + storage immediately (shared
+  `trimToLimit`). _(v0.1.41, v0.1.46)_
+- **About refactored** into scannable two-column cards. _(v0.1.41)_
+- **Manifest/store + package descriptions** updated from "sends to Gemini" to the
+  multi-destination wording; popup action title → "Ask AI about this video". _(v0.1.40)_
+- **Popup feedback on hiding moments.** Toggling the panel off keeps the popup open
+  with a "Hid key moments." note instead of silently closing. _(v0.1.46)_
+
+### Earlier
 
 - **Popup no longer blocks on the transcript scrape.** `send()` was awaiting the full
   `runSummary` round-trip (~10s on ChatGPT/Claude/Perplexity). It now fires the `ASK`
@@ -61,12 +90,23 @@ the popup. Last updated 2026-06-06 (v0.1.35)._
 
 ## Recommended next
 
-### 1. Clickable seek links — v1 shipped (v0.1.38)
-The on-YouTube key-moments panel is in: a `getTimedTranscript()` that retains
+### 1. Clickable seek links — v2 shipped (v0.1.38 – v0.1.47)
+The on-YouTube key-moments panel is mature: `getTimedTranscript()` retains
 per-segment timestamps, transcript-derived moments (no model / no answer reading),
-a theme-aware panel prepended into `#secondary` with click-to-seek, triggered by the
-popup's "Key moments on video" button. Remaining (see SEEK_LINKS.md): progress-bar
-tick markers (phase 4) and smarter model/API-authored moments (phase 5).
+a theme-aware panel **below the player** with horizontal hover-timestamp chips,
+accordion collapse (persisted), click-to-seek-and-play, and an auto-show-on-summarize
+setting. Remaining (see SEEK_LINKS.md):
+
+- **Phase 4 — progress-bar tick markers** on the YouTube scrubber. Not started.
+- **Phase 5 — model-authored moments. Parked (decision needed).** The current labels
+  are a frequency heuristic and read rough. Three routes, pick one when revisiting:
+  - _BYO API key_ — user supplies a Gemini/OpenAI/Anthropic key; call the model
+    directly for timestamped JSON. Cleanest output; breaks the "no key" posture
+    (opt-in), transcript goes to the API. Roadmap-aligned path.
+  - _Scrape the AI tab_ — parse timestamps out of the rendered Moment Finder answer.
+    No key, but fragile and async.
+  - _Better heuristic_ — TextRank/TF-IDF sentence ranking, dedup, boundary snapping.
+    Stays private/offline; not truly model-authored but a real quality jump.
 
 ---
 
@@ -75,7 +115,9 @@ tick markers (phase 4) and smarter model/API-authored moments (phase 5).
 - ~~The primary button reads "Ask NotebookLM" for a sources tool. Use a per-destination
   verb ("Add to NotebookLM").~~ **Done (v0.1.36)** — `destinationVerb()` keys off the
   payload: "Add to" for source/link destinations, "Ask" for chat.
-- `worthWatchingMinutes` is typed as `number` but the UI only offers 15/20/30/45/60 —
-  fine, just note it's not a union, so arbitrary values are storable.
+- ~~`worthWatchingMinutes` is typed as `number`~~ **Done** — now the
+  `WatchThresholdMinutes` union; `historyExpiryDays` is likewise `HistoryExpiryDays`.
 - `PLAN.md` still frames the product as Gemini-only ("Alt+G", §1–§4). It predates the
-  multi-destination work; worth a refresh so it matches reality.
+  multi-destination work; worth a refresh so it matches reality. _(still stale)_
+- The `archive` icon in `Icons.tsx` is now unused since the Settings "History" group
+  moved out — harmless dead path, could be pruned.
