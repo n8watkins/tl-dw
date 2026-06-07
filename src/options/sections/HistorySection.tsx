@@ -111,7 +111,7 @@ export function HistorySection() {
       <div className="section-header">
         <h1 className="section-title">History</h1>
         <p className="section-desc">
-          Prompt and video only — never the transcript or response.
+          Prompt and video. Direct API calls also store the Gemini response — expand an entry to see it.
         </p>
       </div>
 
@@ -269,6 +269,12 @@ export function HistorySection() {
                         <p className="field-label" style={{ marginBottom: 6 }}>Prompt sent</p>
                         <pre className="prompt-preview">{entry.prompt}</pre>
                       </div>
+                      {entry.apiResponse && (
+                        <div className="history-detail" style={{ marginTop: 12 }}>
+                          <p className="field-label" style={{ marginBottom: 6 }}>⚡ Gemini API response</p>
+                          <pre className="prompt-preview">{entry.apiResponse}</pre>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -281,7 +287,7 @@ export function HistorySection() {
       {confirmClear && (
         <ConfirmDialog
           title="Clear all history?"
-          body={`This will permanently delete ${entries.length} saved ${entries.length === 1 ? "history entry" : "history entries"}. Gemini responses are not stored, so only saved prompts and video URLs are affected.`}
+          body={`This will permanently delete ${entries.length} saved ${entries.length === 1 ? "history entry" : "history entries"}, including any stored prompts, Gemini API responses, and video URLs.`}
           confirmLabel="Clear History"
           onCancel={() => setConfirmClear(false)}
           onConfirm={() => void clearAll()}

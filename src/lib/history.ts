@@ -40,6 +40,7 @@ export async function addHistoryEntry(args: {
   prompt: string;
   settings: Settings;
   destinationId?: string;
+  apiResponse?: string;
 }): Promise<void> {
   const entry: SearchHistoryEntry = {
     id: crypto.randomUUID(),
@@ -49,6 +50,7 @@ export async function addHistoryEntry(args: {
     profileName: args.profile.name,
     destinationId: args.destinationId,
     prompt: args.prompt,
+    apiResponse: args.apiResponse,
     createdAt: new Date().toISOString(),
   };
   const existing = await getHistory();

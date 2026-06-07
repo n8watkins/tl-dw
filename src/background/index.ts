@@ -266,13 +266,14 @@ async function runSummary(
 
   // --- headless path: call Gemini API directly (no tab) -------------------
   if (willUseDirectApi) {
+    let responseText: string | undefined;
     try {
-      const responseText = await callGeminiApi(prompt, apiKey!);
+      responseText = await callGeminiApi(prompt, apiKey!);
       void recordGeminiCall();
       const tldw = parseTldwBlock(responseText);
       if (tldw && activeTab?.id !== undefined) {
         void chrome.tabs
-          .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw })
+          .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw, source: "Gemini API" })
           .catch(() => {});
       }
       void flashBadge("✓", true);
@@ -289,7 +290,11 @@ async function runSummary(
     if (settings.saveHistoryOnSearch) {
       let historyPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity);
       if (gateMinutes > 0) historyPrompt = prependWorthWatchingGate(historyPrompt, gateMinutes);
-      await addHistoryEntry({ video, profile, prompt: historyPrompt, settings, destinationId: destination.id });
+      await addHistoryEntry({
+        video, profile, prompt: historyPrompt, settings,
+        destinationId: destination.id,
+        apiResponse: responseText,
+      });
     }
     return;
   }

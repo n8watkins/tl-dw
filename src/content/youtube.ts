@@ -323,7 +323,7 @@ function getVideoMeta(): { durationSeconds: number; channel: string } {
 
 // --- TL;DW summary panel -------------------------------------------------
 
-type TldwSummary = { verdict: string; summary: string; rating: string };
+type TldwSummary = { verdict: string; summary: string; rating: string; details?: string; source?: string };
 
 let summaryPanel: HTMLElement | null = null;
 
@@ -413,7 +413,15 @@ function buildSummaryPanel(tldw: TldwSummary): HTMLElement {
   closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
   closeBtn.addEventListener("click", removeSummaryPanel);
 
-  head.append(headIcon, titleEl, verdictPill, ratingPill, spacer, closeBtn);
+  const children: (HTMLElement | Text)[] = [headIcon, titleEl, verdictPill, ratingPill, spacer];
+  if (tldw.source) {
+    const srcTag = document.createElement("span");
+    srcTag.textContent = `⚡ ${tldw.source}`;
+    Object.assign(srcTag.style, { fontSize: "11px", color: t.sub, whiteSpace: "nowrap", marginRight: "4px" });
+    children.push(srcTag);
+  }
+  children.push(closeBtn);
+  head.append(...children);
 
   // --- summary sentence ---
   const summaryEl = document.createElement("div");
@@ -483,19 +491,25 @@ const autoRunVideoIds = new Set<string>();
 
 async function autoRunIfLong(): Promise<void> {
   const vid = currentVideoId();
-  if (!vid) return;
-  if (autoRunVideoIds.has(vid)) return;
+  // Don't run if: no video ID, already ran for this video, or panel already showing.
+  if (!vid || autoRunVideoIds.has(vid) || summaryPanel) return;
 
   const r = await chrome.storage.local.get("settings");
-  const threshold: number =
-    (r["settings"] as Record<string, unknown> | undefined)?.autoTldwMinutes as number ?? 0;
-  if (!threshold) return;
+  const s = r["settings"] as Record<string, unknown> | undefined;
+  const threshold = (s?.autoTldwMinutes as number) ?? 0;
+  const useDirectApi = !!(s?.useDirectApi as boolean);
+  const hasKey = !!(s?.geminiApiKey as string);
 
+  // Direct API enabled: auto-run headlessly on every video (no duration threshold).
+  // Classic auto-TL;DW: run when video exceeds the configured threshold.
+  const isDirectAutoRun = useDirectApi && hasKey;
   const { durationSeconds } = getVideoMeta();
-  if (!durationSeconds || durationSeconds / 60 < threshold) return;
+  const isLongVideoRun = threshold > 0 && durationSeconds > 0 && durationSeconds / 60 >= threshold;
+
+  if (!isDirectAutoRun && !isLongVideoRun) return;
 
   autoRunVideoIds.add(vid);
-  log("auto-running TL;DW for", Math.round(durationSeconds / 60), "min video");
+  log("auto-running TL;DW", isDirectAutoRun ? "(direct API)" : `(${Math.round(durationSeconds / 60)} min video)`);
   try {
     await chrome.runtime.sendMessage({ type: "ASK" });
   } catch {
@@ -530,8 +544,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   if (type === "SET_SUMMARY") {
-    const tldw = (message as { tldw?: TldwSummary })?.tldw;
-    if (tldw?.verdict && tldw.summary) showSummaryPanel(tldw);
+    const msg = message as { tldw?: TldwSummary; source?: string };
+    const tldw = msg?.tldw;
+    if (tldw?.verdict && tldw.summary) {
+      showSummaryPanel({ ...tldw, source: msg.source });
+    }
     sendResponse({ ok: true });
     return false;
   }

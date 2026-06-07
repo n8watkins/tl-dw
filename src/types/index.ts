@@ -18,6 +18,8 @@ export type SearchHistoryEntry = {
   /** Destination the search was sent to, so "ask again" reopens the right one. */
   destinationId?: string;
   prompt: string;
+  /** Raw text response from the Gemini API — only set for direct-API calls. */
+  apiResponse?: string;
   createdAt: string;
 };
 
