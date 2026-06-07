@@ -190,10 +190,20 @@ nav {
 }
 
 .card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
   margin-bottom: 8px;
+}
+
+.card-title .icon {
+  width: 17px;
+  height: 17px;
+  color: var(--primary);
+  flex: 0 0 auto;
 }
 
 .card-desc {
