@@ -131,6 +131,75 @@ function theme(): Theme {
     : { bg: "#ffffff", border: "#e5e5e5", text: "#0f0f0f", sub: "#606060", accent: "#065fd4", hover: "#f2f2f2" };
 }
 
+/** A single horizontal moment chip: shows the label, reveals the timestamp on hover. */
+function buildChip(
+  m: Moment,
+  t: Theme,
+  onSeek: (seconds: number) => void,
+): HTMLElement {
+  const chip = document.createElement("button");
+  Object.assign(chip.style, {
+    position: "relative",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    maxWidth: "230px",
+    background: t.hover,
+    border: `1px solid ${t.border}`,
+    borderRadius: "999px",
+    padding: "6px 12px",
+    cursor: "pointer",
+    color: t.text,
+    font: "inherit",
+    textAlign: "left",
+  });
+
+  const label = document.createElement("span");
+  label.textContent = m.label;
+  Object.assign(label.style, {
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  });
+
+  // Timestamp tooltip, hidden until hover.
+  const tip = document.createElement("span");
+  tip.textContent = formatTime(m.startSeconds);
+  Object.assign(tip.style, {
+    position: "absolute",
+    bottom: "calc(100% + 6px)",
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: t.accent,
+    color: "#ffffff",
+    fontSize: "12px",
+    fontWeight: "700",
+    fontVariantNumeric: "tabular-nums",
+    padding: "2px 8px",
+    borderRadius: "6px",
+    whiteSpace: "nowrap",
+    pointerEvents: "none",
+    opacity: "0",
+    transition: "opacity 0.12s",
+    zIndex: "10",
+  });
+
+  chip.addEventListener("mouseenter", () => {
+    chip.style.background = t.bg;
+    chip.style.borderColor = t.accent;
+    tip.style.opacity = "1";
+  });
+  chip.addEventListener("mouseleave", () => {
+    chip.style.background = t.hover;
+    chip.style.borderColor = t.border;
+    tip.style.opacity = "0";
+  });
+  chip.addEventListener("click", () => onSeek(m.startSeconds));
+
+  chip.append(tip, label);
+  return chip;
+}
+
 /** Build the moments panel element. The caller inserts and removes it. */
 export function buildMomentsPanel(
   moments: Moment[],
@@ -153,9 +222,9 @@ export function buildMomentsPanel(
   const head = document.createElement("div");
   Object.assign(head.style, {
     display: "flex",
-    alignItems: "baseline",
+    alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: "8px",
+    gap: "8px",
   });
 
   const heading = document.createElement("div");
@@ -163,64 +232,60 @@ export function buildMomentsPanel(
   title.textContent = "TL;DW — Key moments";
   Object.assign(title.style, { fontWeight: "600", fontSize: "15px" });
   const sub = document.createElement("div");
-  sub.textContent = "Auto-detected from the transcript";
+  sub.textContent = `${moments.length} moments · auto-detected from the transcript`;
   Object.assign(sub.style, { color: t.sub, fontSize: "12px" });
   heading.append(title, sub);
 
-  const close = document.createElement("button");
-  close.textContent = "✕";
-  close.setAttribute("aria-label", "Hide key moments");
-  Object.assign(close.style, {
-    background: "transparent",
-    border: "none",
-    color: t.sub,
-    cursor: "pointer",
-    fontSize: "14px",
-    lineHeight: "1",
-    padding: "4px",
+  // Horizontal, wrapping strip of chips.
+  const body = document.createElement("div");
+  Object.assign(body.style, {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "8px",
+    marginTop: "10px",
   });
-  close.addEventListener("click", handlers.onClose);
+  for (const m of moments) body.append(buildChip(m, t, handlers.onSeek));
 
-  head.append(heading, close);
-  panel.append(head);
+  const controls = document.createElement("div");
+  Object.assign(controls.style, { display: "flex", alignItems: "center", gap: "2px", flex: "0 0 auto" });
 
-  for (const m of moments) {
-    const row = document.createElement("button");
-    Object.assign(row.style, {
-      display: "flex",
-      gap: "10px",
-      alignItems: "flex-start",
-      width: "100%",
-      textAlign: "left",
+  const iconBtn = (label: string): HTMLButtonElement => {
+    const b = document.createElement("button");
+    Object.assign(b.style, {
       background: "transparent",
       border: "none",
-      borderRadius: "8px",
-      padding: "7px 8px",
+      color: t.sub,
       cursor: "pointer",
-      color: t.text,
-      font: "inherit",
+      fontSize: "14px",
+      lineHeight: "1",
+      padding: "6px",
+      borderRadius: "6px",
     });
-    row.addEventListener("mouseenter", () => (row.style.background = t.hover));
-    row.addEventListener("mouseleave", () => (row.style.background = "transparent"));
-    row.addEventListener("click", () => handlers.onSeek(m.startSeconds));
+    b.addEventListener("mouseenter", () => (b.style.background = t.hover));
+    b.addEventListener("mouseleave", () => (b.style.background = "transparent"));
+    b.setAttribute("aria-label", label);
+    return b;
+  };
 
-    const time = document.createElement("span");
-    time.textContent = formatTime(m.startSeconds);
-    Object.assign(time.style, {
-      color: t.accent,
-      fontWeight: "600",
-      flex: "0 0 auto",
-      minWidth: "44px",
-      fontVariantNumeric: "tabular-nums",
-    });
+  // Accordion: collapse/expand the chip strip.
+  let collapsed = false;
+  const toggle = iconBtn("Collapse key moments");
+  toggle.textContent = "▾";
+  toggle.style.transition = "transform 0.15s";
+  toggle.addEventListener("click", () => {
+    collapsed = !collapsed;
+    body.style.display = collapsed ? "none" : "flex";
+    toggle.style.transform = collapsed ? "rotate(-90deg)" : "rotate(0deg)";
+    toggle.setAttribute("aria-label", collapsed ? "Expand key moments" : "Collapse key moments");
+  });
 
-    const label = document.createElement("span");
-    label.textContent = m.label;
-    label.style.flex = "1 1 auto";
+  const close = iconBtn("Hide key moments");
+  close.textContent = "✕";
+  close.addEventListener("click", handlers.onClose);
 
-    row.append(time, label);
-    panel.append(row);
-  }
+  controls.append(toggle, close);
+  head.append(heading, controls);
+  panel.append(head, body);
 
   return panel;
 }

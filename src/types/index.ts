@@ -99,6 +99,8 @@ export type Settings = {
   focusGeminiTab: boolean;
   /** Pause the YouTube video when a summary is sent. */
   autoPauseOnSummarize: boolean;
+  /** Show the on-page key-moments panel automatically when a summary is sent. */
+  autoShowMoments: boolean;
   /** Ask for a WATCH/SKIM/SKIP verdict first on videos over the threshold. */
   worthWatchingGate: boolean;
   /** Duration (minutes) above which the worth-watching verdict is requested. */

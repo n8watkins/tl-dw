@@ -106,6 +106,24 @@ export function SettingsSection() {
           </div>
         </div>
 
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Show key moments on summarize</div>
+            <div className="setting-sub">
+              Open the on-page key-moments panel automatically when you send a summary.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.autoShowMoments}
+                onChange={(e) => void update({ autoShowMoments: e.target.checked })}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
       </div>
 
       <div className="settings-group">

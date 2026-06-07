@@ -438,8 +438,11 @@ function removeMomentsPanel(): void {
  * below the player (above the title), falling back to the related-videos
  * column. Returns a result the popup surfaces on failure.
  */
-async function toggleMoments(): Promise<{ ok: boolean; reason?: string }> {
+async function toggleMoments(forceShow = false): Promise<{ ok: boolean; reason?: string }> {
   if (momentsPanel) {
+    // A plain toggle hides an open panel; a forced show (auto-on-summarize)
+    // leaves the existing one in place.
+    if (forceShow) return { ok: true };
     removeMomentsPanel();
     return { ok: true };
   }
@@ -495,7 +498,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   if (type === "TOGGLE_MOMENTS") {
-    void toggleMoments().then((result) => sendResponse(result));
+    const force = !!(message as { show?: boolean })?.show;
+    void toggleMoments(force).then((result) => sendResponse(result));
     return true; // async response
   }
   return false;

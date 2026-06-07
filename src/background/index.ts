@@ -178,6 +178,11 @@ async function runSummary(
     void chrome.tabs.sendMessage(activeTab.id, { type: "PAUSE_VIDEO" }).catch(() => {});
   }
 
+  // Optionally surface the on-page key-moments panel on the video you're on.
+  if (settings.autoShowMoments && !isThumbnail && activeTab?.id !== undefined) {
+    void chrome.tabs.sendMessage(activeTab.id, { type: "TOGGLE_MOMENTS", show: true }).catch(() => {});
+  }
+
   // Fetch the transcript whenever the destination can't watch the video itself
   // (everything but Gemini). Only reachable when the active tab IS the video —
   // not when summarizing a suggested thumbnail.
