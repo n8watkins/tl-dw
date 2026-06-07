@@ -21,9 +21,10 @@ export function SetupSection() {
         </div>
         <div className="step">
           <div className="step-num">Step 2</div>
-          <div className="step-title">Press Alt+G</div>
+          <div className="step-title">Press Alt+Shift+G</div>
           <div className="step-body">
-            TL;DW builds your default prompt, opens a new Gemini tab, and
+            TL;DW builds your default prompt, opens your chosen AI (Gemini,
+            ChatGPT, Claude, Perplexity, or NotebookLM) in a new tab, and
             auto-submits. The answer starts generating immediately.
           </div>
         </div>
@@ -31,7 +32,7 @@ export function SetupSection() {
           <div className="step-num">Step 3</div>
           <div className="step-title">Read, not watch</div>
           <div className="step-body">
-            Gemini analyzes the video and gives you the version you actually
+            The AI analyzes the video and gives you the version you actually
             needed. Switch profiles for different kinds of analysis.
           </div>
         </div>
@@ -48,13 +49,13 @@ export function SetupSection() {
 
       <div className="shortcut-box">
         <div className="shortcut-info">
-          <div className="shortcut-label">Alt+G — Ask Gemini (default profile)</div>
+          <div className="shortcut-label">Alt+Shift+G — Ask your default destination</div>
           <div className="shortcut-sub">
             If the shortcut isn't working, click the button to confirm it in Chrome's shortcuts manager.
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span><kbd>Alt</kbd> + <kbd>G</kbd></span>
+          <span><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>G</kbd></span>
           <button className="btn btn-ghost" onClick={openShortcuts}>
             Set shortcut →
           </button>
