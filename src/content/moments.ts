@@ -35,6 +35,25 @@ function tidy(sentence: string): string {
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
 }
 
+/**
+ * Strip noise that degrades label quality: numeric timestamps that leaked in
+ * from DOM accessibility text ("7:34"), spoken time references that a
+ * frequency-based scorer would otherwise over-weight ("7 minutes, 34 seconds"),
+ * and sound/music markers ("[Music]", "♪").
+ */
+function cleanSegmentText(text: string): string {
+  return text
+    .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, "")
+    .replace(
+      /\b\d+\s+(?:hours?|minutes?|seconds?)(?:(?:\s+and)?\s+\d+\s+(?:hours?|minutes?|seconds?))*/gi,
+      "",
+    )
+    .replace(/\[[^\]]*\]/g, "")
+    .replace(/♪+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** The most salient sentence in a window, used as its label. */
 function bestSentence(
   bucket: TimedSegment[],
@@ -75,7 +94,9 @@ export function deriveMoments(
   segments: TimedSegment[],
   durationSeconds: number,
 ): Moment[] {
-  const clean = segments.filter((s) => s.text && s.text.trim().length > 0);
+  const clean = segments
+    .map((s) => ({ ...s, text: cleanSegmentText(s.text) }))
+    .filter((s) => s.text.length > 0);
   if (clean.length === 0) return [];
 
   const last = clean[clean.length - 1].startSeconds;
@@ -131,7 +152,7 @@ function theme(): Theme {
     : { bg: "#ffffff", border: "#e5e5e5", text: "#0f0f0f", sub: "#606060", accent: "#065fd4", hover: "#f2f2f2" };
 }
 
-/** A single horizontal moment chip: shows the label, reveals the timestamp on hover. */
+/** A single horizontal moment chip: timestamp badge on the left, label to the right. */
 function buildChip(
   m: Moment,
   t: Theme,
@@ -139,19 +160,32 @@ function buildChip(
 ): HTMLElement {
   const chip = document.createElement("button");
   Object.assign(chip.style, {
-    position: "relative",
     display: "inline-flex",
     alignItems: "center",
-    gap: "6px",
-    maxWidth: "230px",
+    gap: "8px",
+    maxWidth: "280px",
     background: t.hover,
     border: `1px solid ${t.border}`,
     borderRadius: "999px",
-    padding: "6px 12px",
+    padding: "6px 12px 6px 8px",
     cursor: "pointer",
     color: t.text,
     font: "inherit",
     textAlign: "left",
+  });
+
+  const badge = document.createElement("span");
+  badge.textContent = formatTime(m.startSeconds);
+  Object.assign(badge.style, {
+    background: t.accent,
+    color: "#ffffff",
+    fontSize: "11px",
+    fontWeight: "700",
+    fontVariantNumeric: "tabular-nums",
+    padding: "2px 7px",
+    borderRadius: "999px",
+    whiteSpace: "nowrap",
+    flexShrink: "0",
   });
 
   const label = document.createElement("span");
@@ -162,39 +196,13 @@ function buildChip(
     textOverflow: "ellipsis",
   });
 
-  // Timestamp tooltip, hidden until hover.
-  const tip = document.createElement("span");
-  tip.textContent = formatTime(m.startSeconds);
-  Object.assign(tip.style, {
-    position: "absolute",
-    top: "calc(100% + 6px)",
-    left: "50%",
-    transform: "translateX(-50%)",
-    background: t.accent,
-    color: "#ffffff",
-    fontSize: "12px",
-    fontWeight: "700",
-    fontVariantNumeric: "tabular-nums",
-    padding: "2px 8px",
-    borderRadius: "6px",
-    whiteSpace: "nowrap",
-    pointerEvents: "none",
-    opacity: "0",
-    transition: "opacity 0.12s",
-    zIndex: "10",
-  });
-
-  // Highlight + reveal the timestamp on hover *and* keyboard focus, so the time
-  // is reachable without a mouse.
   const reveal = () => {
     chip.style.background = t.bg;
     chip.style.borderColor = t.accent;
-    tip.style.opacity = "1";
   };
   const hide = () => {
     chip.style.background = t.hover;
     chip.style.borderColor = t.border;
-    tip.style.opacity = "0";
   };
   chip.addEventListener("mouseenter", reveal);
   chip.addEventListener("mouseleave", hide);
@@ -202,7 +210,7 @@ function buildChip(
   chip.addEventListener("blur", hide);
   chip.addEventListener("click", () => onSeek(m.startSeconds));
 
-  chip.append(tip, label);
+  chip.append(badge, label);
   return chip;
 }
 
