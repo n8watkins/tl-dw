@@ -387,26 +387,6 @@ export function App() {
 
       {onVideo && (
         <>
-          {profiles.length > 0 ? (
-            <label className="field">
-              <span>Profile</span>
-              <select
-                value={selectedId}
-                onChange={(e) => setSelectedId(e.target.value)}
-              >
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <p className="empty">
-              No prompt profiles found. Open Settings to restore or create one.
-            </p>
-          )}
-
           <div className="dest-grid">
             {DESTINATIONS.map((d) => (
               <button
@@ -422,13 +402,32 @@ export function App() {
             ))}
           </div>
 
-          <button className="ask-btn" onClick={send} disabled={busy || profiles.length === 0}>
-            <SparkIcon />
-            <span className="ask-btn-label">
-              <span>{destinationVerb(getDestination(destinationId))} {getDestination(destinationId).label}</span>
-              <span className="ask-btn-shortcut">Alt+Shift+G</span>
-            </span>
-          </button>
+          {profiles.length === 0 ? (
+            <p className="empty">
+              No prompt profiles found. Open Settings to restore or create one.
+            </p>
+          ) : (
+            <div className="send-row">
+              <select
+                className="profile-select"
+                value={selectedId}
+                onChange={(e) => setSelectedId(e.target.value)}
+              >
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <button className="ask-btn" onClick={send} disabled={busy}>
+                <SparkIcon />
+                <span className="ask-btn-label">
+                  <span>{destinationVerb(getDestination(destinationId))} {getDestination(destinationId).label}</span>
+                  <span className="ask-btn-shortcut">Alt+Shift+G</span>
+                </span>
+              </button>
+            </div>
+          )}
 
           {getDestination(destinationId).payload !== "link" &&
             getDestination(destinationId).payload !== "source" && (

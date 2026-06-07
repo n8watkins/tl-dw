@@ -188,6 +188,32 @@ select:disabled { opacity: 0.4; cursor: default; }
   color: #e9d5ff;
 }
 
+/* ── Send row (profile + ask button side by side) ───── */
+
+.send-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.profile-select {
+  flex: 1;
+  min-width: 0;
+  background: #1e293b;
+  color: #f1f5f9;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 15px;
+  cursor: pointer;
+  width: auto;
+}
+
+.send-row .ask-btn {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ── Send button ─────────────────────────────────────── */
 
 .ask-btn {
