@@ -1,3 +1,5 @@
+import claudeIcon from "../assets/claude-icon.png";
+
 /** Brand-accurate icon for each destination service (28×28 by default). */
 export function DestinationIcon({ id, size = 28 }: { id: string; size?: number }) {
   const rx = Math.round(size * 0.28);
@@ -37,17 +39,14 @@ export function DestinationIcon({ id, size = 28 }: { id: string; size?: number }
       );
 
     case "claude":
-      // Anthropic — Simple Icons official path (double-A lettermark)
       return (
-        <svg width={size} height={size} viewBox="0 0 28 28" fill="none">
-          <rect width="28" height="28" rx={rx} fill="#D97757" />
-          <svg x="4" y="4" width="20" height="20" viewBox="0 0 24 24">
-            <path
-              fill="white"
-              d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"
-            />
-          </svg>
-        </svg>
+        <img
+          src={claudeIcon}
+          width={size}
+          height={size}
+          style={{ borderRadius: Math.round(size * 0.28), display: "block" }}
+          alt="Claude"
+        />
       );
 
     case "notebooklm":
