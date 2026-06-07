@@ -242,7 +242,7 @@ async function runSummary(
   });
   if (injectTab.id !== undefined) {
     await setPendingPrompt(injectTab.id, prompt);
-    await recordOpenSearch(injectTab.id, video, destination);
+    await recordOpenSearch(injectTab.id, video, destination, activeTab?.id);
   }
   if (settings.saveHistoryOnSearch) {
     // Store a transcript-free prompt: the transcript can be tens to hundreds of
@@ -268,9 +268,12 @@ async function recordOpenSearch(
   tabId: number,
   video: VideoContext,
   destination: { id: string; label: string },
+  sourceTabId?: number,
 ): Promise<void> {
   await addOpenSearch({
     tabId,
+    sourceTabId,
+    videoUrl: video.url,
     videoTitle: video.title,
     destinationId: destination.id,
     destinationLabel: destination.label,

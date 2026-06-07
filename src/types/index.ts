@@ -28,6 +28,10 @@ export type SearchHistoryEntry = {
  */
 export type OpenSearch = {
   tabId: number;
+  /** The YouTube tab that triggered this search, so the popup can reach back to it. */
+  sourceTabId?: number;
+  /** URL of the source YouTube video, used as a fallback if sourceTabId's tab has closed. */
+  videoUrl?: string;
   videoTitle?: string;
   destinationId: string;
   destinationLabel: string;

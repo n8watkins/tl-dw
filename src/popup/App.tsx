@@ -130,6 +130,8 @@ export function App() {
   }
 
   const onVideo = isYouTubeVideoUrl(tab?.url);
+  // If the current tab is a destination tab TL;DW opened, link it back to source.
+  const linkedSearch = openSearches.find((s) => s.tabId === tab?.id);
 
   // Per-session override only: changing the destination here does NOT touch the
   // saved default (set in Settings). Reopening the popup reverts to the default.
@@ -156,16 +158,47 @@ export function App() {
   }
 
   /**
-   * Toggle the on-page "key moments" panel on the YouTube tab. The content
-   * script derives moments from the transcript and renders the panel; on
-   * success we close the popup so the user sees it, on failure we surface why.
+   * Toggle the on-page "key moments" panel. When called from a destination tab
+   * (pass the linked OpenSearch), it focuses the source YouTube tab first; if
+   * that tab has closed it reopens the video URL and exits. When called from the
+   * YouTube tab itself (no argument), it targets the current tab as before.
    */
-  async function showMoments() {
-    if (!tab?.id) return;
+  async function showMoments(search?: OpenSearch) {
     setBusy(true);
     setCopyStatus("Finding key moments…");
+
+    let targetTabId: number | undefined;
+
+    if (search?.sourceTabId !== undefined) {
+      try {
+        const t = await chrome.tabs.get(search.sourceTabId);
+        await chrome.tabs.update(search.sourceTabId, { active: true });
+        if (t.windowId !== undefined) {
+          await chrome.windows.update(t.windowId, { focused: true });
+        }
+        targetTabId = search.sourceTabId;
+      } catch {
+        // Source tab is gone — reopen the video as a fallback.
+        if (search.videoUrl) {
+          await chrome.tabs.create({ url: search.videoUrl, active: true });
+          window.close();
+          return;
+        }
+        setCopyStatus("Couldn't reach the YouTube tab — it may have been closed.");
+        setBusy(false);
+        return;
+      }
+    } else {
+      targetTabId = tab?.id;
+    }
+
+    if (!targetTabId) {
+      setBusy(false);
+      return;
+    }
+
     try {
-      const r = (await chrome.tabs.sendMessage(tab.id, {
+      const r = (await chrome.tabs.sendMessage(targetTabId, {
         type: "TOGGLE_MOMENTS",
       })) as { ok: boolean; shown?: boolean; reason?: string } | undefined;
       if (r?.ok) {
@@ -268,6 +301,10 @@ export function App() {
       ) : onVideo ? (
         <p className="video" title={tab?.url}>
           {cleanTitle(tab?.title)}
+        </p>
+      ) : linkedSearch ? (
+        <p className="video" title={linkedSearch.videoUrl}>
+          {linkedSearch.videoTitle ?? "YouTube video"}
         </p>
       ) : (
         <p className="empty">Open a YouTube video or Short to use TL;DW.</p>
@@ -376,27 +413,43 @@ export function App() {
         </>
       )}
 
-      {!onVideo && copyStatus && <p className="copy-status">{copyStatus}</p>}
+      {linkedSearch?.sourceTabId !== undefined && (
+        <>
+          <button
+            className="secondary"
+            onClick={() => void showMoments(linkedSearch)}
+            disabled={busy}
+          >
+            <MomentsIcon />
+            Key moments on video
+          </button>
+          {copyStatus && <p className="copy-status">{copyStatus}</p>}
+        </>
+      )}
 
-      {openSearches.length > 0 && (
+      {!onVideo && !linkedSearch && copyStatus && <p className="copy-status">{copyStatus}</p>}
+
+      {openSearches.filter((s) => s.tabId !== tab?.id).length > 0 && (
         <div className="pop-section">
           <div className="pop-section-title">Open searches</div>
           <div className="search-list">
-            {openSearches.map((s) => (
-              <button
-                key={s.tabId}
-                className="search-item"
-                onClick={() => void goToSearch(s)}
-                title={s.videoTitle}
-              >
-                <span className="search-item-title">
-                  {s.videoTitle ?? "YouTube video"}
-                </span>
-                <span className="search-item-meta">
-                  {s.destinationLabel} · {timeAgo(s.createdAt)}
-                </span>
-              </button>
-            ))}
+            {openSearches
+              .filter((s) => s.tabId !== tab?.id)
+              .map((s) => (
+                <button
+                  key={s.tabId}
+                  className="search-item"
+                  onClick={() => void goToSearch(s)}
+                  title={s.videoTitle}
+                >
+                  <span className="search-item-title">
+                    {s.videoTitle ?? "YouTube video"}
+                  </span>
+                  <span className="search-item-meta">
+                    {s.destinationLabel} · {timeAgo(s.createdAt)}
+                  </span>
+                </button>
+              ))}
           </div>
         </div>
       )}
