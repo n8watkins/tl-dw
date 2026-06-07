@@ -176,11 +176,17 @@ export async function getGeminiUsage(): Promise<GeminiUsage> {
   return { ...emptyUsage(), ...stored };
 }
 
-export async function recordGeminiCall(
+/**
+ * Core implementation: writes a Gemini call log entry + updates usage stats.
+ * Returns the new entry's id so callers can patch it later (e.g. with comment sentiment).
+ */
+async function _recordGeminiCall(
   video?: { url: string; title?: string },
   prompt?: string,
   response?: string,
-): Promise<void> {
+  commentSentiment?: string,
+  audienceScore?: number,
+): Promise<string> {
   const [usage, logRaw] = await Promise.all([
     getGeminiUsage(),
     chrome.storage.local.get(GEMINI_CALL_LOG_KEY),
@@ -199,13 +205,16 @@ export async function recordGeminiCall(
   };
 
   const existingLog = (logRaw[GEMINI_CALL_LOG_KEY] as GeminiCallEntry[]) ?? [];
+  const id = crypto.randomUUID();
   const newEntry: GeminiCallEntry = {
-    id: crypto.randomUUID(),
+    id,
     videoUrl: video?.url ?? "",
     videoTitle: video?.title,
     at: now.toISOString(),
     prompt,
     response,
+    commentSentiment,
+    audienceScore,
   };
   const updatedLog = [newEntry, ...existingLog].slice(0, CALL_LOG_LIMIT);
 
@@ -213,6 +222,42 @@ export async function recordGeminiCall(
     [GEMINI_USAGE_KEY]: updatedUsage,
     [GEMINI_CALL_LOG_KEY]: updatedLog,
   });
+
+  return id;
+}
+
+export async function recordGeminiCall(
+  video?: { url: string; title?: string },
+  prompt?: string,
+  response?: string,
+): Promise<void> {
+  await _recordGeminiCall(video, prompt, response);
+}
+
+/**
+ * Like `recordGeminiCall` but returns the new entry id so the caller can patch
+ * it later (e.g. after a parallel comment sentiment call completes).
+ */
+export async function recordGeminiCallReturningId(
+  video?: { url: string; title?: string },
+  prompt?: string,
+  response?: string,
+): Promise<string> {
+  return _recordGeminiCall(video, prompt, response);
+}
+
+/**
+ * Patch an existing call log entry with comment sentiment data after the fact.
+ * No-op if no entry with `id` is found.
+ */
+export async function patchGeminiCallEntry(
+  id: string,
+  patch: { commentSentiment?: string; audienceScore?: number },
+): Promise<void> {
+  const logRaw = await chrome.storage.local.get(GEMINI_CALL_LOG_KEY);
+  const log = (logRaw[GEMINI_CALL_LOG_KEY] as GeminiCallEntry[]) ?? [];
+  const updated = log.map((e) => (e.id === id ? { ...e, ...patch } : e));
+  await chrome.storage.local.set({ [GEMINI_CALL_LOG_KEY]: updated });
 }
 
 /** Clears stats (totalCalls, todayCalls, lastCalledAt) but keeps allTimeCalls. */

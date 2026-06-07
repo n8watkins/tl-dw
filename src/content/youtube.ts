@@ -332,15 +332,67 @@ function getVideoMeta(): { durationSeconds: number; channel: string } {
   return { durationSeconds, channel };
 }
 
+// --- comment scraping ----------------------------------------------------
+
+/**
+ * Scrolls the comments section into view, waits up to 2 s for comment
+ * elements to render, and returns up to 20 comments as a formatted string.
+ * Returns null if no comments are found within the timeout.
+ */
+async function getTopComments(): Promise<string | null> {
+  const commentsEl = document.querySelector<HTMLElement>("ytd-comments#comments");
+  if (!commentsEl) return null;
+
+  // Scroll into view to trigger YouTube's lazy comment load.
+  commentsEl.scrollIntoView({ behavior: "instant", block: "start" });
+
+  // Poll for comment thread renderers up to 2 s.
+  const deadline = Date.now() + 2000;
+  let threads: NodeListOf<Element> | null = null;
+  while (Date.now() < deadline) {
+    threads = document.querySelectorAll("ytd-comment-thread-renderer");
+    if (threads.length > 0) break;
+    await sleep(100);
+  }
+
+  // Scroll back to top so the user isn't disoriented.
+  window.scrollTo({ top: 0, behavior: "instant" });
+
+  if (!threads || threads.length === 0) return null;
+
+  const comments: string[] = [];
+  const limit = Math.min(threads.length, 20);
+  for (let i = 0; i < limit; i++) {
+    const thread = threads[i];
+    const textEl =
+      thread.querySelector<HTMLElement>("#content-text") ??
+      thread.querySelector<HTMLElement>("yt-attributed-string") ??
+      thread.querySelector<HTMLElement>(".ytd-comment-renderer");
+    const text = textEl?.textContent?.trim().replace(/\s+/g, " ");
+    if (!text) continue;
+
+    const likeEl =
+      thread.querySelector<HTMLElement>("#vote-count-middle") ??
+      thread.querySelector<HTMLElement>("span[aria-label]");
+    const likes = likeEl?.textContent?.trim();
+    comments.push(likes ? `${text} [${likes} likes]` : text);
+  }
+
+  return comments.length > 0 ? comments.join("\n") : null;
+}
+
 // --- TL;DW summary panel -------------------------------------------------
 
 type TldwSummary = { verdict: string; summary: string; rating: string; details?: string; source?: string };
 
 let summaryPanel: HTMLElement | null = null;
+/** Reference to the community sentiment section so `SET_COMMENT_SENTIMENT` can update it. */
+let communitySection: HTMLElement | null = null;
 
 function removeSummaryPanel(): void {
   summaryPanel?.remove();
   summaryPanel = null;
+  communitySection = null;
 }
 
 function theme(): { bg: string; border: string; text: string; sub: string; hover: string } {
@@ -391,7 +443,7 @@ function panelHost(): Element | null {
 }
 
 /** Show an instant skeleton panel while the API call is in flight. */
-function showLoadingPanel(): void {
+function showLoadingPanel(showCommentShimmer = false): void {
   const host = panelHost();
   if (!host) return;
   removeSummaryPanel();
@@ -435,6 +487,23 @@ function showLoadingPanel(): void {
   };
 
   panel.append(head, shimmerLine("90%"), shimmerLine("65%"));
+
+  if (showCommentShimmer) {
+    const comm = document.createElement("div");
+    comm.id = "tldw-community";
+    Object.assign(comm.style, {
+      borderTop: `1px solid ${t.border}`,
+      marginTop: "8px",
+      paddingTop: "8px",
+      fontSize: "13px",
+      color: t.sub,
+      animation: "tldw-shimmer 1.4s infinite",
+    });
+    comm.textContent = "💬 Analyzing comments…";
+    panel.append(comm);
+    communitySection = comm;
+  }
+
   summaryPanel = panel;
   host.prepend(panel);
   log("loading panel shown");
@@ -553,15 +622,53 @@ function buildSummaryPanel(tldw: TldwSummary): HTMLElement {
     body.addEventListener("mouseleave", () => { body.style.opacity = "1"; });
   }
 
-  panel.append(head, body);
+  // --- community section (filled in later by SET_COMMENT_SENTIMENT) ---
+  const comm = document.createElement("div");
+  comm.id = "tldw-community";
+  // Initially hidden; shown when SET_COMMENT_SENTIMENT arrives.
+  comm.style.display = "none";
+  Object.assign(comm.style, {
+    borderTop: `1px solid ${t.border}`,
+    marginTop: "8px",
+    paddingTop: "8px",
+    fontSize: "13px",
+    color: t.sub,
+  });
+
+  panel.append(head, body, comm);
   return panel;
 }
 
-function showSummaryPanel(tldw: TldwSummary): void {
+function showSummaryPanel(tldw: TldwSummary, keepCommunityShimmer = false): void {
   const host = panelHost();
   if (!host) return;
+
+  // If a loading panel was showing with a community shimmer, preserve a
+  // reference to it so we can update it when the sentiment arrives.
+  const prevCommunity = communitySection;
+
   removeSummaryPanel();
-  summaryPanel = buildSummaryPanel(tldw);
+  const panel = buildSummaryPanel(tldw);
+  summaryPanel = panel;
+
+  // Wire up the community section reference so SET_COMMENT_SENTIMENT can find it.
+  communitySection = panel.querySelector<HTMLElement>("#tldw-community");
+
+  // If the loading panel had a shimmer visible, show a shimmer in the new
+  // panel too while we wait for the comment sentiment response.
+  if (keepCommunityShimmer && communitySection) {
+    ensureShimmerStyle();
+    const t = theme();
+    communitySection.style.display = "";
+    communitySection.style.animation = "tldw-shimmer 1.4s infinite";
+    communitySection.style.color = t.sub;
+    communitySection.textContent = "💬 Analyzing comments…";
+  }
+
+  // If there was already a community shimmer div from the loading panel,
+  // we no longer need a separate ref (the new panel has its own).
+  void prevCommunity; // suppress unused-var lint
+
   host.prepend(summaryPanel);
   log("summary panel injected");
 }
@@ -583,8 +690,10 @@ async function maybeStartDirectApiRun(): Promise<void> {
   const s = r["settings"] as Record<string, unknown> | undefined;
   if (!(s?.useDirectApi as boolean) || !(s?.geminiApiKey as string)) return;
 
+  const showCommentShimmer = s?.includeCommentSentiment === true;
+
   autoRunVideoIds.add(vid);
-  showLoadingPanel();
+  showLoadingPanel(showCommentShimmer);
   void getTranscript(); // pre-fetch so it's cached when the background asks
   log("direct API auto-run started");
   try {
@@ -633,6 +742,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     void getTranscript().then((transcript) => sendResponse({ transcript }));
     return true;
   }
+  if (type === "GET_COMMENTS") {
+    log("comments requested");
+    void getTopComments().then((comments) => sendResponse({ comments }));
+    return true;
+  }
   if (type === "PAUSE_VIDEO") {
     const video = document.querySelector<HTMLVideoElement>(
       "video.html5-main-video, video",
@@ -649,7 +763,43 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const msg = message as { tldw?: TldwSummary; source?: string };
     const tldw = msg?.tldw;
     if (tldw?.verdict && tldw.summary) {
-      showSummaryPanel({ ...tldw, source: msg.source });
+      // Pass keepCommunityShimmer=true if a community section was already showing
+      // in the loading panel (so we keep the "Analyzing comments…" visible).
+      showSummaryPanel({ ...tldw, source: msg.source }, communitySection !== null);
+    }
+    sendResponse({ ok: true });
+    return false;
+  }
+  if (type === "SET_COMMENT_SENTIMENT") {
+    const msg = message as { sentiment?: string; audienceScore?: number };
+    const el = communitySection ?? document.querySelector<HTMLElement>("#tldw-community");
+    if (el && msg.sentiment) {
+      el.style.display = "";
+      el.style.animation = "";
+      el.style.color = "";
+      // Build content: sentiment text + optional score pill.
+      el.innerHTML = "";
+      const sentimentText = document.createElement("span");
+      sentimentText.textContent = `💬 ${msg.sentiment}`;
+      el.append(sentimentText);
+      if (msg.audienceScore !== undefined) {
+        const scorePill = document.createElement("span");
+        scorePill.textContent = `Audience: ${msg.audienceScore}/10`;
+        Object.assign(scorePill.style, {
+          display: "inline-block",
+          marginLeft: "10px",
+          fontSize: "11px",
+          fontWeight: "700",
+          padding: "2px 8px",
+          borderRadius: "999px",
+          background: theme().border,
+          color: theme().text,
+          verticalAlign: "middle",
+          whiteSpace: "nowrap",
+        });
+        el.append(scorePill);
+      }
+      log("community sentiment updated");
     }
     sendResponse({ ok: true });
     return false;

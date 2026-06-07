@@ -254,6 +254,44 @@ export function DirectApiSection() {
             </div>
           </div>
         )}
+
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Include comment sentiment</div>
+            <div className="setting-sub">
+              After the main summary, run a second Gemini call to analyze the top viewer
+              comments and add a 💬 Community row to the widget with audience sentiment
+              and a score out of 10.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.includeCommentSentiment}
+                onChange={(e) => void update({ includeCommentSentiment: e.target.checked })}
+                disabled={!hasKey}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
+        {settings.includeCommentSentiment && (
+          <div className="setting-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}>
+            <div className="setting-label">Comment prompt template</div>
+            <div className="setting-sub" style={{ marginBottom: 6 }}>
+              Use <code>{"{{comments}}"}</code> where the scraped comments should be inserted.
+            </div>
+            <textarea
+              value={settings.commentPromptTemplate}
+              onChange={(e) => void update({ commentPromptTemplate: e.target.value })}
+              rows={7}
+              style={{ fontFamily: "monospace", fontSize: 12, resize: "vertical" }}
+              spellCheck={false}
+            />
+          </div>
+        )}
       </div>
 
       {/* Usage stats */}

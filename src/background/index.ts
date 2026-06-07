@@ -9,9 +9,10 @@ import {
   getGeminiUsage,
   getProfiles,
   getSettings,
+  patchGeminiCallEntry,
   pruneOpenSearch,
   recordDeliveryStatus,
-  recordGeminiCall,
+  recordGeminiCallReturningId,
   resolveProfile,
   setPendingPrompt,
   takePendingPrompt,
@@ -110,6 +111,18 @@ async function getTranscriptFromTab(tabId: number): Promise<string | null> {
       type: "GET_TRANSCRIPT",
     })) as { transcript: string | null } | undefined;
     return res?.transcript ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Ask the YouTube content script for the top viewer comments on the page. */
+async function getCommentsFromTab(tabId: number): Promise<string | null> {
+  try {
+    const res = (await chrome.tabs.sendMessage(tabId, {
+      type: "GET_COMMENTS",
+    })) as { comments: string | null } | undefined;
+    return res?.comments ?? null;
   } catch {
     return null;
   }
@@ -276,14 +289,53 @@ async function runSummary(
     if (gateMinutes > 0) logPrompt = prependWorthWatchingGate(logPrompt, gateMinutes);
 
     let responseText: string | undefined;
+    let callEntryId: string | undefined;
     try {
       responseText = await callGeminiApi(prompt, apiKey!);
-      void recordGeminiCall(video, logPrompt, responseText);
+      // recordGeminiCall returns the new entry id so we can patch it later.
+      callEntryId = await recordGeminiCallReturningId(video, logPrompt, responseText);
       const tldw = parseTldwBlock(responseText);
       if (tldw && activeTab?.id !== undefined) {
         void chrome.tabs
           .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw, source: "Gemini API" })
           .catch(() => {});
+
+        // Fire the comment sentiment call in parallel (best-effort, never blocks main path).
+        if (settings.includeCommentSentiment) {
+          const tabId = activeTab.id;
+          void (async () => {
+            try {
+              const comments = await getCommentsFromTab(tabId);
+              if (!comments) return;
+              const commentPrompt = settings.commentPromptTemplate.replace("{{comments}}", comments);
+              const commentResponse = await callGeminiApi(commentPrompt, apiKey!);
+
+              // Parse "Audience score: X/10" from the last line.
+              const scoreMatch = /Audience score:\s*(\d+)\/10/i.exec(commentResponse);
+              const audienceScore = scoreMatch ? parseInt(scoreMatch[1], 10) : undefined;
+              // Strip the score line from the display text.
+              const sentiment = commentResponse
+                .replace(/^.*Audience score:\s*\d+\/10.*$/im, "")
+                .trim();
+
+              // Send the result to the content tab.
+              void chrome.tabs
+                .sendMessage(tabId, {
+                  type: "SET_COMMENT_SENTIMENT",
+                  sentiment,
+                  audienceScore,
+                })
+                .catch(() => {});
+
+              // Patch the call log entry with the comment data.
+              if (callEntryId) {
+                void patchGeminiCallEntry(callEntryId, { commentSentiment: sentiment, audienceScore });
+              }
+            } catch {
+              /* best-effort — silently skip on any error */
+            }
+          })();
+        }
       }
       void flashBadge("✓", true);
       void recordDeliveryStatus({ site: "Gemini (API)", ok: true, at: new Date().toISOString() });

@@ -103,6 +103,9 @@ export const DEFAULT_SETTINGS: Settings = {
   geminiApiKey: "",
   geminiApiKeyName: "",
   useDirectApi: false,
+  includeCommentSentiment: false,
+  commentPromptTemplate:
+    "These are the top viewer comments on this YouTube video. In 2-3 sentences, summarize the overall audience sentiment. If multiple commenters mention specific timestamps or moments, include those. End your response with exactly one line in this format: \"Audience score: X/10\"\n\nComments:\n{{comments}}",
 };
 
 export function isYouTubeVideoUrl(url: string | undefined): boolean {

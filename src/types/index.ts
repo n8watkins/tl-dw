@@ -87,6 +87,10 @@ export type GeminiCallEntry = {
   prompt?: string;
   /** Raw text response from the API. */
   response?: string;
+  /** Community sentiment summary from the comment analysis call. */
+  commentSentiment?: string;
+  /** Numeric audience score (1-10) parsed from the comment analysis response. */
+  audienceScore?: number;
 };
 
 /** Age thresholds the history auto-expiry offers (see HISTORY_EXPIRY_OPTIONS). */
@@ -158,6 +162,10 @@ export type Settings = {
   useDirectApi: boolean;
   /** Profile to use for Direct API auto-runs; falls back to the default profile if unset. */
   directApiProfileId?: string;
+  /** Run a second Gemini call to analyze top viewer comments and show community sentiment. */
+  includeCommentSentiment: boolean;
+  /** Prompt template for the comment sentiment call. Use {{comments}} as the placeholder. */
+  commentPromptTemplate: string;
 };
 
 export type StorageState = {
@@ -229,9 +237,21 @@ export type AiSummaryMessage = {
   sourceTabId: number;
 };
 
+/** Sent from background to content script: request the top comments from the page. */
+export type GetCommentsMessage = { type: "GET_COMMENTS" };
+
+/** Sent from background to content script: deliver the comment sentiment result. */
+export type SetCommentSentimentMessage = {
+  type: "SET_COMMENT_SENTIMENT";
+  sentiment: string;
+  audienceScore?: number;
+};
+
 export type RuntimeMessage =
   | GetPendingMessage
   | AskMessage
   | RebuildMenuMessage
   | InjectResultMessage
-  | AiSummaryMessage;
+  | AiSummaryMessage
+  | GetCommentsMessage
+  | SetCommentSentimentMessage;
