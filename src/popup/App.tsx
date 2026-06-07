@@ -386,6 +386,26 @@ export function App() {
 
       {onVideo && (
         <>
+          {profiles.length > 0 ? (
+            <label className="field">
+              <span>Profile</span>
+              <select
+                value={selectedId}
+                onChange={(e) => setSelectedId(e.target.value)}
+              >
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <p className="empty">
+              No prompt profiles found. Open Settings to restore or create one.
+            </p>
+          )}
+
           <div className="send-row">
             <select
               className="dest-select"
