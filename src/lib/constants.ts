@@ -112,3 +112,16 @@ export function isYouTubeVideoUrl(url: string | undefined): boolean {
     return false;
   }
 }
+
+/** True only for YouTube Shorts URLs — Shorts have no transcript. */
+export function isYouTubeShortUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    if (host !== "youtube.com" && host !== "m.youtube.com") return false;
+    return u.pathname.startsWith("/shorts/");
+  } catch {
+    return false;
+  }
+}

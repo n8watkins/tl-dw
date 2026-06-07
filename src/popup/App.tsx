@@ -11,6 +11,7 @@ import {
   destinationVerb,
   getDestination,
   isYouTubeVideoUrl,
+  isYouTubeShortUrl,
 } from "../lib/constants";
 import { DestinationIcon } from "../lib/DestinationIcon";
 import {
@@ -132,6 +133,10 @@ export function App() {
   }
 
   const onVideo = isYouTubeVideoUrl(tab?.url);
+  const isShort = isYouTubeShortUrl(tab?.url);
+  // Shorts have no transcript — only Gemini (which watches the URL) is useful.
+  const availableDestinations = isShort ? DESTINATIONS.filter((d) => d.canWatch) : DESTINATIONS;
+  const effectiveDestinationId = isShort ? "gemini" : destinationId;
   // If the current tab is a destination tab TL;DW opened, link it back to source.
   const linkedSearch = openSearches.find((s) => s.tabId === tab?.id);
 
@@ -143,7 +148,7 @@ export function App() {
   }
 
   function send() {
-    const dest = getDestination(destinationId);
+    const dest = getDestination(effectiveDestinationId);
     // Hand off to the background worker's auto-fill flow, passing the session
     // destination so it routes here even if the saved default differs. Fire
     // and forget, then close: the worker runs independently of the popup, so
@@ -306,13 +311,18 @@ export function App() {
 
       {onVideo && (
         <>
+          {isShort && (
+            <p className="shorts-note">
+              Shorts don't have transcripts — Gemini only (it watches the video directly).
+            </p>
+          )}
           <div className="dest-grid">
-            {DESTINATIONS.map((d) => (
+            {availableDestinations.map((d) => (
               <button
                 key={d.id}
-                className={`dest-btn${destinationId === d.id ? " dest-btn-active" : ""}`}
+                className={`dest-btn${effectiveDestinationId === d.id ? " dest-btn-active" : ""}`}
                 onClick={() => changeDestination(d.id)}
-                aria-pressed={destinationId === d.id}
+                aria-pressed={effectiveDestinationId === d.id}
                 title={d.label}
               >
                 <DestinationIcon id={d.id} size={26} />
@@ -341,15 +351,15 @@ export function App() {
               <button className="ask-btn" onClick={send} disabled={busy}>
                 <SparkIcon />
                 <span className="ask-btn-label">
-                  <span>{destinationVerb(getDestination(destinationId))} {getDestination(destinationId).label}</span>
+                  <span>{destinationVerb(getDestination(effectiveDestinationId))} {getDestination(effectiveDestinationId).label}</span>
                   <span className="ask-btn-shortcut">Alt+Shift+G</span>
                 </span>
               </button>
             </div>
           )}
 
-          {getDestination(destinationId).payload !== "link" &&
-            getDestination(destinationId).payload !== "source" && (
+          {getDestination(effectiveDestinationId).payload !== "link" &&
+            getDestination(effectiveDestinationId).payload !== "source" && (
               <>
                 <label className="field">
                   <span>Ask something specific (optional)</span>

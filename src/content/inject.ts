@@ -172,14 +172,37 @@ function insertText(editor: Element, text: string): boolean {
     return editor.value.includes(text.slice(0, 20));
   }
 
+  // Select all existing content so execCommand("insertText") replaces it.
+  // Without an active selection the command silently no-ops on some sites.
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    const sel = window.getSelection();
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  } catch {
+    /* selection setup failed — execCommand will try anyway */
+  }
+
   let ok = false;
   try {
     ok = document.execCommand("insertText", false, text);
   } catch {
     ok = false;
   }
-  if (!ok) {
+  if (!ok || !(editor.textContent ?? "").includes(text.slice(0, 20))) {
     editor.textContent = text;
+    // Fire beforeinput then input so React/Vue/Svelte state machines all update.
+    editor.dispatchEvent(
+      new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: true,
+        inputType: "insertText",
+        data: text,
+      }),
+    );
     editor.dispatchEvent(
       new InputEvent("input", {
         bubbles: true,
