@@ -208,12 +208,17 @@ async function runSummary(
     void chrome.tabs.sendMessage(activeTab.id, { type: "PAUSE_VIDEO" }).catch(() => {});
   }
 
-  // Fetch the transcript whenever the destination can't watch the video itself
-  // (everything but Gemini). Only reachable when the active tab IS the video —
-  // not when summarizing a suggested thumbnail.
+  const isPromptDest = destination.payload !== "link" && destination.payload !== "source";
+  // Determine headless path early so the transcript fetch can account for it.
+  const apiKey = settings.geminiApiKey?.trim();
+  const willUseDirectApi = !!(apiKey && settings.useDirectApi && isPromptDest);
+
+  // Fetch the transcript whenever the destination can't watch the video itself,
+  // OR when going headless — the Gemini REST API can't watch YouTube URLs, so
+  // it needs the transcript even though destination.canWatch is true for Gemini.
   let transcript: string | null = null;
   if (
-    !destination.canWatch &&
+    (!destination.canWatch || willUseDirectApi) &&
     destination.payload !== "link" &&
     !isThumbnail &&
     activeTab?.id !== undefined
@@ -224,7 +229,6 @@ async function runSummary(
   // Worth-watching gate: for chat destinations (a "prompt" payload), on videos
   // over the threshold whose channel/title isn't trusted, ask for a verdict
   // first. The meta fetch also enriches the prompt's {{channel}}.
-  const isPromptDest = destination.payload !== "link" && destination.payload !== "source";
   const gateEnabled = gateOverride ?? settings.worthWatchingGate;
   let gateMinutes = 0;
   if (gateEnabled && isPromptDest && !isThumbnail && activeTab?.id !== undefined) {
@@ -252,16 +256,18 @@ async function runSummary(
     }
   }
 
-  let prompt = buildDestinationPrompt(profile, video, destination, transcript, userCuriosity);
+  // For headless calls the REST API can't watch YouTube, so treat the
+  // destination as non-watching so the transcript is appended to the prompt.
+  const promptDest = willUseDirectApi ? { ...destination, canWatch: false } : destination;
+  let prompt = buildDestinationPrompt(profile, video, promptDest, transcript, userCuriosity);
   if (gateMinutes > 0) {
     prompt = prependWorthWatchingGate(prompt, gateMinutes);
   }
 
   // --- headless path: call Gemini API directly (no tab) -------------------
-  const apiKey = settings.geminiApiKey?.trim();
-  if (apiKey && settings.useDirectApi && isPromptDest) {
+  if (willUseDirectApi) {
     try {
-      const responseText = await callGeminiApi(prompt, apiKey);
+      const responseText = await callGeminiApi(prompt, apiKey!);
       void recordGeminiCall();
       const tldw = parseTldwBlock(responseText);
       if (tldw && activeTab?.id !== undefined) {
