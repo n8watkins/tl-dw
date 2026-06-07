@@ -169,13 +169,23 @@ export type InjectResultMessage = {
   reason?: string;
 };
 
+/** Compact structured data extracted from the AI response and injected onto the YouTube page. */
+export type TldwSummary = {
+  /** WATCH, SKIM, or SKIP */
+  verdict: string;
+  /** One sentence describing what the video is about. */
+  summary: string;
+  /** e.g. "8/10" */
+  rating: string;
+};
+
 /**
  * Sent from the inject script once the AI finishes responding. The background
  * forwards it to the source YouTube tab so the summary appears on the page.
  */
 export type AiSummaryMessage = {
   type: "AI_SUMMARY";
-  text: string;
+  tldw: TldwSummary;
   sourceTabId: number;
 };
 

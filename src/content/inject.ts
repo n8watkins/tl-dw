@@ -518,6 +518,23 @@ function readLastResponse(responseSelectors: string[]): string {
   return "";
 }
 
+type TldwData = { verdict: string; summary: string; rating: string };
+
+/** Extract the structured ---TLDW--- block the prompt instructs the AI to output. */
+function parseTldwBlock(text: string): TldwData | null {
+  const m = text.match(
+    /---TLDW---[\r\n]+VERDICT:\s*(.+?)[\r\n]+SUMMARY:\s*(.+?)[\r\n]+RATING:\s*(.+?)[\r\n]+---END TLDW---/s,
+  );
+  if (!m) return null;
+  const raw = m[1].trim();
+  const verdict = /SKIP/i.test(raw) ? "SKIP" : /SKIM/i.test(raw) ? "SKIM" : "WATCH";
+  return {
+    verdict,
+    summary: m[2].trim(),
+    rating: m[3].trim(),
+  };
+}
+
 function hasStopButton(stopSelectors: string[]): boolean {
   return stopSelectors.some((sel) => {
     for (const el of document.querySelectorAll<HTMLElement>(sel)) {
@@ -557,8 +574,11 @@ async function waitForResponseAndSend(
   const text = readLastResponse(config.responseSelectors);
   if (!text) return;
 
+  const tldw = parseTldwBlock(text);
+  if (!tldw) return;
+
   try {
-    await chrome.runtime.sendMessage({ type: "AI_SUMMARY", text, sourceTabId });
+    await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw, sourceTabId });
   } catch {
     /* background may be asleep — best effort */
   }

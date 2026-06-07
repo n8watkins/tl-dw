@@ -78,6 +78,23 @@ export function appendTranscript(
 }
 
 /**
+ * Append a structured TL;DW block request so the AI always outputs parseable
+ * verdict / summary / rating fields at the end of its response.
+ */
+export function appendTldwBlock(prompt: string): string {
+  return (
+    prompt +
+    "\n\nFinally, end your response with this block formatted EXACTLY as shown " +
+    "(no extra words on the label lines):\n\n" +
+    "---TLDW---\n" +
+    "VERDICT: WATCH, SKIM, or SKIP\n" +
+    "SUMMARY: One sentence — what this video is actually about\n" +
+    "RATING: X/10\n" +
+    "---END TLDW---"
+  );
+}
+
+/**
  * Build the prompt for a specific destination. Gemini can open the video URL
  * itself (canWatch), so it gets the link only. Every other destination can't
  * watch the video, so the transcript is included — regardless of whether the
@@ -118,8 +135,9 @@ export function buildDestinationPrompt(
     curiosity && !hasCuriosityVar
       ? `${prompt}\n\nIn particular, address this: ${curiosity}`
       : prompt;
+  const withTldw = appendTldwBlock(withCuriosity);
   if (!destination.canWatch) {
-    return appendTranscript(withCuriosity, transcript);
+    return appendTranscript(withTldw, transcript);
   }
-  return withCuriosity;
+  return withTldw;
 }

@@ -315,7 +315,7 @@ chrome.runtime.onMessage.addListener(
     }
     if (message.type === "AI_SUMMARY") {
       void chrome.tabs
-        .sendMessage(message.sourceTabId, { type: "SET_SUMMARY", text: message.text })
+        .sendMessage(message.sourceTabId, { type: "SET_SUMMARY", tldw: message.tldw })
         .catch(() => {});
       sendResponse({ ok: true });
       return false;
