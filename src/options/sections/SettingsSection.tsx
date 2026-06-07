@@ -4,6 +4,7 @@ import {
   DEFAULT_SETTINGS,
   DESTINATIONS,
   GEMINI_URL,
+  STORAGE_KEYS,
   WATCH_THRESHOLD_OPTIONS,
 } from "../../lib/constants";
 import type { WatchThresholdMinutes } from "../../types";
@@ -18,6 +19,14 @@ export function SettingsSection() {
 
   useEffect(() => {
     void getSettings().then(setLocal);
+
+    const handleChange = (changes: Record<string, chrome.storage.StorageChange>) => {
+      if (changes[STORAGE_KEYS.settings]?.newValue) {
+        setLocal({ ...DEFAULT_SETTINGS, ...(changes[STORAGE_KEYS.settings].newValue as Settings) });
+      }
+    };
+    chrome.storage.onChanged.addListener(handleChange);
+    return () => chrome.storage.onChanged.removeListener(handleChange);
   }, []);
 
   async function update(patch: Partial<Settings>) {
