@@ -167,7 +167,7 @@ function buildChip(
   tip.textContent = formatTime(m.startSeconds);
   Object.assign(tip.style, {
     position: "absolute",
-    bottom: "calc(100% + 6px)",
+    top: "calc(100% + 6px)",
     left: "50%",
     transform: "translateX(-50%)",
     background: t.accent,
