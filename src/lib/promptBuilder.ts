@@ -88,6 +88,7 @@ export function buildDestinationPrompt(
   video: VideoContext,
   destination: Destination,
   transcript?: string | null,
+  userCuriosity?: string | null,
 ): string {
   // Link-style destinations get just the video URL (e.g. NotebookLM ingesting
   // the YouTube link directly via its "Websites" source).
@@ -100,9 +101,25 @@ export function buildDestinationPrompt(
   if (destination.payload === "source") {
     return transcript ?? video.url;
   }
-  const { prompt } = buildPrompt(profile, video);
+  const curiosity = userCuriosity?.trim() || undefined;
+  // Hand the curiosity to {{userCuriosity}} so the template author controls
+  // where it lands.
+  const { prompt } = buildPrompt(
+    profile,
+    video,
+    undefined,
+    curiosity ? { userCuriosity: curiosity } : {},
+  );
+  // If the template has no {{userCuriosity}} placeholder, the curiosity would
+  // otherwise be dropped — append it (labelled) so a typed question is never
+  // silently ignored.
+  const hasCuriosityVar = /\{\{\s*userCuriosity\s*\}\}/.test(profile.promptTemplate);
+  const withCuriosity =
+    curiosity && !hasCuriosityVar
+      ? `${prompt}\n\nIn particular, address this: ${curiosity}`
+      : prompt;
   if (!destination.canWatch) {
-    return appendTranscript(prompt, transcript);
+    return appendTranscript(withCuriosity, transcript);
   }
-  return prompt;
+  return withCuriosity;
 }

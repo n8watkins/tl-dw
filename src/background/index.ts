@@ -144,6 +144,7 @@ async function runSummary(
   linkUrl?: string,
   destinationOverride?: string,
   gateOverride?: boolean,
+  userCuriosity?: string,
 ): Promise<void> {
   // A right-clicked video link (a thumbnail) wins over the active tab, so a
   // suggested video gets summarized rather than the page you're sitting on.
@@ -227,7 +228,7 @@ async function runSummary(
     }
   }
 
-  let prompt = buildDestinationPrompt(profile, video, destination, transcript);
+  let prompt = buildDestinationPrompt(profile, video, destination, transcript, userCuriosity);
   if (gateMinutes > 0) {
     prompt = prependWorthWatchingGate(prompt, gateMinutes);
   }
@@ -248,7 +249,7 @@ async function runSummary(
     // KB, and persisting it per entry would bloat chrome.storage.local toward
     // its ~10 MB quota (and means "Copy prompt" wouldn't quietly drag the whole
     // transcript along). Rebuild the prompt with no transcript for the log.
-    let historyPrompt = buildDestinationPrompt(profile, video, destination, null);
+    let historyPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity);
     if (gateMinutes > 0) {
       historyPrompt = prependWorthWatchingGate(historyPrompt, gateMinutes);
     }
@@ -292,6 +293,7 @@ chrome.runtime.onMessage.addListener(
         undefined,
         message.destinationId,
         message.worthWatchingGate,
+        message.userCuriosity,
       ).then(() => sendResponse({ ok: true }));
       return true;
     }

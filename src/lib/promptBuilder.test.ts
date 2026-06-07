@@ -73,4 +73,38 @@ describe("buildDestinationPrompt", () => {
     );
     expect(out).not.toContain("Video transcript");
   });
+
+  it("substitutes the curiosity into a template that has the placeholder", () => {
+    const withVar: PromptProfile = { ...profile, promptTemplate: "Q: {{userCuriosity}}" };
+    const out = buildDestinationPrompt(
+      withVar,
+      video,
+      dest({ payload: "prompt", canWatch: true }),
+      null,
+      "what about pricing?",
+    );
+    expect(out).toBe("Q: what about pricing?");
+  });
+
+  it("appends the curiosity (labelled) when the template lacks the placeholder", () => {
+    const out = buildDestinationPrompt(
+      profile, // template is "Summarize {{title}} at {{url}}" — no curiosity var
+      video,
+      dest({ payload: "prompt", canWatch: true }),
+      null,
+      "what about pricing?",
+    );
+    expect(out).toContain("In particular, address this: what about pricing?");
+  });
+
+  it("ignores blank curiosity", () => {
+    const out = buildDestinationPrompt(
+      profile,
+      video,
+      dest({ payload: "prompt", canWatch: true }),
+      null,
+      "   ",
+    );
+    expect(out).toBe("Summarize My Video at https://youtube.com/watch?v=abc");
+  });
 });

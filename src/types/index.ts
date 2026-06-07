@@ -145,6 +145,8 @@ export type AskMessage = {
   destinationId?: string;
   /** Per-send override for the worth-watching verdict gate. */
   worthWatchingGate?: boolean;
+  /** Optional one-off question to weave into the prompt for this send. */
+  userCuriosity?: string;
 };
 
 /** Sent from options page after profiles change to sync the context menu. */

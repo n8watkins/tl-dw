@@ -16,6 +16,7 @@ type IconProps = {
     | "heart"
     | "sliders"
     | "clock"
+    | "upload"
     | "send"
     | "sparkles"
     | "eye";
@@ -41,6 +42,7 @@ const PATHS: Record<IconProps["name"], string[]> = {
   heart: ["M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"],
   sliders: ["M4 21v-7", "M4 10V3", "M12 21v-9", "M12 8V3", "M20 21v-5", "M20 12V3", "M1 14h6", "M9 8h6", "M17 16h6"],
   clock: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "M12 7v5l3 2"],
+  upload: ["M12 15V3", "M7 8l5-5 5 5", "M5 21h14"],
   send: ["M22 2 11 13", "M22 2l-7 20-4-9-9-4 20-7z"],
   sparkles: [
     "M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z",

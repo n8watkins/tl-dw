@@ -383,7 +383,15 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: 20px;
+}
+
+.profiles-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .profile-list { display: flex; flex-direction: column; gap: 10px; }
@@ -506,6 +514,16 @@ textarea { min-height: 220px; font-family: "JetBrains Mono", "Fira Code", ui-mon
   border: 1px solid rgba(239,68,68,0.35);
   border-radius: var(--radius);
   color: #fecaca;
+  font-size: 13px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+}
+
+.inline-notice {
+  background: rgba(34,197,94,0.1);
+  border: 1px solid rgba(34,197,94,0.35);
+  border-radius: var(--radius);
+  color: #bbf7d0;
   font-size: 13px;
   margin-bottom: 14px;
   padding: 10px 14px;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PromptProfile, Settings } from "../../types";
 import { getProfiles, getSettings, setProfiles, setSettings } from "../../lib/storage";
 import { getOriginalTemplate } from "../../lib/profiles";
@@ -43,7 +43,9 @@ export function ProfilesSection() {
   const [drafts, setDrafts] = useState<Record<string, PromptProfile>>({});
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void Promise.all([getProfiles(), getSettings()]).then(([p, s]) => {
@@ -104,6 +106,72 @@ export function ProfilesSection() {
     await chrome.runtime.sendMessage({ type: "REBUILD_MENU" });
     setOpenId(p.id);
     setDrafts((d) => ({ ...d, [p.id]: p }));
+  }
+
+  function exportProfiles() {
+    const payload = { exportedAt: new Date().toISOString(), source: "TL;DW", profiles };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `tl-dw-profiles-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importProfiles(file: File) {
+    setError(null);
+    setNotice(null);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      setError("That file isn't valid JSON.");
+      return;
+    }
+    // Accept either a bare array or the { profiles: [...] } export envelope.
+    const incoming = Array.isArray(parsed)
+      ? parsed
+      : (parsed as { profiles?: unknown })?.profiles;
+    if (!Array.isArray(incoming)) {
+      setError("No profiles found in that file.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const working = [...profiles];
+    let added = 0;
+    let skipped = 0;
+    for (const raw of incoming as Array<Record<string, unknown>>) {
+      if (!raw || typeof raw.name !== "string" || typeof raw.promptTemplate !== "string") {
+        skipped += 1;
+        continue;
+      }
+      // Always import as a new custom profile: fresh id, conflict-free name, and
+      // never inherits isDefault/isCustomized from the source.
+      working.push({
+        id: crypto.randomUUID(),
+        name: nextAvailableName(working, normalizeName(raw.name) || "Imported Profile"),
+        description: typeof raw.description === "string" ? raw.description : "",
+        promptTemplate: raw.promptTemplate,
+        createdAt: now,
+        updatedAt: now,
+      });
+      added += 1;
+    }
+
+    if (added === 0) {
+      setError("No valid profiles to import.");
+      return;
+    }
+    setProfilesState(working);
+    await setProfiles(working);
+    await chrome.runtime.sendMessage({ type: "REBUILD_MENU" });
+    setNotice(
+      `Imported ${added} profile${added === 1 ? "" : "s"}` +
+        (skipped ? `, skipped ${skipped} invalid.` : "."),
+    );
+    setTimeout(() => setNotice(null), 4000);
   }
 
   async function deleteProfile(id: string) {
@@ -169,9 +237,38 @@ export function ProfilesSection() {
             Reusable prompt templates. Click any profile to edit it.
           </p>
         </div>
-        <button className="btn btn-primary" onClick={addProfile}>+ New Profile</button>
+        <div className="profiles-toolbar-actions">
+          <button
+            className="btn btn-ghost btn-icon-text"
+            onClick={exportProfiles}
+            disabled={profiles.length === 0}
+          >
+            <Icon name="download" />
+            Export
+          </button>
+          <button
+            className="btn btn-ghost btn-icon-text"
+            onClick={() => fileInput.current?.click()}
+          >
+            <Icon name="upload" />
+            Import
+          </button>
+          <button className="btn btn-primary" onClick={addProfile}>+ New Profile</button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void importProfiles(file);
+              e.currentTarget.value = ""; // allow re-importing the same file
+            }}
+          />
+        </div>
       </div>
       {error && <div className="inline-error">{error}</div>}
+      {notice && <div className="inline-notice">{notice}</div>}
 
       <div className="profile-list">
         {profiles.map((profile, index) => {

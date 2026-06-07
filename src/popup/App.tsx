@@ -83,6 +83,7 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
   const [destinationId, setDestinationId] = useState("gemini");
+  const [curiosity, setCuriosity] = useState("");
   const [gate, setGate] = useState(false);
   const [openSearches, setOpenSearches] = useState<OpenSearch[]>([]);
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
@@ -149,6 +150,7 @@ export function App() {
       profileId: selectedId,
       destinationId: dest.id,
       worthWatchingGate: gate,
+      userCuriosity: curiosity.trim() || undefined,
     });
     window.close();
   }
@@ -338,14 +340,26 @@ export function App() {
 
           {getDestination(destinationId).payload !== "link" &&
             getDestination(destinationId).payload !== "source" && (
-              <label className="check-field">
-                <input
-                  type="checkbox"
-                  checked={gate}
-                  onChange={(e) => setGate(e.target.checked)}
-                />
-                <span>Worth-watching verdict first (long videos)</span>
-              </label>
+              <>
+                <label className="field">
+                  <span>Ask something specific (optional)</span>
+                  <input
+                    type="text"
+                    value={curiosity}
+                    placeholder="e.g. Does it cover pricing?"
+                    onChange={(e) => setCuriosity(e.target.value)}
+                  />
+                </label>
+
+                <label className="check-field">
+                  <input
+                    type="checkbox"
+                    checked={gate}
+                    onChange={(e) => setGate(e.target.checked)}
+                  />
+                  <span>Worth-watching verdict first (long videos)</span>
+                </label>
+              </>
             )}
 
           <button className="primary" onClick={send} disabled={busy || profiles.length === 0}>
