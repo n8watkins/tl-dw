@@ -120,6 +120,8 @@ export type Settings = {
   destinationId: string;
   /** Open chats in incognito/temporary mode — not saved to the AI's history. */
   temporaryChats: boolean;
+  /** Auto-run TL;DW when opening a video longer than this many minutes (0 = off). */
+  autoTldwMinutes: number;
 };
 
 export type StorageState = {
@@ -173,10 +175,12 @@ export type InjectResultMessage = {
 export type TldwSummary = {
   /** WATCH, SKIM, or SKIP */
   verdict: string;
-  /** One sentence describing what the video is about. */
+  /** One sentence stating the video's core conclusion or argument. */
   summary: string;
   /** e.g. "8/10" */
   rating: string;
+  /** 1-2 sentences of supporting evidence or key context. */
+  details?: string;
 };
 
 /**

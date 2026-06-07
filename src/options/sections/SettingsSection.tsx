@@ -3,6 +3,7 @@ import type { Settings } from "../../types";
 import {
   DEFAULT_SETTINGS,
   DESTINATIONS,
+  STORAGE_KEYS,
   WATCH_THRESHOLD_OPTIONS,
 } from "../../lib/constants";
 import type { WatchThresholdMinutes } from "../../types";
@@ -140,7 +141,28 @@ export function SettingsSection() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group-title"><Icon name="eye" /> Worth watching</div>
+        <div className="settings-group-title"><Icon name="eye" /> Auto TL;DW &amp; worth watching</div>
+
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Auto TL;DW</div>
+            <div className="setting-sub">
+              Automatically run TL;DW when you open a video longer than this. Off by default.
+            </div>
+          </div>
+          <div className="setting-control">
+            <select
+              className="setting-select"
+              value={String(settings.autoTldwMinutes)}
+              onChange={(e) => void update({ autoTldwMinutes: Number(e.target.value) })}
+            >
+              <option value="0">Off</option>
+              {[15, 20, 25, 30, 45, 60].map((m) => (
+                <option key={m} value={m}>{m} min</option>
+              ))}
+            </select>
+          </div>
+        </div>
 
         <div className="setting-row">
           <div className="setting-info">

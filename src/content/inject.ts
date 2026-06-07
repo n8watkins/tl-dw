@@ -518,20 +518,34 @@ function readLastResponse(responseSelectors: string[]): string {
   return "";
 }
 
-type TldwData = { verdict: string; summary: string; rating: string };
+type TldwData = { verdict: string; summary: string; rating: string; details?: string };
 
 /** Extract the structured ---TLDW--- block the prompt instructs the AI to output. */
 function parseTldwBlock(text: string): TldwData | null {
-  const m = text.match(
-    /---TLDW---[\r\n]+VERDICT:\s*(.+?)[\r\n]+SUMMARY:\s*(.+?)[\r\n]+RATING:\s*(.+?)[\r\n]+---END TLDW---/s,
-  );
-  if (!m) return null;
-  const raw = m[1].trim();
+  const blockMatch = text.match(/---TLDW---([\s\S]*?)---END TLDW---/);
+  if (!blockMatch) return null;
+
+  // Parse key: value pairs, accumulating continuation lines.
+  const fields: Record<string, string> = {};
+  let key = "";
+  for (const line of blockMatch[1].split("\n")) {
+    const kv = line.match(/^([A-Z]+):\s*(.*)/);
+    if (kv) {
+      key = kv[1];
+      fields[key] = kv[2].trim();
+    } else if (key && line.trim()) {
+      fields[key] = (fields[key] ? fields[key] + " " : "") + line.trim();
+    }
+  }
+
+  if (!fields.SUMMARY) return null;
+  const raw = fields.VERDICT ?? "";
   const verdict = /SKIP/i.test(raw) ? "SKIP" : /SKIM/i.test(raw) ? "SKIM" : "WATCH";
   return {
     verdict,
-    summary: m[2].trim(),
-    rating: m[3].trim(),
+    summary: fields.SUMMARY,
+    rating: fields.RATING ?? "",
+    details: fields.DETAILS || undefined,
   };
 }
 

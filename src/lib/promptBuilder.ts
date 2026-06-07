@@ -79,17 +79,21 @@ export function appendTranscript(
 
 /**
  * Append a structured TL;DW block request so the AI always outputs parseable
- * verdict / summary / rating fields at the end of its response.
+ * verdict / summary / rating / details fields at the end of its response.
  */
 export function appendTldwBlock(prompt: string): string {
   return (
     prompt +
-    "\n\nFinally, end your response with this block formatted EXACTLY as shown " +
-    "(no extra words on the label lines):\n\n" +
+    "\n\nFinally, end your response with this block formatted EXACTLY as shown.\n\n" +
+    "Rules for SUMMARY: state the video's actual conclusion or argument directly — not a description of what it covers. " +
+    "Write the takeaway itself. Bad: 'A video arguing that X is true.' Good: 'X is true because of Y and Z.' " +
+    "One sentence.\n\n" +
+    "Rules for DETAILS: 1-2 sentences of key supporting evidence, notable counterpoints, or important caveats.\n\n" +
     "---TLDW---\n" +
     "VERDICT: WATCH, SKIM, or SKIP\n" +
-    "SUMMARY: One sentence — what this video is actually about\n" +
+    "SUMMARY: [core conclusion or argument — state it directly, not what the video covers]\n" +
     "RATING: X/10\n" +
+    "DETAILS: [key supporting evidence or notable caveats]\n" +
     "---END TLDW---"
   );
 }

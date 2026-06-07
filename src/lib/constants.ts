@@ -42,12 +42,6 @@ export const DESTINATIONS: Destination[] = [
     payload: "link",
     // NotebookLM has no temporary/incognito mode.
   },
-  {
-    id: "perplexity",
-    label: "Perplexity",
-    url: "https://www.perplexity.ai/",
-    // Perplexity temporary chat has no URL param — content script sends Ctrl+;.
-  },
 ];
 
 export function getDestination(id: string | undefined): Destination {
@@ -99,6 +93,7 @@ export const DEFAULT_SETTINGS: Settings = {
   includeTranscript: true,
   destinationId: "gemini",
   temporaryChats: true,
+  autoTldwMinutes: 0,
 };
 
 export function isYouTubeVideoUrl(url: string | undefined): boolean {

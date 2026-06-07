@@ -345,6 +345,23 @@ function verdictColor(verdict: string): string {
   return "#16a34a"; // WATCH
 }
 
+function pill(text: string, bg: string, color: string): HTMLElement {
+  const el = document.createElement("span");
+  el.textContent = text;
+  Object.assign(el.style, {
+    background: bg,
+    color,
+    fontWeight: "700",
+    fontSize: "11px",
+    letterSpacing: "0.05em",
+    padding: "3px 9px",
+    borderRadius: "999px",
+    flexShrink: "0",
+    whiteSpace: "nowrap",
+  });
+  return el;
+}
+
 function buildSummaryPanel(tldw: TldwSummary): HTMLElement {
   const t = theme();
   const panel = document.createElement("div");
@@ -353,90 +370,97 @@ function buildSummaryPanel(tldw: TldwSummary): HTMLElement {
     background: t.bg,
     border: `1px solid ${t.border}`,
     borderRadius: "12px",
-    padding: "12px 14px",
+    padding: "10px 14px",
     marginTop: "12px",
     marginBottom: "16px",
     font: "14px/1.4 Roboto, system-ui, sans-serif",
     color: t.text,
   });
 
-  // --- header ---
+  // --- single header row: icon · TL;DW · verdict pill · rating pill · spacer · close ---
   const head = document.createElement("div");
   Object.assign(head.style, {
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
     gap: "8px",
-    marginBottom: "10px",
+    marginBottom: "8px",
   });
 
-  const heading = document.createElement("div");
-  Object.assign(heading.style, { display: "flex", alignItems: "center", gap: "8px" });
   const headIcon = document.createElement("img");
   headIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
-  Object.assign(headIcon.style, { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0" });
-  const title = document.createElement("div");
-  title.textContent = "TL;DW";
-  Object.assign(title.style, { fontWeight: "600", fontSize: "15px" });
-  heading.append(headIcon, title);
+  Object.assign(headIcon.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
+
+  const titleEl = document.createElement("span");
+  titleEl.textContent = "TL;DW";
+  Object.assign(titleEl.style, { fontWeight: "700", fontSize: "15px" });
+
+  const verdictPill = pill(tldw.verdict, verdictColor(tldw.verdict), "#fff");
+
+  const ratingPill = pill(tldw.rating, t.border, t.text);
+
+  const spacer = document.createElement("div");
+  spacer.style.flex = "1";
 
   const closeBtn = document.createElement("button");
   Object.assign(closeBtn.style, {
     background: "transparent", border: "none", color: t.sub,
     cursor: "pointer", fontSize: "14px", lineHeight: "1",
-    padding: "6px", borderRadius: "6px", flexShrink: "0",
+    padding: "4px 6px", borderRadius: "6px", flexShrink: "0",
   });
   closeBtn.textContent = "✕";
-  closeBtn.setAttribute("aria-label", "Hide summary");
+  closeBtn.setAttribute("aria-label", "Hide TL;DW");
   closeBtn.addEventListener("mouseenter", () => (closeBtn.style.background = t.hover));
   closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
   closeBtn.addEventListener("click", removeSummaryPanel);
 
-  head.append(heading, closeBtn);
-
-  // --- verdict + rating row ---
-  const meta = document.createElement("div");
-  Object.assign(meta.style, {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    marginBottom: "8px",
-  });
-
-  const verdictPill = document.createElement("span");
-  const vc = verdictColor(tldw.verdict);
-  Object.assign(verdictPill.style, {
-    background: vc,
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: "12px",
-    letterSpacing: "0.05em",
-    padding: "3px 10px",
-    borderRadius: "999px",
-    flexShrink: "0",
-  });
-  verdictPill.textContent = tldw.verdict;
-
-  const ratingBadge = document.createElement("span");
-  Object.assign(ratingBadge.style, {
-    fontSize: "13px",
-    fontWeight: "600",
-    color: t.sub,
-  });
-  ratingBadge.textContent = tldw.rating;
-
-  meta.append(verdictPill, ratingBadge);
+  head.append(headIcon, titleEl, verdictPill, ratingPill, spacer, closeBtn);
 
   // --- summary sentence ---
   const summaryEl = document.createElement("div");
-  Object.assign(summaryEl.style, {
-    fontSize: "14px",
-    lineHeight: "1.5",
-    color: t.text,
-  });
   summaryEl.textContent = tldw.summary;
+  Object.assign(summaryEl.style, { fontSize: "13px", lineHeight: "1.5", color: t.text });
 
-  panel.append(head, meta, summaryEl);
+  panel.append(head, summaryEl);
+
+  // --- expandable details section ---
+  if (tldw.details) {
+    const detailsWrap = document.createElement("div");
+    Object.assign(detailsWrap.style, {
+      display: "grid",
+      gridTemplateRows: "0fr",
+      overflow: "hidden",
+      transition: "grid-template-rows 0.22s ease",
+    });
+    const detailsInner = document.createElement("div");
+    detailsInner.textContent = tldw.details;
+    Object.assign(detailsInner.style, {
+      overflow: "hidden",
+      paddingTop: "8px",
+      fontSize: "13px",
+      lineHeight: "1.55",
+      color: t.sub,
+    });
+    detailsWrap.append(detailsInner);
+
+    let expanded = false;
+    const detailsBtn = document.createElement("button");
+    detailsBtn.textContent = "▾ Details";
+    Object.assign(detailsBtn.style, {
+      background: "transparent", border: "none", color: t.sub,
+      cursor: "pointer", fontSize: "12px", padding: "6px 0 0",
+      display: "block", textAlign: "left",
+    });
+    detailsBtn.addEventListener("mouseenter", () => (detailsBtn.style.color = t.text));
+    detailsBtn.addEventListener("mouseleave", () => (detailsBtn.style.color = t.sub));
+    detailsBtn.addEventListener("click", () => {
+      expanded = !expanded;
+      detailsWrap.style.gridTemplateRows = expanded ? "1fr" : "0fr";
+      detailsBtn.textContent = expanded ? "▴ Details" : "▾ Details";
+    });
+
+    panel.append(detailsBtn, detailsWrap);
+  }
+
   return panel;
 }
 
@@ -453,8 +477,38 @@ function showSummaryPanel(tldw: TldwSummary): void {
   log("summary panel injected");
 }
 
-// Remove a stale panel when the user navigates to another video.
-window.addEventListener("yt-navigate-finish", removeSummaryPanel);
+// --- auto TL;DW for long videos ------------------------------------------
+
+const autoRunVideoIds = new Set<string>();
+
+async function autoRunIfLong(): Promise<void> {
+  const vid = currentVideoId();
+  if (!vid) return;
+  if (autoRunVideoIds.has(vid)) return;
+
+  const r = await chrome.storage.local.get("settings");
+  const threshold: number =
+    (r["settings"] as Record<string, unknown> | undefined)?.autoTldwMinutes as number ?? 0;
+  if (!threshold) return;
+
+  const { durationSeconds } = getVideoMeta();
+  if (!durationSeconds || durationSeconds / 60 < threshold) return;
+
+  autoRunVideoIds.add(vid);
+  log("auto-running TL;DW for", Math.round(durationSeconds / 60), "min video");
+  try {
+    await chrome.runtime.sendMessage({ type: "ASK" });
+  } catch {
+    /* best effort */
+  }
+}
+
+// Remove a stale panel when the user navigates to another video; also check auto-run.
+window.addEventListener("yt-navigate-finish", () => {
+  removeSummaryPanel();
+  // Small delay so the video element has loaded its duration.
+  setTimeout(() => { void autoRunIfLong(); }, 2500);
+});
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const type = (message as { type?: string })?.type;
