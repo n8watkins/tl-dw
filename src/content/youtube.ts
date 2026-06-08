@@ -1613,8 +1613,25 @@ async function maybeStartDirectApiRun(): Promise<void> {
 
   currentAutoRunSummary = channelEntry?.autoRunSummary ?? false;
 
-  // Helper: show loading skeleton and fire the summary API call.
+  type CacheEntry = { tldw: TldwSummary; cachedAt: string; commentSentiment?: string; audienceScore?: number; userRating?: "watch" | "skim" | "skip"; channelName?: string };
+
+  // Serve a cached result if fresh, then optionally load pending comment sentiment.
+  const serveCached = (entry: CacheEntry) => {
+    showSummaryPanel({ ...entry.tldw, source: "cached" }, undefined, entry.userRating, vid);
+    if (entry.commentSentiment) {
+      pendingCommentSentiment = { sentiment: entry.commentSentiment, audienceScore: entry.audienceScore };
+    }
+    log("served from cache");
+  };
+
+  // Helper: check cache first (re-reads storage for freshness), then fall back to API.
   const startApiCall = async () => {
+    const freshR = await chrome.storage.local.get("tldwSummaryCache");
+    const freshCache = (freshR["tldwSummaryCache"] as Record<string, CacheEntry> | undefined)?.[vid];
+    if (freshCache && Date.now() - new Date(freshCache.cachedAt).getTime() < CACHE_TTL_MS) {
+      serveCached(freshCache);
+      return;
+    }
     showLoadingPanel();
     void getTranscript();
     log("direct API call started");
@@ -1623,21 +1640,19 @@ async function maybeStartDirectApiRun(): Promise<void> {
     } catch { /* best effort */ }
   };
 
-  // Fast path: cached result — show immediately, skip API call.
-  type CacheEntry = { tldw: TldwSummary; cachedAt: string; commentSentiment?: string; audienceScore?: number; userRating?: "watch" | "skim" | "skip"; channelName?: string };
   const cache = r["tldwSummaryCache"] as Record<string, CacheEntry> | undefined;
   const cached = cache?.[vid];
-  if (cached && Date.now() - new Date(cached.cachedAt).getTime() < CACHE_TTL_MS) {
-    showSummaryPanel({ ...cached.tldw, source: "cached" }, undefined, cached.userRating, vid);
-    // Store cached comment sentiment so the comments panel can show it when it appears.
-    if (cached.commentSentiment) {
-      pendingCommentSentiment = { sentiment: cached.commentSentiment, audienceScore: cached.audienceScore };
-    }
-    log("served from cache");
+  const cacheHit = !!(cached && Date.now() - new Date(cached.cachedAt).getTime() < CACHE_TTL_MS);
+
+  // Auto-show cached result only for channels with auto-run enabled.
+  // For channels without auto-run, show the idle panel; clicking it will still
+  // serve from cache (avoiding a wasted API call) if the result is still fresh.
+  if (cacheHit && currentAutoRunSummary) {
+    serveCached(cached!);
     return;
   }
 
-  // Auto-run summary: fire immediately.
+  // Auto-run summary: fire immediately (startApiCall will hit cache if fresh).
   if (currentAutoRunSummary) {
     await startApiCall();
     return;
