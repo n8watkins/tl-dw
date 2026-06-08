@@ -607,14 +607,14 @@ function buildAutoToggle(
   initialOn: boolean,
   t: ReturnType<typeof theme>,
 ): HTMLButtonElement {
-  const label = field === "summary" ? "↻ Summary" : "💬 Comments";
+  const label = field === "summary" ? "↻ Auto-summarize" : "💬 Comments";
   const onColor = field === "summary" ? "#1a73e8" : "#0d9488";
 
   const btn = document.createElement("button");
   btn.textContent = label;
   Object.assign(btn.style, {
-    fontSize: "11px", fontWeight: "700", letterSpacing: "0.04em",
-    padding: "3px 8px", borderRadius: "999px", border: "none",
+    fontSize: "13px", fontWeight: "700", letterSpacing: "0.04em",
+    padding: "5px 12px", borderRadius: "999px", border: "none",
     cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
     transition: "background 0.15s, color 0.15s",
   });
@@ -702,15 +702,17 @@ function buildPanelHead(
 /** Block button — hides the panel permanently for this channel on this and future visits. */
 function buildBlockButton(t: ReturnType<typeof theme>, info: ChannelInfo): HTMLButtonElement {
   const btn = document.createElement("button");
-  btn.textContent = "⊘";
+  btn.textContent = "⊘ Skip channel";
   btn.title = `Never show TL;DW panel for ${info.name}`;
   Object.assign(btn.style, {
-    background: "transparent", border: "none", color: t.sub,
-    cursor: "pointer", fontSize: "14px", lineHeight: "1",
-    padding: "4px 6px", borderRadius: "6px", flexShrink: "0",
+    fontSize: "13px", fontWeight: "700", letterSpacing: "0.04em",
+    padding: "5px 12px", borderRadius: "999px", border: "none",
+    cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
+    transition: "background 0.15s, color 0.15s",
+    background: t.border, color: t.sub,
   });
-  btn.addEventListener("mouseenter", () => { btn.style.background = t.hover; btn.style.color = "#dc2626"; });
-  btn.addEventListener("mouseleave", () => { btn.style.background = "transparent"; btn.style.color = t.sub; });
+  btn.addEventListener("mouseenter", () => { btn.style.background = "#dc2626"; btn.style.color = "#fff"; });
+  btn.addEventListener("mouseleave", () => { btn.style.background = t.border; btn.style.color = t.sub; });
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
     showSkipOverlay(info.name, info, "summary", () => { /* panel stays open */ });
@@ -899,9 +901,9 @@ function buildUserRatingRow(
   channelName?: string,
 ): HTMLElement {
   const options: { value: "watch" | "skim" | "skip"; label: string; color: string }[] = [
-    { value: "skip",  label: "✕ Skip",  color: "#dc2626" },
     { value: "watch", label: "▶ Watch", color: "#16a34a" },
     { value: "skim",  label: "≈ Skim",  color: "#d97706" },
+    { value: "skip",  label: "✕ Skip",  color: "#dc2626" },
   ];
 
   const wrapper = document.createElement("div");
@@ -915,26 +917,26 @@ function buildUserRatingRow(
 
   if (aiVerdict) {
     const aiLabel = document.createElement("span");
-    aiLabel.textContent = "AI:";
-    Object.assign(aiLabel.style, { fontSize: "11px", color: t.sub, flexShrink: "0" });
+    aiLabel.textContent = "AI rec:";
+    Object.assign(aiLabel.style, { fontSize: "13px", color: t.sub, flexShrink: "0" });
 
     const aiPill = document.createElement("span");
     aiPill.textContent = aiVerdict;
     Object.assign(aiPill.style, {
-      fontSize: "11px", fontWeight: "700", padding: "2px 7px", borderRadius: "999px",
+      fontSize: "13px", fontWeight: "700", padding: "3px 9px", borderRadius: "999px",
       background: verdictColor(aiVerdict), color: "#fff", flexShrink: "0",
     });
 
     const sep = document.createElement("span");
     sep.textContent = "·";
-    Object.assign(sep.style, { fontSize: "11px", color: t.sub, flexShrink: "0" });
+    Object.assign(sep.style, { fontSize: "13px", color: t.sub, flexShrink: "0" });
 
     row.append(aiLabel, aiPill, sep);
   }
 
   const youLabel = document.createElement("span");
   youLabel.textContent = "You:";
-  Object.assign(youLabel.style, { fontSize: "11px", color: t.sub, flexShrink: "0" });
+  Object.assign(youLabel.style, { fontSize: "13px", color: t.sub, flexShrink: "0" });
   row.append(youLabel);
 
   let selected = initial ?? null;
@@ -952,8 +954,8 @@ function buildUserRatingRow(
     const btn = document.createElement("button");
     btn.textContent = label;
     Object.assign(btn.style, {
-      fontSize: "11px", fontWeight: "700", letterSpacing: "0.03em",
-      padding: "3px 9px", borderRadius: "999px",
+      fontSize: "13px", fontWeight: "700", letterSpacing: "0.03em",
+      padding: "5px 12px", borderRadius: "999px",
       border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
       transition: "background 0.12s, color 0.12s",
       background: selected === value ? color : t.border,
@@ -982,8 +984,20 @@ function buildUserRatingRow(
 
   // Bottom row: channel rating pattern (loaded async from cache)
   const statsEl = document.createElement("div");
-  Object.assign(statsEl.style, { fontSize: "11px", color: t.sub, marginTop: "5px" });
+  Object.assign(statsEl.style, { fontSize: "13px", color: t.sub, marginTop: "5px" });
   wrapper.append(statsEl);
+
+  // API usage indicator (loaded async)
+  const apiUsageEl = document.createElement("div");
+  Object.assign(apiUsageEl.style, { fontSize: "13px", color: t.sub, marginTop: "5px", textAlign: "right" });
+  void chrome.storage.local.get("geminiUsage").then((r) => {
+    const usage = r["geminiUsage"] as { todayCalls?: number } | undefined;
+    const todayCalls = usage?.todayCalls ?? 0;
+    if (todayCalls > 0) {
+      apiUsageEl.textContent = `API: ${todayCalls} calls today`;
+    }
+  });
+  wrapper.append(apiUsageEl);
 
   const loadStats = async () => {
     if (!channelName) return;
@@ -1074,14 +1088,14 @@ function showSkipOverlay(
   }
 
   const textBlock = document.createElement("div");
-  Object.assign(textBlock.style, { fontSize: "13px", color: t.sub, lineHeight: "1.65" });
+  Object.assign(textBlock.style, { fontSize: "15px", color: t.sub, lineHeight: "1.65" });
 
   const what = mode === "summary" ? "AI summary" : "comment analysis";
   const nameLine = document.createElement("div");
   Object.assign(nameLine.style, { marginBottom: "8px" });
   const chNameEl = document.createElement("strong");
   chNameEl.textContent = channelName;
-  Object.assign(chNameEl.style, { fontSize: "15px", color: t.text });
+  Object.assign(chNameEl.style, { fontSize: "16px", color: t.text });
   nameLine.append(
     chNameEl,
     document.createTextNode(` — We'll no longer show ${what} panels for this channel. Cached summaries will also be deleted.`),
