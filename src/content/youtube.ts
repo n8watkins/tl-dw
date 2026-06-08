@@ -499,11 +499,16 @@ let commentsObserver: MutationObserver | null = null;
 /** Pending sentiment to apply as soon as the comments section appears in the DOM. */
 let pendingCommentSentiment: { sentiment: string; audienceScore?: number } | null = null;
 
-/** Returns the element that contains ytd-comments-header-renderer, for inserting our card before it. */
+/**
+ * Returns a stable injection target for the comments card — the PARENT of
+ * ytd-comments#comments, not inside it. YouTube re-renders the inside of
+ * ytd-comments as threads lazy-load, which would wipe any panel injected there.
+ * Inserting before ytd-comments itself sits in a stable container.
+ */
 function commentsCardTarget(): { container: Element; referenceNode: Element } | null {
-  const header = document.querySelector("ytd-comments-header-renderer");
-  if (!header?.parentElement) return null;
-  return { container: header.parentElement, referenceNode: header };
+  const comments = document.querySelector("ytd-comments#comments");
+  if (!comments?.parentElement) return null;
+  return { container: comments.parentElement, referenceNode: comments };
 }
 
 /** Still used by watchForCommentsSection to detect when comments section appears. */
@@ -973,42 +978,41 @@ function showIdlePanel(onGetSummary: () => void): void {
     onGetSummary();
   });
 
-  const neverBtn = document.createElement("button");
-  neverBtn.textContent = "Never";
-  Object.assign(neverBtn.style, {
+  const skipBtn = document.createElement("button");
+  skipBtn.textContent = "Skip channel";
+  Object.assign(skipBtn.style, {
     fontSize: "12px", fontWeight: "600",
     padding: "6px 14px", borderRadius: "999px",
     background: "transparent", color: t.sub,
     border: `1px solid ${t.border}`, cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
   });
-  neverBtn.title = capturedChannelInfo
-    ? `Never show AI summaries for ${capturedChannelInfo.name}`
-    : "Never show AI summaries for this channel";
-  neverBtn.addEventListener("mouseenter", () => { neverBtn.style.borderColor = "#dc2626"; neverBtn.style.color = "#dc2626"; });
-  neverBtn.addEventListener("mouseleave", () => { neverBtn.style.borderColor = t.border; neverBtn.style.color = t.sub; });
-  neverBtn.addEventListener("click", (e) => {
+  skipBtn.title = "Skip TL;DW for this channel";
+  skipBtn.addEventListener("mouseenter", () => { skipBtn.style.borderColor = "#dc2626"; skipBtn.style.color = "#dc2626"; });
+  skipBtn.addEventListener("mouseleave", () => { skipBtn.style.borderColor = t.border; skipBtn.style.color = t.sub; });
+  skipBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (!capturedChannelInfo) return;
-    // Replace action buttons with inline confirmation
-    const channelName = capturedChannelInfo.name;
+    // Retry getChannelInfo at click time in case it was null at panel-creation time
+    const info = capturedChannelInfo ?? getChannelInfo();
+    if (!info) return;
+    const channelName = info.name;
     head.innerHTML = "";
     const icon2 = document.createElement("img");
     icon2.src = chrome.runtime.getURL("icons/tl-dw-32.png");
     Object.assign(icon2.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
     const msg = document.createElement("span");
-    msg.textContent = `Block ${channelName} from AI summaries?`;
+    msg.textContent = `Skip TL;DW for ${channelName}?`;
     Object.assign(msg.style, { fontSize: "13px", color: t.text, flex: "1", fontWeight: "600" });
     const confirmBtn = document.createElement("button");
-    confirmBtn.textContent = "Yes, block";
+    confirmBtn.textContent = "Yes, skip";
     Object.assign(confirmBtn.style, {
       fontSize: "12px", fontWeight: "600", padding: "5px 12px", borderRadius: "999px",
       background: "#dc2626", color: "#fff", border: "none", cursor: "pointer", whiteSpace: "nowrap",
     });
     confirmBtn.addEventListener("click", (e2) => {
       e2.stopPropagation();
-      void addBlockedChannelEntry(capturedChannelInfo).then(() => {
+      void addBlockedChannelEntry(info).then(() => {
         removeSummaryPanel();
-        log("channel blocked from summary:", channelName);
+        log("channel skipped from summary:", channelName);
       });
     });
     const cancelBtn = document.createElement("button");
@@ -1029,8 +1033,8 @@ function showIdlePanel(onGetSummary: () => void): void {
     head.append(icon2, msg, spacer2, confirmBtn, cancelBtn, closeBtn2);
   });
 
-  // Build the header with Get Summary + Never as inline controls
-  const head = buildPanelHead(t, [summaryBtn, neverBtn], capturedChannelInfo, false);
+  // Build the header with Get Summary + Skip channel as inline controls
+  const head = buildPanelHead(t, [summaryBtn, skipBtn], capturedChannelInfo, false);
   panel.append(head);
 
   summaryPanel = panel;
@@ -1143,41 +1147,39 @@ function showCommentsIdlePanel(onGetComments: () => void): void {
     onGetComments();
   });
 
-  const neverBtn = document.createElement("button");
-  neverBtn.textContent = "Never";
-  Object.assign(neverBtn.style, {
+  const skipCommentsBtn = document.createElement("button");
+  skipCommentsBtn.textContent = "Skip channel";
+  Object.assign(skipCommentsBtn.style, {
     fontSize: "12px", fontWeight: "600", padding: "6px 14px", borderRadius: "999px",
     background: "transparent", color: t.sub, border: `1px solid ${t.border}`,
     cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
   });
-  neverBtn.title = capturedChannelInfo
-    ? `Never show comment analysis for ${capturedChannelInfo.name}`
-    : "Never show comment analysis for this channel";
-  neverBtn.addEventListener("mouseenter", () => { neverBtn.style.borderColor = "#dc2626"; neverBtn.style.color = "#dc2626"; });
-  neverBtn.addEventListener("mouseleave", () => { neverBtn.style.borderColor = t.border; neverBtn.style.color = t.sub; });
-  neverBtn.addEventListener("click", (e) => {
+  skipCommentsBtn.title = "Skip TL;DW comment analysis for this channel";
+  skipCommentsBtn.addEventListener("mouseenter", () => { skipCommentsBtn.style.borderColor = "#dc2626"; skipCommentsBtn.style.color = "#dc2626"; });
+  skipCommentsBtn.addEventListener("mouseleave", () => { skipCommentsBtn.style.borderColor = t.border; skipCommentsBtn.style.color = t.sub; });
+  skipCommentsBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (!capturedChannelInfo) return;
-    // Inline confirmation
-    const channelName = capturedChannelInfo.name;
+    const info = capturedChannelInfo ?? getChannelInfo();
+    if (!info) return;
+    const channelName = info.name;
     head.innerHTML = "";
     const icon2 = document.createElement("img");
     icon2.src = chrome.runtime.getURL("icons/tl-dw-32.png");
     Object.assign(icon2.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
     const msg = document.createElement("span");
-    msg.textContent = `Block ${channelName} from comment analysis?`;
+    msg.textContent = `Skip comment analysis for ${channelName}?`;
     Object.assign(msg.style, { fontSize: "13px", color: t.text, flex: "1", fontWeight: "600" });
     const confirmBtn = document.createElement("button");
-    confirmBtn.textContent = "Yes, block";
+    confirmBtn.textContent = "Yes, skip";
     Object.assign(confirmBtn.style, {
       fontSize: "12px", fontWeight: "600", padding: "5px 12px", borderRadius: "999px",
       background: "#dc2626", color: "#fff", border: "none", cursor: "pointer", whiteSpace: "nowrap",
     });
     confirmBtn.addEventListener("click", (e2) => {
       e2.stopPropagation();
-      void addBlockedCommentsChannelEntry(capturedChannelInfo).then(() => {
+      void addBlockedCommentsChannelEntry(info).then(() => {
         removeCommentsPanel();
-        log("channel blocked from comment analysis:", channelName);
+        log("channel skipped from comment analysis:", channelName);
       });
     });
     const cancelBtn = document.createElement("button");
@@ -1227,7 +1229,7 @@ function showCommentsIdlePanel(onGetComments: () => void): void {
   closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
   closeBtn.addEventListener("click", removeCommentsPanel);
 
-  head.append(icon, titleEl, getBtn, neverBtn, spacer, ...(autoToggle ? [autoToggle] : []), closeBtn);
+  head.append(icon, titleEl, getBtn, skipCommentsBtn, spacer, ...(autoToggle ? [autoToggle] : []), closeBtn);
   panel.append(head);
 
   target.container.insertBefore(panel, target.referenceNode);
@@ -1415,8 +1417,10 @@ async function autoRunIfLong(): Promise<void> {
 let lastHandledUrl = "";
 
 function onNavigate(): void {
-  // Ignore hash-only changes; video IDs are always in pathname+search.
-  const url = location.pathname + location.search;
+  // Normalize to video ID so URL decorations added by YouTube (?t=123, &pp=…)
+  // don't trigger a spurious re-run that wipes the panels.
+  const vid = currentVideoId();
+  const url = vid ? `v=${vid}` : (location.pathname + location.search);
   if (url === lastHandledUrl) return;
   lastHandledUrl = url;
   removeSummaryPanel();
