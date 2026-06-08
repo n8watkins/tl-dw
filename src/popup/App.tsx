@@ -409,9 +409,20 @@ export function App() {
                 <span>⚡ Direct API (no new tab)</span>
               </label>
               {settings.useDirectApi && (
-                <span className="headless-count">
-                  {geminiUsage.totalCalls} call{geminiUsage.totalCalls === 1 ? "" : "s"}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span className="headless-count">
+                    {geminiUsage.totalCalls} call{geminiUsage.totalCalls === 1 ? "" : "s"}
+                  </span>
+                  <button
+                    className="section-link"
+                    onClick={() => {
+                      void chrome.tabs.create({ url: "https://aistudio.google.com/apikey" });
+                      window.close();
+                    }}
+                  >
+                    View usage →
+                  </button>
+                </div>
               )}
             </div>
           )}

@@ -627,12 +627,23 @@ function buildAutoToggle(
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
     if (busy) return;
+    const current = field === "summary" ? currentAutoRunSummary : currentAutoRunComments;
+    const enabling = !current;
+    if (enabling) {
+      showAutoRunConfirmOverlay(info, field, () => {
+        busy = true;
+        if (field === "summary") currentAutoRunSummary = true;
+        else currentAutoRunComments = true;
+        applyState(true);
+        void writeAutoRunChannel(info, field, true).finally(() => { busy = false; });
+      }, () => { /* cancelled */ });
+      return;
+    }
     busy = true;
-    const next = field === "summary" ? !currentAutoRunSummary : !currentAutoRunComments;
-    if (field === "summary") currentAutoRunSummary = next;
-    else currentAutoRunComments = next;
-    applyState(next);
-    void writeAutoRunChannel(info, field, next).finally(() => { busy = false; });
+    if (field === "summary") currentAutoRunSummary = false;
+    else currentAutoRunComments = false;
+    applyState(false);
+    void writeAutoRunChannel(info, field, false).finally(() => { busy = false; });
   });
 
   return btn;
@@ -644,6 +655,7 @@ function buildPanelHead(
   controls: HTMLElement[],
   channelInfo: ChannelInfo | null,
   showBlockBtn = true,
+  showAutoRunToggle = true,
 ): HTMLElement {
   const head = document.createElement("div");
   Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px" });
@@ -672,7 +684,7 @@ function buildPanelHead(
   closeBtn.addEventListener("click", removeSummaryPanel);
 
   const autoToggles: HTMLElement[] = [];
-  if (channelInfo) {
+  if (channelInfo && showAutoRunToggle) {
     autoToggles.push(buildAutoToggle(channelInfo, "summary", currentAutoRunSummary, t));
   }
 
@@ -746,7 +758,7 @@ function showLoadingPanel(): void {
   analyzing.textContent = "Analyzing…";
   Object.assign(analyzing.style, { fontSize: "12px", color: t.sub, animation: "tldw-shimmer 1.4s infinite" });
 
-  const head = buildPanelHead(t, [analyzing], currentChannelInfo);
+  const head = buildPanelHead(t, [analyzing], currentChannelInfo, true, false);
   Object.assign(head.style, { marginBottom: "10px" });
 
   const shimmerLine = (width: string) => {
@@ -1085,6 +1097,118 @@ function showSkipOverlay(
   document.body.appendChild(overlay);
 }
 
+/** Confirmation overlay shown before enabling auto-run for a channel. */
+function showAutoRunConfirmOverlay(
+  info: ChannelInfo,
+  field: "summary" | "comments",
+  onConfirm: () => void,
+  onCancel: () => void,
+): void {
+  document.getElementById("tldw-autorun-overlay")?.remove();
+  const t = theme();
+
+  const overlay = document.createElement("div");
+  overlay.id = "tldw-autorun-overlay";
+  Object.assign(overlay.style, {
+    position: "fixed", inset: "0",
+    background: "rgba(0,0,0,0.55)",
+    zIndex: "2147483647",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    font: "14px/1.4 Roboto, system-ui, sans-serif",
+  });
+
+  const modal = document.createElement("div");
+  Object.assign(modal.style, {
+    background: t.bg, borderRadius: "16px",
+    padding: "28px 32px", maxWidth: "440px", width: "90%",
+    boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
+    display: "flex", flexDirection: "column", gap: "16px",
+  });
+
+  const hd = document.createElement("div");
+  Object.assign(hd.style, { display: "flex", alignItems: "center", gap: "12px" });
+  const hdIcon = document.createElement("img");
+  hdIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
+  Object.assign(hdIcon.style, { width: "48px", height: "48px", borderRadius: "8px", flexShrink: "0" });
+  const hdTitle = document.createElement("span");
+  hdTitle.textContent = "Enable auto-run?";
+  Object.assign(hdTitle.style, { fontWeight: "700", fontSize: "18px", color: t.text });
+  hd.append(hdIcon, hdTitle);
+
+  const body = document.createElement("div");
+  Object.assign(body.style, { display: "flex", alignItems: "flex-start", gap: "10px" });
+
+  if (info.avatarUrl) {
+    const avImg = document.createElement("img");
+    avImg.src = info.avatarUrl;
+    Object.assign(avImg.style, { width: "40px", height: "40px", borderRadius: "50%", flexShrink: "0", marginTop: "2px" });
+    body.append(avImg);
+  }
+
+  const textBlock = document.createElement("div");
+  Object.assign(textBlock.style, { fontSize: "13px", color: t.sub, lineHeight: "1.65" });
+
+  const what = field === "summary" ? "AI summary" : "comment analysis";
+  const nameLine = document.createElement("div");
+  Object.assign(nameLine.style, { marginBottom: "8px" });
+  const chNameEl = document.createElement("strong");
+  chNameEl.textContent = info.name;
+  Object.assign(chNameEl.style, { fontSize: "15px", color: t.text });
+  nameLine.append(
+    chNameEl,
+    document.createTextNode(` — Every new video from this channel will automatically get an ${what}.`),
+  );
+
+  const apiNote = document.createElement("div");
+  Object.assign(apiNote.style, { marginBottom: "8px" });
+  apiNote.textContent = "Each summary uses your Gemini API key. Free-tier keys include a generous daily quota.";
+
+  const usageBtn = document.createElement("button");
+  usageBtn.textContent = "View API usage →";
+  Object.assign(usageBtn.style, {
+    background: "transparent", border: "none", padding: "0",
+    color: "#1a73e8", cursor: "pointer", fontSize: "13px",
+    textDecoration: "underline", textUnderlineOffset: "2px",
+  });
+  usageBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    void chrome.tabs.create({ url: "https://aistudio.google.com/apikey" });
+  });
+
+  textBlock.append(nameLine, apiNote, usageBtn);
+  body.append(textBlock);
+
+  const row = document.createElement("div");
+  Object.assign(row.style, { display: "flex", gap: "10px", justifyContent: "space-between" });
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.textContent = "Cancel";
+  Object.assign(cancelBtn.style, {
+    padding: "10px 24px", borderRadius: "999px",
+    border: `1px solid ${t.border}`, background: "transparent",
+    color: t.text, cursor: "pointer", fontSize: "15px", fontWeight: "600",
+  });
+  cancelBtn.addEventListener("click", () => { overlay.remove(); onCancel(); });
+
+  const confirmBtn = document.createElement("button");
+  confirmBtn.textContent = "Enable auto-run";
+  Object.assign(confirmBtn.style, {
+    padding: "10px 24px", borderRadius: "999px",
+    border: "none", background: "#1a73e8",
+    color: "#fff", cursor: "pointer", fontSize: "15px", fontWeight: "600",
+  });
+  confirmBtn.addEventListener("click", () => { overlay.remove(); onConfirm(); });
+
+  row.append(cancelBtn, confirmBtn);
+  modal.append(hd, body, row);
+  overlay.append(modal);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) { overlay.remove(); onCancel(); } });
+  document.addEventListener("keydown", function esc(e) {
+    if (e.key === "Escape") { overlay.remove(); onCancel(); document.removeEventListener("keydown", esc); }
+  });
+  document.body.appendChild(overlay);
+}
+
 /** Show the idle panel — TL;DW icon + title + Get Summary + Never all in one header row. */
 function showIdlePanel(onGetSummary: () => void): void {
   const host = panelHost();
@@ -1136,7 +1260,7 @@ function showIdlePanel(onGetSummary: () => void): void {
   });
 
   // Build the header with Get Summary + Skip channel as inline controls
-  const head = buildPanelHead(t, [summaryBtn, skipBtn], capturedChannelInfo, false);
+  const head = buildPanelHead(t, [summaryBtn, skipBtn], capturedChannelInfo, false, false);
   panel.append(head);
 
   summaryPanel = panel;
