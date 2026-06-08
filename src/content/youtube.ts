@@ -1354,6 +1354,10 @@ function showCommentsSentimentResult(sentiment: string, audienceScore?: number):
   closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
   closeBtn.addEventListener("click", removeCommentsPanel);
 
+  const autoToggle = currentChannelInfo
+    ? buildAutoToggle(currentChannelInfo, "comments", currentAutoRunComments, t)
+    : null;
+
   if (audienceScore !== undefined) {
     const verdict = scoreToVerdict(audienceScore);
     const scorePill = document.createElement("span");
@@ -1362,9 +1366,9 @@ function showCommentsSentimentResult(sentiment: string, audienceScore?: number):
       fontSize: "11px", fontWeight: "700", padding: "2px 8px",
       borderRadius: "999px", background: verdictColor(verdict), color: "#fff", whiteSpace: "nowrap",
     });
-    head.append(icon, title, scorePill, spacer, closeBtn);
+    head.append(icon, title, scorePill, ...(autoToggle ? [autoToggle] : []), spacer, closeBtn);
   } else {
-    head.append(icon, title, spacer, closeBtn);
+    head.append(icon, title, ...(autoToggle ? [autoToggle] : []), spacer, closeBtn);
   }
 
   const text = document.createElement("div");
@@ -1436,11 +1440,6 @@ function showCommentsIdlePanel(onGetComments: () => void): void {
     showSkipOverlay(channelName, info, "comments", () => { /* panel stays open */ });
   });
 
-  // Auto-run toggle for comments
-  const autoToggle = capturedChannelInfo
-    ? buildAutoToggle(capturedChannelInfo, "comments", currentAutoRunComments, t)
-    : null;
-
   // Header row: icon + title + action buttons + close
   const head = document.createElement("div");
   Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px" });
@@ -1465,7 +1464,7 @@ function showCommentsIdlePanel(onGetComments: () => void): void {
   closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
   closeBtn.addEventListener("click", removeCommentsPanel);
 
-  head.append(icon, titleEl, getBtn, skipCommentsBtn, spacer, ...(autoToggle ? [autoToggle] : []), closeBtn);
+  head.append(icon, titleEl, getBtn, skipCommentsBtn, spacer, closeBtn);
   panel.append(head);
 
   target.container.insertBefore(panel, target.referenceNode);
