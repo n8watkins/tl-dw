@@ -555,6 +555,14 @@ function verdictColor(verdict: string): string {
   return "#16a34a"; // WATCH
 }
 
+function darken(hex: string): string {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, (n >> 16) - 30);
+  const g = Math.max(0, ((n >> 8) & 0xff) - 30);
+  const b = Math.max(0, (n & 0xff) - 30);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+}
+
 function scoreToVerdict(score: number): string {
   if (score <= 3) return "SKIP";
   if (score <= 6) return "SKIM";
@@ -607,7 +615,7 @@ function buildAutoToggle(
   initialOn: boolean,
   t: ReturnType<typeof theme>,
 ): HTMLButtonElement {
-  const label = field === "summary" ? "↻ Auto-summarize" : "💬 Comments";
+  const label = field === "summary" ? "↻ Auto-summarize" : "💬 Auto analyze";
   const onColor = field === "summary" ? "#1a73e8" : "#0d9488";
 
   const btn = document.createElement("button");
@@ -619,7 +627,9 @@ function buildAutoToggle(
     transition: "background 0.15s, color 0.15s",
   });
 
+  let isOn = initialOn;
   const applyState = (on: boolean) => {
+    isOn = on;
     btn.style.background = on ? onColor : t.border;
     btn.style.color = on ? "#fff" : t.sub;
     btn.title = on
@@ -628,6 +638,16 @@ function buildAutoToggle(
   };
 
   applyState(initialOn);
+
+  btn.addEventListener("mouseenter", () => {
+    btn.style.background = isOn ? darken(onColor) : onColor;
+    btn.style.color = "#fff";
+    btn.style.opacity = isOn ? "1" : "0.8";
+  });
+  btn.addEventListener("mouseleave", () => {
+    btn.style.opacity = "1";
+    applyState(isOn);
+  });
 
   let busy = false;
   btn.addEventListener("click", (e) => {
@@ -912,31 +932,12 @@ function buildUserRatingRow(
     borderTop: `1px solid ${t.border}`, marginTop: "8px", paddingTop: "7px",
   });
 
-  // Top row: AI verdict indicator + "You:" + rating buttons
+  // Rating buttons row
   const row = document.createElement("div");
   Object.assign(row.style, { display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" });
 
-  if (aiVerdict) {
-    const aiLabel = document.createElement("span");
-    aiLabel.textContent = "AI rec:";
-    Object.assign(aiLabel.style, { fontSize: "13px", color: t.sub, flexShrink: "0" });
-
-    const aiPill = document.createElement("span");
-    aiPill.textContent = aiVerdict;
-    Object.assign(aiPill.style, {
-      fontSize: "13px", fontWeight: "700", padding: "3px 9px", borderRadius: "999px",
-      background: verdictColor(aiVerdict), color: "#fff", flexShrink: "0",
-    });
-
-    const sep = document.createElement("span");
-    sep.textContent = "·";
-    Object.assign(sep.style, { fontSize: "13px", color: t.sub, flexShrink: "0" });
-
-    row.append(aiLabel, aiPill, sep);
-  }
-
   const youLabel = document.createElement("span");
-  youLabel.textContent = "You:";
+  youLabel.textContent = "Your rating:";
   Object.assign(youLabel.style, { fontSize: "13px", color: t.sub, flexShrink: "0" });
   row.append(youLabel);
 
@@ -961,6 +962,18 @@ function buildUserRatingRow(
       transition: "background 0.12s, color 0.12s",
       background: selected === value ? color : t.border,
       color: selected === value ? "#fff" : t.sub,
+    });
+    btn.addEventListener("mouseenter", () => {
+      if (selected !== value) {
+        btn.style.background = color;
+        btn.style.color = "#fff";
+        btn.style.opacity = "0.75";
+      }
+    });
+    btn.addEventListener("mouseleave", () => {
+      btn.style.opacity = "1";
+      btn.style.background = selected === value ? color : t.border;
+      btn.style.color = selected === value ? "#fff" : t.sub;
     });
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1091,7 +1104,6 @@ function showSkipOverlay(
   const textBlock = document.createElement("div");
   Object.assign(textBlock.style, { fontSize: "15px", color: t.sub, lineHeight: "1.65" });
 
-  const what = mode === "summary" ? "AI summary" : "comment analysis";
   const nameLine = document.createElement("div");
   Object.assign(nameLine.style, { marginBottom: "8px" });
   const chNameEl = document.createElement("strong");
@@ -1099,7 +1111,7 @@ function showSkipOverlay(
   Object.assign(chNameEl.style, { fontSize: "16px", color: t.text });
   nameLine.append(
     chNameEl,
-    document.createTextNode(` — We'll no longer show ${what} panels for this channel. Cached summaries will also be deleted.`),
+    document.createTextNode(" — Choose what to skip for this channel. Cached summaries will also be deleted."),
   );
 
   const reopenNote = document.createElement("div");
@@ -1113,6 +1125,23 @@ function showSkipOverlay(
 
   textBlock.append(nameLine, reopenNote);
   desc.append(textBlock);
+
+  // Checkboxes: one for each panel type
+  const mkCheckRow = (labelText: string, checked: boolean) => {
+    const wrap = document.createElement("label");
+    Object.assign(wrap.style, { display: "flex", alignItems: "center", gap: "10px", cursor: "pointer", fontSize: "15px", color: t.text });
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = checked;
+    Object.assign(cb.style, { width: "18px", height: "18px", cursor: "pointer", accentColor: "#dc2626", flexShrink: "0" });
+    const lbl = document.createElement("span"); lbl.textContent = labelText;
+    wrap.append(cb, lbl);
+    return { wrap, cb };
+  };
+  const { wrap: summaryWrap, cb: summaryCb } = mkCheckRow("Skip AI summaries for this channel", mode === "summary");
+  const { wrap: commentsWrap, cb: commentsCb } = mkCheckRow("Skip comment analysis for this channel", mode === "comments");
+  const checks = document.createElement("div");
+  Object.assign(checks.style, { display: "flex", flexDirection: "column", gap: "10px" });
+  checks.append(summaryWrap, commentsWrap);
 
   // Buttons: Cancel on left, Confirm on right
   const row = document.createElement("div");
@@ -1137,17 +1166,18 @@ function showSkipOverlay(
   confirmBtn.addEventListener("click", () => {
     overlay.remove();
     const finalInfo = info ?? getChannelInfo();
-    if (mode === "summary") {
+    if (summaryCb.checked) {
       if (finalInfo) void addBlockedChannelEntry(finalInfo).then(() => { removeSummaryPanel(); });
       else removeSummaryPanel();
-    } else {
+    }
+    if (commentsCb.checked) {
       if (finalInfo) void addBlockedCommentsChannelEntry(finalInfo).then(() => { removeCommentsPanel(); });
       else removeCommentsPanel();
     }
   });
 
   row.append(cancelBtn, confirmBtn);
-  modal.append(hd, desc, row);
+  modal.append(hd, desc, checks, row);
   overlay.append(modal);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) { overlay.remove(); onCancel(); } });
   document.addEventListener("keydown", function esc(e) {
@@ -1373,7 +1403,26 @@ function showCommentsSentimentResult(sentiment: string, audienceScore?: number):
     ? buildAutoToggle(currentChannelInfo, "comments", currentAutoRunComments, t)
     : null;
 
+  const skipCommentsBtn = currentChannelInfo ? (() => {
+    const info = currentChannelInfo;
+    const btn = document.createElement("button");
+    btn.textContent = "⊘ Skip channel";
+    Object.assign(btn.style, {
+      fontSize: "13px", fontWeight: "700", padding: "5px 12px", borderRadius: "999px",
+      border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
+      background: t.border, color: t.sub, transition: "background 0.15s, color 0.15s",
+    });
+    btn.addEventListener("mouseenter", () => { btn.style.background = "#dc2626"; btn.style.color = "#fff"; });
+    btn.addEventListener("mouseleave", () => { btn.style.background = t.border; btn.style.color = t.sub; });
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showSkipOverlay(info.name, info, "comments", () => { /* stay */ });
+    });
+    return btn;
+  })() : null;
+
   closeBtn.style.marginLeft = "12px";
+  const rightItems = [...(autoToggle ? [autoToggle] : []), ...(skipCommentsBtn ? [skipCommentsBtn] : [])];
   if (audienceScore !== undefined) {
     const verdict = scoreToVerdict(audienceScore);
     const scorePill = document.createElement("span");
@@ -1382,9 +1431,9 @@ function showCommentsSentimentResult(sentiment: string, audienceScore?: number):
       fontSize: "11px", fontWeight: "700", padding: "2px 8px",
       borderRadius: "999px", background: verdictColor(verdict), color: "#fff", whiteSpace: "nowrap",
     });
-    head.append(icon, title, scorePill, spacer, ...(autoToggle ? [autoToggle] : []), closeBtn);
+    head.append(icon, title, scorePill, spacer, ...rightItems, closeBtn);
   } else {
-    head.append(icon, title, spacer, ...(autoToggle ? [autoToggle] : []), closeBtn);
+    head.append(icon, title, spacer, ...rightItems, closeBtn);
   }
 
   const text = document.createElement("div");
