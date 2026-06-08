@@ -460,7 +460,11 @@ type ChannelInfo = { id: string; name: string; avatarUrl: string };
 
 /** Extract channel handle/ID, display name, and avatar from the current watch page. */
 function getChannelInfo(): ChannelInfo | null {
+  // Match by href pattern first — most reliable across YouTube layout variants.
   const anchor = document.querySelector<HTMLAnchorElement>(
+    "ytd-video-owner-renderer a[href^='/@'], ytd-video-owner-renderer a[href^='/channel/'], " +
+    "ytd-channel-name a[href^='/@'], ytd-channel-name a[href^='/channel/'], " +
+    "#owner a[href^='/@'], #owner a[href^='/channel/'], " +
     "ytd-channel-name a, #owner #channel-name a, ytd-video-owner-renderer a.yt-simple-endpoint",
   );
   if (!anchor) return null;
@@ -991,10 +995,9 @@ function showIdlePanel(onGetSummary: () => void): void {
   skipBtn.addEventListener("mouseleave", () => { skipBtn.style.borderColor = t.border; skipBtn.style.color = t.sub; });
   skipBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    // Retry getChannelInfo at click time in case it was null at panel-creation time
+    // Try to resolve channel info; always show the confirmation regardless.
     const info = capturedChannelInfo ?? getChannelInfo();
-    if (!info) return;
-    const channelName = info.name;
+    const channelName = info?.name ?? "this channel";
     head.innerHTML = "";
     const icon2 = document.createElement("img");
     icon2.src = chrome.runtime.getURL("icons/tl-dw-32.png");
@@ -1010,10 +1013,16 @@ function showIdlePanel(onGetSummary: () => void): void {
     });
     confirmBtn.addEventListener("click", (e2) => {
       e2.stopPropagation();
-      void addBlockedChannelEntry(info).then(() => {
+      // One final attempt to resolve channel info at confirm time.
+      const finalInfo = info ?? getChannelInfo();
+      if (finalInfo) {
+        void addBlockedChannelEntry(finalInfo).then(() => {
+          removeSummaryPanel();
+          log("channel skipped from summary:", finalInfo.name);
+        });
+      } else {
         removeSummaryPanel();
-        log("channel skipped from summary:", channelName);
-      });
+      }
     });
     const cancelBtn = document.createElement("button");
     cancelBtn.textContent = "Cancel";
@@ -1160,8 +1169,7 @@ function showCommentsIdlePanel(onGetComments: () => void): void {
   skipCommentsBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     const info = capturedChannelInfo ?? getChannelInfo();
-    if (!info) return;
-    const channelName = info.name;
+    const channelName = info?.name ?? "this channel";
     head.innerHTML = "";
     const icon2 = document.createElement("img");
     icon2.src = chrome.runtime.getURL("icons/tl-dw-32.png");
@@ -1177,10 +1185,15 @@ function showCommentsIdlePanel(onGetComments: () => void): void {
     });
     confirmBtn.addEventListener("click", (e2) => {
       e2.stopPropagation();
-      void addBlockedCommentsChannelEntry(info).then(() => {
+      const finalInfo = info ?? getChannelInfo();
+      if (finalInfo) {
+        void addBlockedCommentsChannelEntry(finalInfo).then(() => {
+          removeCommentsPanel();
+          log("channel skipped from comment analysis:", finalInfo.name);
+        });
+      } else {
         removeCommentsPanel();
-        log("channel skipped from comment analysis:", channelName);
-      });
+      }
     });
     const cancelBtn = document.createElement("button");
     cancelBtn.textContent = "Cancel";
