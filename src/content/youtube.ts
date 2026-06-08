@@ -656,13 +656,13 @@ function buildAutoToggle(
     const current = field === "summary" ? currentAutoRunSummary : currentAutoRunComments;
     const enabling = !current;
     if (enabling) {
+      busy = true;
       showAutoRunConfirmOverlay(info, field, () => {
-        busy = true;
         if (field === "summary") currentAutoRunSummary = true;
         else currentAutoRunComments = true;
         applyState(true);
         void writeAutoRunChannel(info, field, true).finally(() => { busy = false; });
-      }, () => { /* cancelled */ });
+      }, () => { busy = false; });
       return;
     }
     busy = true;
@@ -949,6 +949,7 @@ function buildUserRatingRow(
       const b = btns[i]!;
       b.style.background = active === value ? color : t.border;
       b.style.color = active === value ? "#fff" : t.sub;
+      b.style.opacity = "1";
     });
   };
 
@@ -1109,9 +1110,12 @@ function showSkipOverlay(
   const chNameEl = document.createElement("strong");
   chNameEl.textContent = channelName;
   Object.assign(chNameEl.style, { fontSize: "16px", color: t.text });
+  const cacheNote = document.createElement("span");
+  cacheNote.textContent = " Cached summaries will also be deleted.";
   nameLine.append(
     chNameEl,
-    document.createTextNode(" — Choose what to skip for this channel. Cached summaries will also be deleted."),
+    document.createTextNode(" — Choose what to skip for this channel."),
+    cacheNote,
   );
 
   const reopenNote = document.createElement("div");
@@ -1163,6 +1167,17 @@ function showSkipOverlay(
     border: "none", background: "#dc2626",
     color: "#fff", cursor: "pointer", fontSize: "15px", fontWeight: "600",
   });
+  const syncOverlay = () => {
+    const any = summaryCb.checked || commentsCb.checked;
+    confirmBtn.disabled = !any;
+    confirmBtn.style.opacity = any ? "1" : "0.45";
+    confirmBtn.style.cursor = any ? "pointer" : "default";
+    cacheNote.style.display = summaryCb.checked ? "" : "none";
+  };
+  summaryCb.addEventListener("change", syncOverlay);
+  commentsCb.addEventListener("change", syncOverlay);
+  syncOverlay();
+
   confirmBtn.addEventListener("click", () => {
     overlay.remove();
     const finalInfo = info ?? getChannelInfo();
