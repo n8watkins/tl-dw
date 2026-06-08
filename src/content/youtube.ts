@@ -1679,10 +1679,10 @@ async function maybeStartDirectApiRun(): Promise<void> {
   const cached = cache?.[vid];
   const cacheHit = !!(cached && Date.now() - new Date(cached.cachedAt).getTime() < CACHE_TTL_MS);
 
-  // Auto-show cached result only for channels with auto-run enabled.
-  // For channels without auto-run, show the idle panel; clicking it will still
-  // serve from cache (avoiding a wasted API call) if the result is still fresh.
-  if (cacheHit && currentAutoRunSummary) {
+  // If we already have a fresh cached result, show it directly — there's no
+  // reason to drop the user back to the idle "Get Summary" view for a video
+  // we've already summarized. Applies whether or not auto-run is enabled.
+  if (cacheHit) {
     serveCached(cached!);
     return;
   }
