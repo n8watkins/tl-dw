@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import type { AutoRunChannel, BlockedChannel, SearchHistoryEntry } from "../../types";
 import { getHistory, getAutoRunChannels, setAutoRunChannels as persistAutoRunChannels, getBlockedChannels, removeBlockedChannel, getBlockedCommentsChannels, removeBlockedCommentsChannel, getSettings } from "../../lib/storage";
 import { computeChannelStats, type ChannelStats } from "../../lib/history";
-import { USER_RATING_LABELS } from "../../lib/constants";
+import { USER_RATING_LABELS, scoreToVerdict, userAvgToLabel } from "../../lib/constants";
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -38,18 +38,11 @@ function channelColor(name: string): string {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length]!;
 }
 
-function scorePillStyle(score: number | null): { background: string; color: string } {
-  if (score === null) return { background: "var(--border)", color: "var(--text)" };
-  if (score >= 8) return { background: "#16a34a", color: "#fff" };
-  if (score >= 6) return { background: "#d97706", color: "#fff" };
+/** Pill colors for a WATCH/SKIM/SKIP verdict (shared by AI + audience pills). */
+function verdictPillStyle(verdict: string): { background: string; color: string } {
+  if (verdict === "WATCH") return { background: "#16a34a", color: "#fff" };
+  if (verdict === "SKIM") return { background: "#d97706", color: "#fff" };
   return { background: "#dc2626", color: "#fff" };
-}
-
-/** Nearest-bucket label for an averaged personal verdict (scale 1–3). */
-function userRatingLabel(avg: number): string {
-  if (avg >= 2.5) return USER_RATING_LABELS.watch;
-  if (avg >= 1.5) return USER_RATING_LABELS.skim;
-  return USER_RATING_LABELS.skip;
 }
 
 type SortKey = "count" | "rating" | "recent";
@@ -262,7 +255,7 @@ function VideoRow({ entry, trackMyAverage }: { entry: SearchHistoryEntry; trackM
         {entry.videoTitle ?? entry.videoUrl}
       </button>
 
-      {/* AI rating pill */}
+      {/* AI verdict pill */}
       {hasAi && (
         <span
           style={{
@@ -272,14 +265,14 @@ function VideoRow({ entry, trackMyAverage }: { entry: SearchHistoryEntry; trackM
             padding: "2px 7px",
             borderRadius: 999,
             whiteSpace: "nowrap",
-            ...scorePillStyle(entry.aiRating!),
+            ...verdictPillStyle(scoreToVerdict(entry.aiRating!)),
           }}
         >
-          AI {entry.aiRating}
+          AI {scoreToVerdict(entry.aiRating!)}
         </span>
       )}
 
-      {/* Audience score pill */}
+      {/* Audience verdict pill */}
       {hasAudience && (
         <span
           style={{
@@ -289,11 +282,10 @@ function VideoRow({ entry, trackMyAverage }: { entry: SearchHistoryEntry; trackM
             padding: "2px 7px",
             borderRadius: 999,
             whiteSpace: "nowrap",
-            background: "var(--border)",
-            color: "var(--text)",
+            ...verdictPillStyle(scoreToVerdict(entry.audienceScore!)),
           }}
         >
-          Aud {entry.audienceScore}
+          Aud {scoreToVerdict(entry.audienceScore!)}
         </span>
       )}
 
@@ -346,9 +338,6 @@ function ChannelCard({
   trackMyAverage: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-
-  const aiStyle = scorePillStyle(stats.avgAiRating);
-  const audStyle = { background: "var(--border)", color: "var(--text)" };
 
   return (
     <div
@@ -414,7 +403,7 @@ function ChannelCard({
               flexWrap: "wrap",
             }}
           >
-            {/* AI score pill */}
+            {/* AI verdict pill */}
             {stats.avgAiRating !== null && (
               <span
                 style={{
@@ -423,13 +412,14 @@ function ChannelCard({
                   padding: "2px 8px",
                   borderRadius: 999,
                   whiteSpace: "nowrap",
-                  ...aiStyle,
+                  ...verdictPillStyle(scoreToVerdict(stats.avgAiRating)),
                 }}
+                title={`Based on ${stats.count} ${stats.count === 1 ? "video" : "videos"}`}
               >
-                AI {stats.avgAiRating.toFixed(1)}
+                AI usually {scoreToVerdict(stats.avgAiRating)}
               </span>
             )}
-            {/* Audience score pill */}
+            {/* Audience verdict pill */}
             {stats.avgAudienceScore !== null && (
               <span
                 style={{
@@ -438,10 +428,10 @@ function ChannelCard({
                   padding: "2px 8px",
                   borderRadius: 999,
                   whiteSpace: "nowrap",
-                  ...audStyle,
+                  ...verdictPillStyle(scoreToVerdict(stats.avgAudienceScore)),
                 }}
               >
-                Audience {stats.avgAudienceScore.toFixed(1)}
+                Audience usually {scoreToVerdict(stats.avgAudienceScore)}
               </span>
             )}
             {/* My rating pill */}
@@ -458,7 +448,7 @@ function ChannelCard({
                 }}
                 title={`Engaged ${stats.userBreakdown.engaged} · Skimmed ${stats.userBreakdown.skimmed} · Skipped ${stats.userBreakdown.skipped}`}
               >
-                You: {userRatingLabel(stats.avgUserRating)} {stats.avgUserRating.toFixed(1)}
+                You: usually {userAvgToLabel(stats.avgUserRating)}
               </span>
             )}
             {/* Last watched */}

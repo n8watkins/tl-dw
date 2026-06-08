@@ -5,6 +5,7 @@ import { addHistoryEntry, computeChannelStats } from "../lib/history";
 import type { ChannelStats } from "../lib/history";
 import {
   addOpenSearch,
+  addRatingOnlyHistoryEntry,
   clearGeminiUsage,
   ensureSeeded,
   getCachedSummary,
@@ -15,6 +16,7 @@ import {
   patchCachedSummary,
   patchGeminiCallEntry,
   patchHistoryEntryAudienceScore,
+  patchHistoryEntryRating,
   pruneOpenSearch,
   recordDeliveryStatus,
   recordGeminiCallReturningId,
@@ -614,6 +616,21 @@ chrome.runtime.onMessage.addListener(
       void chrome.runtime.openOptionsPage();
       sendResponse({ ok: true });
       return false;
+    }
+    if (message.type === "RATE_VIDEO") {
+      const { videoId, rating, video } = message;
+      void (async () => {
+        // Patch the existing history entry; if there's none (summary never saved,
+        // or its entry expired), create a lightweight rating-only entry so the
+        // rating — and its channel — persist durably in the Channels view.
+        const patched = await patchHistoryEntryRating(videoId, rating);
+        if (!patched) {
+          const settings = await getSettings();
+          await addRatingOnlyHistoryEntry({ video, rating, settings });
+        }
+        sendResponse({ ok: true });
+      })();
+      return true;
     }
     if (message.type === "REBUILD_MENU") {
       void rebuildContextMenu().then(() => sendResponse({ ok: true }));

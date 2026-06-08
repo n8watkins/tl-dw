@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeChannelStats, expireOldEntries, trimToLimit } from "./history";
-import { DEFAULT_SETTINGS } from "./constants";
+import { DEFAULT_SETTINGS, scoreToVerdict, userAvgToLabel } from "./constants";
 import type { SearchHistoryEntry, Settings } from "../types";
 
 function entry(id: string, createdAt: string): SearchHistoryEntry {
@@ -125,5 +125,31 @@ describe("computeChannelStats — user rating", () => {
     ]);
     expect(stats[0].avgUserRating).toBeNull();
     expect(stats[0].userBreakdown).toEqual({ engaged: 0, skimmed: 0, skipped: 0 });
+  });
+});
+
+describe("scoreToVerdict", () => {
+  it("maps 1–10 scores to SKIP/SKIM/WATCH (≤3 SKIP, ≤6 SKIM, else WATCH)", () => {
+    expect(scoreToVerdict(1)).toBe("SKIP");
+    expect(scoreToVerdict(3)).toBe("SKIP");
+    expect(scoreToVerdict(4)).toBe("SKIM");
+    expect(scoreToVerdict(6)).toBe("SKIM");
+    expect(scoreToVerdict(7)).toBe("WATCH");
+    expect(scoreToVerdict(10)).toBe("WATCH");
+  });
+});
+
+describe("userAvgToLabel", () => {
+  it("maps an averaged personal verdict (1–3) to the nearest bucket label", () => {
+    // ≥2.5 → Engaged
+    expect(userAvgToLabel(3)).toBe("Engaged");
+    expect(userAvgToLabel(2.5)).toBe("Engaged");
+    // ≥1.5 → Skimmed
+    expect(userAvgToLabel(2.49)).toBe("Skimmed");
+    expect(userAvgToLabel(2)).toBe("Skimmed");
+    expect(userAvgToLabel(1.5)).toBe("Skimmed");
+    // else → Skipped
+    expect(userAvgToLabel(1.49)).toBe("Skipped");
+    expect(userAvgToLabel(1)).toBe("Skipped");
   });
 });

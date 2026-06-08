@@ -22,35 +22,12 @@ const log = (...args: unknown[]) => console.log("[TL;DW]", ...args);
 const currentVideoId = (): string | null =>
   new URLSearchParams(location.search).get("v");
 
-// Personal-verdict display labels + numeric scale (mirrors USER_RATING_LABELS /
-// USER_RATING_SCALE in lib/constants.ts; this content script has no imports).
-const USER_RATING_LABELS: Record<"watch" | "skim" | "skip", string> = {
-  watch: "Engaged",
-  skim: "Skimmed",
-  skip: "Skipped",
-};
-const USER_RATING_SCALE: Record<"watch" | "skim" | "skip", number> = {
-  watch: 3,
-  skim: 2,
-  skip: 1,
-};
-
-/** Extract a YouTube video ID from any watch/shorts/youtu.be URL (mirrors extractVideoId in constants.ts). */
-function extractVideoIdFromUrl(url: string): string | null {
-  try {
-    const u = new URL(url);
-    const host = u.hostname.replace(/^www\./, "");
-    if (host === "youtube.com" || host === "m.youtube.com") {
-      if (u.pathname === "/watch") return u.searchParams.get("v");
-      const shorts = /^\/shorts\/([^/?]+)/.exec(u.pathname);
-      if (shorts) return shorts[1];
-    }
-    if (host === "youtu.be") return u.pathname.slice(1) || null;
-  } catch {
-    // fall through
-  }
-  return null;
-}
+import {
+  USER_RATING_LABELS,
+  USER_RATING_SCALE,
+  scoreToVerdict,
+  userAvgToLabel,
+} from "../lib/constants";
 
 // --- intercepted transcript cache ----------------------------------------
 
@@ -526,6 +503,23 @@ function getChannelInfo(): ChannelInfo | null {
   return { id, name, avatarUrl };
 }
 
+/** The current video's clean watch URL (drops ?t=, &pp=, etc.) for history storage. */
+function currentWatchUrl(): string {
+  const vid = currentVideoId();
+  return vid ? `https://www.youtube.com/watch?v=${vid}` : location.href;
+}
+
+/** The current video's title from the watch metadata, falling back to the cleaned page title. */
+function currentVideoTitle(): string | undefined {
+  const h1 =
+    document.querySelector<HTMLElement>("ytd-watch-metadata h1, h1.ytd-watch-metadata, #title h1")
+      ?.textContent?.trim();
+  if (h1) return h1;
+  // Fall back to the tab title: drop unread "(3) " prefix and " - YouTube" suffix.
+  const docTitle = document.title.replace(/^\(\d+\)\s*/, "").replace(/\s*-\s*YouTube$/, "").trim();
+  return docTitle || undefined;
+}
+
 // Module-level state so the SET_SUMMARY handler can use the same channel context
 // as the initial maybeStartDirectApiRun call.
 let currentChannelInfo: ChannelInfo | null = null;
@@ -589,12 +583,6 @@ function darken(hex: string): string {
   const g = Math.max(0, ((n >> 8) & 0xff) - 30);
   const b = Math.max(0, (n & 0xff) - 30);
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
-}
-
-function scoreToVerdict(score: number): string {
-  if (score <= 3) return "SKIP";
-  if (score <= 6) return "SKIM";
-  return "WATCH";
 }
 
 function pill(text: string, bg: string, color: string): HTMLElement {
@@ -907,20 +895,19 @@ function buildSummaryPanel(
     font: "14px/1.4 Roboto, system-ui, sans-serif", color: t.text,
   });
 
-  // --- header: verdict pill + AI score pill + source ---
-  // AI dimension collect/show gate: when off, omit both the verdict and AI score
-  // pills (the one-line summary stands alone).
+  // --- header: AI verdict pill + source ---
+  // AI dimension collect/show gate: when off, omit the verdict pill entirely
+  // (the one-line summary stands alone). No numeric score is shown anywhere.
   const headerControls: HTMLElement[] = [];
 
-  // Parse the numeric AI rating (e.g. "8/10" → 8) for the "AI n" pill + cue.
+  // Parse the numeric AI rating (e.g. "8/10" → 8) — used only to drive the
+  // directional ▲/▼/≈ cue against the channel average. No numeric pill is shown;
+  // the AI verdict itself is the visible value.
   const aiMatch = tldw.rating ? /^(\d+)/.exec(tldw.rating) : null;
   const aiThisVideo = aiMatch ? parseInt(aiMatch[1], 10) : null;
 
   if (toggles.showAiRecommendation) {
     headerControls.push(pill(tldw.verdict, verdictColor(tldw.verdict), "#fff"));
-    if (aiThisVideo !== null) {
-      headerControls.push(pill(`AI ${aiThisVideo}`, t.border, t.sub));
-    }
   }
 
   if (tldw.source) {
@@ -998,28 +985,38 @@ function buildSummaryPanel(
 
   const dimEls: HTMLElement[] = [];
 
-  /** Build/refresh one dimension cue: "<label> avg: n.n <cue>". */
-  const renderCue = (label: string, avg: number, thisValue: number | null): HTMLElement => {
+  /**
+   * Build/refresh one dimension cue, expressed entirely in words:
+   * "<label>: usually <VERDICT> <▲/▼/≈>". The verdict label comes from mapping
+   * the channel average through `avgToLabel`; the ▲/▼/≈ marker is still computed
+   * from the underlying numbers (this video's value vs the channel average).
+   */
+  const renderCue = (
+    label: string,
+    avg: number,
+    thisValue: number | null,
+    avgToLabel: (n: number) => string,
+  ): HTMLElement => {
     const span = document.createElement("span");
     let cue = "";
     if (thisValue !== null) {
       const diff = thisValue - avg;
       cue = diff > 0.05 ? " ▲" : diff < -0.05 ? " ▼" : " ≈";
     }
-    span.textContent = `${label} avg: ${avg.toFixed(1)}${cue}`;
+    span.textContent = `${label}: usually ${avgToLabel(avg)}${cue}`;
     return span;
   };
 
   if (channelStats && channelStats.count >= 1) {
     const header = document.createElement("span");
-    header.textContent = `📊 vs channel (${channelStats.count} videos)`;
+    header.textContent = `📊 vs channel (${channelStats.count} ${channelStats.count === 1 ? "video" : "videos"})`;
     dimEls.push(header);
 
     if (toggles.showAiRecommendation && toggles.trackAiAverage && channelStats.avgAiRating !== null) {
-      dimEls.push(renderCue("AI", channelStats.avgAiRating, aiThisVideo));
+      dimEls.push(renderCue("AI", channelStats.avgAiRating, aiThisVideo, scoreToVerdict));
     }
     if (toggles.includeCommentSentiment && toggles.trackCommunityAverage && channelStats.avgAudienceScore !== null) {
-      dimEls.push(renderCue("Community", channelStats.avgAudienceScore, audienceScore ?? null));
+      dimEls.push(renderCue("Community", channelStats.avgAudienceScore, audienceScore ?? null, scoreToVerdict));
     }
   }
 
@@ -1037,7 +1034,9 @@ function buildSummaryPanel(
       return;
     }
     const thisValue = rating ? USER_RATING_SCALE[rating] : null;
-    myCueHolder.replaceChildren(renderCue("You", channelStats.avgUserRating, thisValue));
+    myCueHolder.replaceChildren(
+      renderCue("You", channelStats.avgUserRating, thisValue, userAvgToLabel),
+    );
   };
   refreshMyCue(initialUserRating ?? null);
   if (channelStats && channelStats.count >= 1) dimEls.push(myCueHolder);
@@ -1045,9 +1044,32 @@ function buildSummaryPanel(
   channelRow.replaceChildren(...dimEls);
   const showChannelRow = dimEls.length > 1; // more than just the header
 
+  // Track the latest selection so a post-persist cue refresh keeps the marker.
+  let selectedUserRating: "watch" | "skim" | "skip" | null = initialUserRating ?? null;
+
+  // After a rating durably persists, pull the recomputed channel averages and
+  // refresh the "You" cue so it reflects the new vote (the count + average now
+  // include this video). Mutates the captured stats in place so renderCue sees
+  // the fresh value.
+  const onChannelStatsRefresh = (fresh: ChannelComparison) => {
+    if (channelStats) {
+      channelStats.avgUserRating = fresh.avgUserRating;
+      channelStats.count = fresh.count;
+      channelStats.userBreakdown = fresh.userBreakdown;
+    }
+    refreshMyCue(selectedUserRating);
+  };
+
   // --- user personal rating row (My dimension collect/show gate) ---
   const ratingRow = toggles.askForMyRating
-    ? buildUserRatingRow(t, initialUserRating, videoId, currentChannelInfo?.name, refreshMyCue)
+    ? buildUserRatingRow(
+        t,
+        initialUserRating,
+        videoId,
+        currentChannelInfo?.name,
+        (rating) => { selectedUserRating = rating; refreshMyCue(rating); },
+        onChannelStatsRefresh,
+      )
     : null;
 
   panel.append(
@@ -1065,6 +1087,7 @@ function buildUserRatingRow(
   videoId: string | null | undefined,
   channelName?: string,
   onRatingChange?: (rating: "watch" | "skim" | "skip") => void,
+  onChannelStatsRefresh?: (fresh: ChannelComparison) => void,
 ): HTMLElement {
   // Display labels come from USER_RATING_LABELS; the enum values stay watch/skim/skip.
   const options: { value: "watch" | "skim" | "skip"; label: string; color: string }[] = [
@@ -1127,27 +1150,40 @@ function buildUserRatingRow(
       selected = value;
       applyAll(value);
       const vid = videoId ?? currentVideoId();
+      // Show the new selection in the cue immediately (snappy); the channel
+      // average refresh happens after the rating durably persists below.
+      onRatingChange?.(value);
       if (vid) {
-        // Write to BOTH stores: the summary cache (instant re-serve) and the
-        // durable history entry (so the per-channel My average survives the
-        // cache's 7-day TTL). Mirrors patchCachedSummary + patchHistoryEntryRating.
-        void chrome.storage.local.get(["tldwSummaryCache", "history"]).then((r) => {
+        // Instant local cache write so a re-serve from cache shows this rating
+        // without waiting on the round-trip.
+        void chrome.storage.local.get("tldwSummaryCache").then((r) => {
           type SummaryCache = Record<string, { tldw: unknown; cachedAt: string; userRating?: string }>;
           const cache = (r["tldwSummaryCache"] as SummaryCache) ?? {};
           if (cache[vid]) {
             cache[vid]!.userRating = value;
             void chrome.storage.local.set({ tldwSummaryCache: cache });
           }
-          type HistEntry = { videoUrl: string; userRating?: string };
-          const history = (r["history"] as HistEntry[]) ?? [];
-          const idx = history.findIndex((h) => extractVideoIdFromUrl(h.videoUrl) === vid);
-          if (idx !== -1) {
-            history[idx] = { ...history[idx], userRating: value };
-            void chrome.storage.local.set({ history });
-          }
         });
+        // Durably persist the rating via the background: it patches the existing
+        // history entry, or creates a lightweight rating-only one if none exists
+        // (so the channel always shows up in the Channels view). Once it
+        // resolves, re-fetch the channel average so the cue reflects this vote.
+        void chrome.runtime
+          .sendMessage({
+            type: "RATE_VIDEO",
+            videoId: vid,
+            rating: value,
+            video: {
+              url: currentWatchUrl(),
+              title: currentVideoTitle(),
+              channel: currentChannelInfo?.name,
+              avatarUrl: currentChannelInfo?.avatarUrl,
+            },
+          })
+          .then(() => computeChannelComparison(currentChannelInfo?.name))
+          .then((fresh) => { if (fresh) onChannelStatsRefresh?.(fresh); })
+          .catch(() => { /* best effort */ });
       }
-      onRatingChange?.(value);
     });
     row.append(btn);
     btns.push(btn);

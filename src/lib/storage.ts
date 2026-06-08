@@ -64,18 +64,63 @@ export async function setHistory(history: SearchHistoryEntry[]): Promise<void> {
 
 /**
  * Patch the personal verdict onto the newest history entry for `videoId`.
- * No-op if no matching entry exists (e.g. history expired) — the summary cache
- * still holds the rating in that case.
+ * Returns `true` if an entry was found and updated, `false` if none matched
+ * (e.g. the summary was never saved or its entry expired) — the caller then
+ * creates a lightweight rating-only entry so the rating still persists.
  */
 export async function patchHistoryEntryRating(
   videoId: string,
   rating: "watch" | "skim" | "skip",
-): Promise<void> {
+): Promise<boolean> {
   const history = await getHistory();
   const idx = history.findIndex((e) => extractVideoId(e.videoUrl) === videoId);
-  if (idx === -1) return;
+  if (idx === -1) return false;
   history[idx] = { ...history[idx], userRating: rating };
   await setHistory(history);
+  return true;
+}
+
+/**
+ * Create a lightweight, rating-only history entry and prepend it, respecting
+ * the same `historyLimit`/`autoExpireHistory` trimming as a full search entry.
+ * Used when the user rates a video that has no history entry yet, so the rating
+ * (and its channel) still show up durably in the Channels view.
+ *
+ * `profileId`/`profileName`/`prompt` are required on SearchHistoryEntry; empty
+ * strings are safe for the consumers that read them (HistorySection lowercases
+ * them for search).
+ */
+export async function addRatingOnlyHistoryEntry(args: {
+  video: { url: string; title?: string; channel?: string; avatarUrl?: string };
+  rating: "watch" | "skim" | "skip";
+  settings: Settings;
+}): Promise<void> {
+  const entry: SearchHistoryEntry = {
+    id: crypto.randomUUID(),
+    videoUrl: args.video.url,
+    videoTitle: args.video.title,
+    channel: args.video.channel,
+    channelAvatarUrl: args.video.avatarUrl,
+    profileId: "",
+    profileName: "",
+    prompt: "",
+    userRating: args.rating,
+    createdAt: new Date().toISOString(),
+  };
+  const existing = await getHistory();
+  let next = [entry, ...existing];
+  // Same bounds as addHistoryEntry: drop expired entries, then cap to the limit.
+  if (args.settings.autoExpireHistory) {
+    const cutoff = Date.now() - args.settings.historyExpiryDays * 24 * 60 * 60 * 1000;
+    next = next.filter((e) => {
+      const t = new Date(e.createdAt).getTime();
+      return Number.isNaN(t) || t >= cutoff;
+    });
+  }
+  if (args.settings.historyLimit !== "unlimited") {
+    next = next.slice(0, args.settings.historyLimit);
+  }
+  await setHistory(next);
 }
 
 /**

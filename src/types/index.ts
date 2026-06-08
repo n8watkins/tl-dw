@@ -348,6 +348,19 @@ export type OpenOptionsMessage = { type: "OPEN_OPTIONS" };
 /** Popup asking the content script whether the current channel is blocked. */
 export type GetChannelStatusMessage = { type: "GET_CHANNEL_STATUS" };
 
+/**
+ * Sent from the content panel when the user picks a personal verdict. The
+ * background patches the matching history entry, or — if none exists (the
+ * summary was never saved, or its entry expired) — creates a lightweight
+ * rating-only history entry so the channel still surfaces in the Channels view.
+ */
+export type RateVideoMessage = {
+  type: "RATE_VIDEO";
+  videoId: string;
+  rating: "watch" | "skim" | "skip";
+  video: { url: string; title?: string; channel?: string; avatarUrl?: string };
+};
+
 /** Response to GET_CHANNEL_STATUS. */
 export type ChannelStatusResponse = {
   isBlocked: boolean;
@@ -366,4 +379,5 @@ export type RuntimeMessage =
   | SetCommentSentimentMessage
   | GetGeminiUsageMessage
   | ClearGeminiUsageMessage
-  | OpenOptionsMessage;
+  | OpenOptionsMessage
+  | RateVideoMessage;

@@ -149,6 +149,27 @@ export const USER_RATING_SCALE: Record<"watch" | "skim" | "skip", number> = {
 };
 
 /**
+ * Map a 1–10 quality/audience score to the WATCH/SKIM/SKIP verdict vocabulary.
+ * Shared by the content panel and the Channels view so both speak in words, not
+ * numbers (≤3 SKIP, ≤6 SKIM, else WATCH).
+ */
+export function scoreToVerdict(score: number): string {
+  if (score <= 3) return "SKIP";
+  if (score <= 6) return "SKIM";
+  return "WATCH";
+}
+
+/**
+ * Map an averaged personal verdict (USER_RATING_SCALE, 1–3) to the nearest
+ * bucket label: ≥2.5 → Engaged, ≥1.5 → Skimmed, else Skipped.
+ */
+export function userAvgToLabel(avg: number): string {
+  if (avg >= 2.5) return USER_RATING_LABELS.watch;
+  if (avg >= 1.5) return USER_RATING_LABELS.skim;
+  return USER_RATING_LABELS.skip;
+}
+
+/**
  * Extract the YouTube video ID from any watch/shorts/youtu.be URL.
  * Returns null for non-video URLs or URLs that don't parse.
  */
