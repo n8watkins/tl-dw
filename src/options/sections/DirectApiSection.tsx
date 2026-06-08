@@ -288,8 +288,35 @@ export function DirectApiSection() {
               <input
                 type="checkbox"
                 checked={settings.includeCommentSentiment}
-                onChange={(e) => void update({ includeCommentSentiment: e.target.checked })}
+                onChange={(e) =>
+                  void update(
+                    e.target.checked
+                      ? { includeCommentSentiment: true }
+                      : { includeCommentSentiment: false, trackCommunityAverage: false },
+                  )
+                }
                 disabled={!hasKey}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
+        {/* Community: track average (B, requires includeCommentSentiment) */}
+        <div className="setting-row" style={{ opacity: settings.includeCommentSentiment ? 1 : 0.5 }}>
+          <div className="setting-info">
+            <div className="setting-label">Track community average</div>
+            <div className="setting-sub">
+              Average the audience score per channel and show a this-video-vs-channel cue.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.trackCommunityAverage}
+                onChange={(e) => void update({ trackCommunityAverage: e.target.checked })}
+                disabled={!settings.includeCommentSentiment}
               />
               <span className="toggle-track" />
             </label>

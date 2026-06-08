@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { expireOldEntries, trimToLimit } from "./history";
+import { computeChannelStats, expireOldEntries, trimToLimit } from "./history";
 import { DEFAULT_SETTINGS } from "./constants";
 import type { SearchHistoryEntry, Settings } from "../types";
 
@@ -12,6 +12,14 @@ function entry(id: string, createdAt: string): SearchHistoryEntry {
     prompt: "prompt",
     createdAt,
   };
+}
+
+function channelEntry(
+  id: string,
+  channel: string,
+  userRating?: "watch" | "skim" | "skip",
+): SearchHistoryEntry {
+  return { ...entry(id, daysAgo(0)), channel, userRating };
 }
 
 function daysAgo(n: number): string {
@@ -75,5 +83,47 @@ describe("expireOldEntries", () => {
       settings({ autoExpireHistory: true, historyExpiryDays: 30 }),
     );
     expect(result.map((e) => e.id)).toEqual(["bad"]);
+  });
+});
+
+describe("computeChannelStats — user rating", () => {
+  it("averages userRating through the watch=3/skim=2/skip=1 scale", () => {
+    // one watch (3) + one skim (2) ⇒ 2.5
+    const stats = computeChannelStats([
+      channelEntry("a", "Chan", "watch"),
+      channelEntry("b", "Chan", "skim"),
+    ]);
+    expect(stats).toHaveLength(1);
+    expect(stats[0].avgUserRating).toBe(2.5);
+  });
+
+  it("tallies userBreakdown counts per channel", () => {
+    const stats = computeChannelStats([
+      channelEntry("a", "Chan", "watch"),
+      channelEntry("b", "Chan", "watch"),
+      channelEntry("c", "Chan", "skim"),
+      channelEntry("d", "Chan", "skip"),
+    ]);
+    expect(stats[0].userBreakdown).toEqual({ engaged: 2, skimmed: 1, skipped: 1 });
+  });
+
+  it("ignores unrated entries when averaging", () => {
+    // watch (3) + skip (1) rated, one unrated ⇒ avg 2; breakdown counts only rated
+    const stats = computeChannelStats([
+      channelEntry("a", "Chan", "watch"),
+      channelEntry("b", "Chan", "skip"),
+      channelEntry("c", "Chan"),
+    ]);
+    expect(stats[0].avgUserRating).toBe(2);
+    expect(stats[0].userBreakdown).toEqual({ engaged: 1, skimmed: 0, skipped: 1 });
+  });
+
+  it("returns null avgUserRating when no entries are rated", () => {
+    const stats = computeChannelStats([
+      channelEntry("a", "Chan"),
+      channelEntry("b", "Chan"),
+    ]);
+    expect(stats[0].avgUserRating).toBeNull();
+    expect(stats[0].userBreakdown).toEqual({ engaged: 0, skimmed: 0, skipped: 0 });
   });
 });

@@ -28,6 +28,12 @@ export type SearchHistoryEntry = {
   aiRating?: number;
   /** Audience sentiment score (1-10) from the comment analysis call. */
   audienceScore?: number;
+  /**
+   * The user's personal verdict on this video. Internal enum is kept as
+   * watch/skim/skip (displayed as Engaged/Skimmed/Skipped); numeric map for
+   * channel averages is watch=3, skim=2, skip=1 (see USER_RATING_SCALE).
+   */
+  userRating?: "watch" | "skim" | "skip";
   createdAt: string;
 };
 
@@ -219,6 +225,16 @@ export type Settings = {
   includeCommentSentiment: boolean;
   /** Prompt template for the comment sentiment call. Use {{comments}} as the placeholder. */
   commentPromptTemplate: string;
+  /** AI dimension — collect/show: render the AI verdict + numeric score pills in the panel. */
+  showAiRecommendation: boolean;
+  /** AI dimension — track-average: show the per-channel AI rating average + cue. Requires showAiRecommendation. */
+  trackAiAverage: boolean;
+  /** My dimension — collect/show: render the personal rating buttons (Engaged/Skimmed/Skipped). */
+  askForMyRating: boolean;
+  /** My dimension — track-average: show the per-channel My rating average + cue. Requires askForMyRating. */
+  trackMyAverage: boolean;
+  /** Community dimension — track-average: show the per-channel audience score average + cue. Requires includeCommentSentiment. */
+  trackCommunityAverage: boolean;
 };
 
 export type StorageState = {

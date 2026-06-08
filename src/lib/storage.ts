@@ -18,6 +18,7 @@ import {
   CACHE_TTL_MS,
   DEFAULT_SETTINGS,
   DELIVERY_STATUS_KEY,
+  extractVideoId,
   GEMINI_CALL_LOG_KEY,
   GEMINI_USAGE_KEY,
   OPEN_SEARCHES_KEY,
@@ -59,6 +60,37 @@ export async function getHistory(): Promise<SearchHistoryEntry[]> {
 
 export async function setHistory(history: SearchHistoryEntry[]): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEYS.history]: history });
+}
+
+/**
+ * Patch the personal verdict onto the newest history entry for `videoId`.
+ * No-op if no matching entry exists (e.g. history expired) — the summary cache
+ * still holds the rating in that case.
+ */
+export async function patchHistoryEntryRating(
+  videoId: string,
+  rating: "watch" | "skim" | "skip",
+): Promise<void> {
+  const history = await getHistory();
+  const idx = history.findIndex((e) => extractVideoId(e.videoUrl) === videoId);
+  if (idx === -1) return;
+  history[idx] = { ...history[idx], userRating: rating };
+  await setHistory(history);
+}
+
+/**
+ * Patch the audience score onto the newest history entry for `videoId`, so the
+ * per-channel community average includes the current video. No-op if no entry.
+ */
+export async function patchHistoryEntryAudienceScore(
+  videoId: string,
+  score: number,
+): Promise<void> {
+  const history = await getHistory();
+  const idx = history.findIndex((e) => extractVideoId(e.videoUrl) === videoId);
+  if (idx === -1) return;
+  history[idx] = { ...history[idx], audienceScore: score };
+  await setHistory(history);
 }
 
 export async function getState(): Promise<StorageState> {

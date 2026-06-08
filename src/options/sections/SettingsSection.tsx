@@ -230,6 +230,107 @@ export function SettingsSection() {
       </div>
 
       <div className="settings-group">
+        <div className="settings-group-title"><Icon name="bar-chart" /> Channel ratings</div>
+        <div className="setting-sub" style={{ marginBottom: 12 }}>
+          Track per-channel rating averages, shown on the video panel and in Channels.
+        </div>
+
+        {/* AI rating: collect/show (A) */}
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Show AI recommendation</div>
+            <div className="setting-sub">
+              Show the AI verdict (Watch/Skim/Skip) and numeric score on the panel.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.showAiRecommendation}
+                onChange={(e) =>
+                  void update(
+                    e.target.checked
+                      ? { showAiRecommendation: true }
+                      : { showAiRecommendation: false, trackAiAverage: false },
+                  )
+                }
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
+        {/* AI rating: track average (B, requires A) */}
+        <div className="setting-row" style={{ opacity: settings.showAiRecommendation ? 1 : 0.5 }}>
+          <div className="setting-info">
+            <div className="setting-label">Track AI average</div>
+            <div className="setting-sub">
+              Average the AI score per channel and show a this-video-vs-channel cue.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                disabled={!settings.showAiRecommendation}
+                checked={settings.trackAiAverage}
+                onChange={(e) => void update({ trackAiAverage: e.target.checked })}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
+        {/* My rating: collect/show (A) */}
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Ask for my rating</div>
+            <div className="setting-sub">
+              Show the Engaged / Skimmed / Skipped buttons on the panel.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.askForMyRating}
+                onChange={(e) =>
+                  void update(
+                    e.target.checked
+                      ? { askForMyRating: true }
+                      : { askForMyRating: false, trackMyAverage: false },
+                  )
+                }
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
+        {/* My rating: track average (B, requires A) */}
+        <div className="setting-row" style={{ opacity: settings.askForMyRating ? 1 : 0.5 }}>
+          <div className="setting-info">
+            <div className="setting-label">Track my average</div>
+            <div className="setting-sub">
+              Average your verdict per channel and show it on the panel and in Channels.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                disabled={!settings.askForMyRating}
+                checked={settings.trackMyAverage}
+                onChange={(e) => void update({ trackMyAverage: e.target.checked })}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-group">
         <div className="settings-group-title"><Icon name="send" /> Default destination</div>
         <div className="setting-sub" style={{ marginBottom: 12 }}>
           Where the shortcut and right-click menu send. Override per-session in the popup.

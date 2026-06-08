@@ -5,6 +5,7 @@ import type {
   VideoContext,
 } from "../types";
 import { getHistory, setHistory } from "./storage";
+import { USER_RATING_SCALE } from "./constants";
 
 /** Keep only the newest `limit` entries ("unlimited" keeps all). Newest first. */
 export function trimToLimit(
@@ -44,6 +45,7 @@ export async function addHistoryEntry(args: {
   aiRating?: number;
   audienceScore?: number;
   channelAvatarUrl?: string;
+  userRating?: "watch" | "skim" | "skip";
 }): Promise<void> {
   const entry: SearchHistoryEntry = {
     id: crypto.randomUUID(),
@@ -58,6 +60,7 @@ export async function addHistoryEntry(args: {
     apiResponse: args.apiResponse,
     aiRating: args.aiRating,
     audienceScore: args.audienceScore,
+    userRating: args.userRating,
     createdAt: new Date().toISOString(),
   };
   const existing = await getHistory();
@@ -72,6 +75,10 @@ export type ChannelStats = {
   count: number;
   avgAiRating: number | null;
   avgAudienceScore: number | null;
+  /** Average of the personal verdict mapped through USER_RATING_SCALE; null when none rated. */
+  avgUserRating: number | null;
+  /** Tally of personal verdicts for this channel. */
+  userBreakdown: { engaged: number; skimmed: number; skipped: number };
   lastWatched: string;
   videos: SearchHistoryEntry[];
 };
@@ -90,6 +97,15 @@ export function computeChannelStats(history: SearchHistoryEntry[]): ChannelStats
       // history is newest-first; videos within a channel retain that ordering.
       const aiRatings = videos.map((v) => v.aiRating).filter((r): r is number => r !== undefined);
       const audScores = videos.map((v) => v.audienceScore).filter((s): s is number => s !== undefined);
+      const userRatings = videos
+        .map((v) => v.userRating)
+        .filter((r): r is "watch" | "skim" | "skip" => r !== undefined);
+      const userBreakdown = { engaged: 0, skimmed: 0, skipped: 0 };
+      for (const r of userRatings) {
+        if (r === "watch") userBreakdown.engaged++;
+        else if (r === "skim") userBreakdown.skimmed++;
+        else userBreakdown.skipped++;
+      }
       return {
         channel,
         // Use the most recent entry's avatar (first in newest-first list).
@@ -97,6 +113,10 @@ export function computeChannelStats(history: SearchHistoryEntry[]): ChannelStats
         count: videos.length,
         avgAiRating: aiRatings.length ? aiRatings.reduce((a, b) => a + b, 0) / aiRatings.length : null,
         avgAudienceScore: audScores.length ? audScores.reduce((a, b) => a + b, 0) / audScores.length : null,
+        avgUserRating: userRatings.length
+          ? userRatings.reduce((a, b) => a + USER_RATING_SCALE[b], 0) / userRatings.length
+          : null,
+        userBreakdown,
         lastWatched: videos[0]?.createdAt ?? "",
         videos,
       };

@@ -124,6 +124,28 @@ export const DEFAULT_SETTINGS: Settings = {
   includeCommentSentiment: false,
   commentPromptTemplate:
     "These are the top viewer comments on this YouTube video. In 2-3 sentences, summarize the overall audience sentiment. If multiple commenters mention specific timestamps or moments, include those. End your response with exactly one line in this format: \"Audience score: X/10\"\n\nComments:\n{{comments}}",
+  showAiRecommendation: true,
+  trackAiAverage: true,
+  askForMyRating: true,
+  trackMyAverage: true,
+  trackCommunityAverage: true,
+};
+
+/**
+ * Display labels for the personal verdict. The internal enum stays
+ * watch/skim/skip everywhere; only what the user sees changes.
+ */
+export const USER_RATING_LABELS: Record<"watch" | "skim" | "skip", string> = {
+  watch: "Engaged",
+  skim: "Skimmed",
+  skip: "Skipped",
+};
+
+/** Numeric scale for averaging the personal verdict across a channel's videos. */
+export const USER_RATING_SCALE: Record<"watch" | "skim" | "skip", number> = {
+  watch: 3,
+  skim: 2,
+  skip: 1,
 };
 
 /**

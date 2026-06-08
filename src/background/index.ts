@@ -2,6 +2,7 @@ import { buildDestinationPrompt, prependWorthWatchingGate } from "../lib/promptB
 import { parseTldwBlock } from "../lib/tldw";
 import { getDestination, isYouTubeVideoUrl, STORAGE_KEYS } from "../lib/constants";
 import { addHistoryEntry, computeChannelStats } from "../lib/history";
+import type { ChannelStats } from "../lib/history";
 import {
   addOpenSearch,
   clearGeminiUsage,
@@ -13,6 +14,7 @@ import {
   getSettings,
   patchCachedSummary,
   patchGeminiCallEntry,
+  patchHistoryEntryAudienceScore,
   pruneOpenSearch,
   recordDeliveryStatus,
   recordGeminiCallReturningId,
@@ -25,6 +27,12 @@ import { extractVideoId } from "../lib/constants";
 import type { GeminiUsage, RuntimeMessage, Settings, SummarySource, VideoContext, VideoMeta } from "../types";
 
 const MENU_ROOT = "tldw-root";
+
+/** Per-channel averages sent to the content panel for the this-video-vs-channel cues. */
+type ChannelComparisonStats = Pick<
+  ChannelStats,
+  "avgAiRating" | "avgAudienceScore" | "count" | "avgUserRating" | "userBreakdown"
+>;
 
 /**
  * Where the menu is offered: the toolbar icon ("action"), a right-click
@@ -216,6 +224,8 @@ async function runCommentSentiment(
 
     if (callEntryId) void patchGeminiCallEntry(callEntryId, { commentSentiment: sentiment, audienceScore });
     if (videoId) void patchCachedSummary(videoId, { commentSentiment: sentiment, audienceScore });
+    // Patch the score into history too so the channel community average includes this video.
+    if (videoId && audienceScore !== undefined) void patchHistoryEntryAudienceScore(videoId, audienceScore);
   } catch {
     void chrome.tabs.sendMessage(tabId, { type: "SET_COMMENT_SENTIMENT" }).catch(() => {});
   }
@@ -374,12 +384,18 @@ async function runSummary(
     const cachedSummary = videoId ? await getCachedSummary(videoId) : null;
     if (cachedSummary && activeTab?.id !== undefined) {
       // Channel comparison still uses fresh history so the ▲/▼/≈ is up-to-date.
-      let channelStats: { avgAiRating: number | null; avgAudienceScore: number | null; count: number } | undefined;
+      let channelStats: ChannelComparisonStats | undefined;
       if (video.channel) {
         const history = await getHistory();
         const stats = computeChannelStats(history).find((s) => s.channel === video.channel);
         if (stats && stats.count >= 1) {
-          channelStats = { avgAiRating: stats.avgAiRating, avgAudienceScore: stats.avgAudienceScore, count: stats.count };
+          channelStats = {
+            avgAiRating: stats.avgAiRating,
+            avgAudienceScore: stats.avgAudienceScore,
+            count: stats.count,
+            avgUserRating: stats.avgUserRating,
+            userBreakdown: stats.userBreakdown,
+          };
         }
       }
       void chrome.tabs
@@ -429,12 +445,18 @@ async function runSummary(
       }
 
       // Compute channel comparison from history (now includes this video).
-      let channelStats: { avgAiRating: number | null; avgAudienceScore: number | null; count: number } | undefined;
+      let channelStats: ChannelComparisonStats | undefined;
       if (video.channel) {
         const history = await getHistory();
         const stats = computeChannelStats(history).find((s) => s.channel === video.channel);
         if (stats && stats.count >= 1) {
-          channelStats = { avgAiRating: stats.avgAiRating, avgAudienceScore: stats.avgAudienceScore, count: stats.count };
+          channelStats = {
+            avgAiRating: stats.avgAiRating,
+            avgAudienceScore: stats.avgAudienceScore,
+            count: stats.count,
+            avgUserRating: stats.avgUserRating,
+            userBreakdown: stats.userBreakdown,
+          };
         }
       }
 

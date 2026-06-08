@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import type { AutoRunChannel, BlockedChannel, SearchHistoryEntry } from "../../types";
-import { getHistory, getAutoRunChannels, setAutoRunChannels as persistAutoRunChannels, getBlockedChannels, removeBlockedChannel, getBlockedCommentsChannels, removeBlockedCommentsChannel } from "../../lib/storage";
+import { getHistory, getAutoRunChannels, setAutoRunChannels as persistAutoRunChannels, getBlockedChannels, removeBlockedChannel, getBlockedCommentsChannels, removeBlockedCommentsChannel, getSettings } from "../../lib/storage";
 import { computeChannelStats, type ChannelStats } from "../../lib/history";
+import { USER_RATING_LABELS } from "../../lib/constants";
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -42,6 +43,13 @@ function scorePillStyle(score: number | null): { background: string; color: stri
   if (score >= 8) return { background: "#16a34a", color: "#fff" };
   if (score >= 6) return { background: "#d97706", color: "#fff" };
   return { background: "#dc2626", color: "#fff" };
+}
+
+/** Nearest-bucket label for an averaged personal verdict (scale 1–3). */
+function userRatingLabel(avg: number): string {
+  if (avg >= 2.5) return USER_RATING_LABELS.watch;
+  if (avg >= 1.5) return USER_RATING_LABELS.skim;
+  return USER_RATING_LABELS.skip;
 }
 
 type SortKey = "count" | "rating" | "recent";
@@ -214,9 +222,10 @@ function BlockedCard({
 
 // ---- Video row inside expanded card -----------------------------------------
 
-function VideoRow({ entry }: { entry: SearchHistoryEntry }) {
+function VideoRow({ entry, trackMyAverage }: { entry: SearchHistoryEntry; trackMyAverage: boolean }) {
   const hasAi = entry.aiRating !== undefined;
   const hasAudience = entry.audienceScore !== undefined;
+  const hasUserRating = trackMyAverage && entry.userRating !== undefined;
 
   return (
     <div
@@ -288,6 +297,24 @@ function VideoRow({ entry }: { entry: SearchHistoryEntry }) {
         </span>
       )}
 
+      {/* My rating pill */}
+      {hasUserRating && (
+        <span
+          style={{
+            flexShrink: 0,
+            fontSize: 11,
+            fontWeight: 700,
+            padding: "2px 7px",
+            borderRadius: 999,
+            whiteSpace: "nowrap",
+            background: "var(--border)",
+            color: "var(--text)",
+          }}
+        >
+          You: {USER_RATING_LABELS[entry.userRating!]}
+        </span>
+      )}
+
       {/* Date */}
       <span
         style={{
@@ -311,10 +338,12 @@ function ChannelCard({
   stats,
   isAutoRun,
   onToggleAutoRun,
+  trackMyAverage,
 }: {
   stats: ChannelStats;
   isAutoRun: boolean;
   onToggleAutoRun: (stats: ChannelStats, enable: boolean) => void;
+  trackMyAverage: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -415,6 +444,23 @@ function ChannelCard({
                 Audience {stats.avgAudienceScore.toFixed(1)}
               </span>
             )}
+            {/* My rating pill */}
+            {trackMyAverage && stats.avgUserRating !== null && (
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  whiteSpace: "nowrap",
+                  background: "var(--border)",
+                  color: "var(--text)",
+                }}
+                title={`Engaged ${stats.userBreakdown.engaged} · Skimmed ${stats.userBreakdown.skimmed} · Skipped ${stats.userBreakdown.skipped}`}
+              >
+                You: {userRatingLabel(stats.avgUserRating)} {stats.avgUserRating.toFixed(1)}
+              </span>
+            )}
             {/* Last watched */}
             {stats.lastWatched && (
               <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
@@ -467,7 +513,7 @@ function ChannelCard({
             }}
           >
             {stats.videos.map((v) => (
-              <VideoRow key={v.id} entry={v} />
+              <VideoRow key={v.id} entry={v} trackMyAverage={trackMyAverage} />
             ))}
             {/* Auto-run toggle at the bottom of expanded card */}
             <div
@@ -515,10 +561,11 @@ export function ChannelsSection() {
   const [totalVideos, setTotalVideos] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("count");
   const [loading, setLoading] = useState(true);
+  const [trackMyAverage, setTrackMyAverage] = useState(true);
 
   const reload = useCallback(async () => {
-    const [history, autoRun, blocked, blockedComments] = await Promise.all([
-      getHistory(), getAutoRunChannels(), getBlockedChannels(), getBlockedCommentsChannels(),
+    const [history, autoRun, blocked, blockedComments, settings] = await Promise.all([
+      getHistory(), getAutoRunChannels(), getBlockedChannels(), getBlockedCommentsChannels(), getSettings(),
     ]);
     const stats = computeChannelStats(history);
     setChannels(stats);
@@ -526,6 +573,7 @@ export function ChannelsSection() {
     setBlockedChannels(blocked);
     setBlockedCommentsChannels(blockedComments);
     setTotalVideos(history.filter((e) => !!e.channel).length);
+    setTrackMyAverage(settings.trackMyAverage);
     setLoading(false);
   }, []);
 
@@ -706,6 +754,7 @@ export function ChannelsSection() {
               stats={ch}
               isAutoRun={autoRunNames.has(ch.channel)}
               onToggleAutoRun={(stats, enable) => void handleToggleAutoRun(stats, enable)}
+              trackMyAverage={trackMyAverage}
             />
           ))}
         </div>

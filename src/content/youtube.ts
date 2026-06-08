@@ -22,6 +22,36 @@ const log = (...args: unknown[]) => console.log("[TL;DW]", ...args);
 const currentVideoId = (): string | null =>
   new URLSearchParams(location.search).get("v");
 
+// Personal-verdict display labels + numeric scale (mirrors USER_RATING_LABELS /
+// USER_RATING_SCALE in lib/constants.ts; this content script has no imports).
+const USER_RATING_LABELS: Record<"watch" | "skim" | "skip", string> = {
+  watch: "Engaged",
+  skim: "Skimmed",
+  skip: "Skipped",
+};
+const USER_RATING_SCALE: Record<"watch" | "skim" | "skip", number> = {
+  watch: 3,
+  skim: 2,
+  skip: 1,
+};
+
+/** Extract a YouTube video ID from any watch/shorts/youtu.be URL (mirrors extractVideoId in constants.ts). */
+function extractVideoIdFromUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    if (host === "youtube.com" || host === "m.youtube.com") {
+      if (u.pathname === "/watch") return u.searchParams.get("v");
+      const shorts = /^\/shorts\/([^/?]+)/.exec(u.pathname);
+      if (shorts) return shorts[1];
+    }
+    if (host === "youtu.be") return u.pathname.slice(1) || null;
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
 // --- intercepted transcript cache ----------------------------------------
 
 let captured: string | null = null;
@@ -778,13 +808,95 @@ function showLoadingPanel(): void {
   log("loading panel shown");
 }
 
-type ChannelComparison = { avgAiRating: number | null; avgAudienceScore: number | null; count: number };
+type ChannelComparison = {
+  avgAiRating: number | null;
+  avgAudienceScore: number | null;
+  count: number;
+  avgUserRating: number | null;
+  userBreakdown?: { engaged: number; skimmed: number; skipped: number };
+};
+
+/** The five rating-dimension toggles read from settings when building the panel. */
+type RatingToggles = {
+  showAiRecommendation: boolean;
+  trackAiAverage: boolean;
+  askForMyRating: boolean;
+  trackMyAverage: boolean;
+  includeCommentSentiment: boolean;
+  trackCommunityAverage: boolean;
+};
+
+const DEFAULT_RATING_TOGGLES: RatingToggles = {
+  showAiRecommendation: true,
+  trackAiAverage: true,
+  askForMyRating: true,
+  trackMyAverage: true,
+  includeCommentSentiment: false,
+  trackCommunityAverage: true,
+};
+
+/**
+ * Compute the per-channel comparison averages from stored history for one
+ * channel. Mirrors computeChannelStats in lib/history.ts but inline (this
+ * content script has no imports). Returns undefined when the channel has no
+ * history yet.
+ */
+async function computeChannelComparison(
+  channelName: string | undefined,
+): Promise<ChannelComparison | undefined> {
+  if (!channelName) return undefined;
+  const r = await chrome.storage.local.get("history");
+  type HistEntry = {
+    channel?: string;
+    aiRating?: number;
+    audienceScore?: number;
+    userRating?: "watch" | "skim" | "skip";
+  };
+  const history = (r["history"] as HistEntry[]) ?? [];
+  const videos = history.filter((h) => h.channel === channelName);
+  if (videos.length < 1) return undefined;
+
+  const ai = videos.map((v) => v.aiRating).filter((n): n is number => n !== undefined);
+  const aud = videos.map((v) => v.audienceScore).filter((n): n is number => n !== undefined);
+  const usr = videos
+    .map((v) => v.userRating)
+    .filter((v): v is "watch" | "skim" | "skip" => v !== undefined);
+  const userBreakdown = { engaged: 0, skimmed: 0, skipped: 0 };
+  for (const v of usr) {
+    if (v === "watch") userBreakdown.engaged++;
+    else if (v === "skim") userBreakdown.skimmed++;
+    else userBreakdown.skipped++;
+  }
+  return {
+    count: videos.length,
+    avgAiRating: ai.length ? ai.reduce((a, b) => a + b, 0) / ai.length : null,
+    avgAudienceScore: aud.length ? aud.reduce((a, b) => a + b, 0) / aud.length : null,
+    avgUserRating: usr.length ? usr.reduce((a, b) => a + USER_RATING_SCALE[b], 0) / usr.length : null,
+    userBreakdown,
+  };
+}
+
+/** Read the rating-dimension toggles from settings (defaults mirror DEFAULT_SETTINGS). */
+async function loadRatingToggles(): Promise<RatingToggles> {
+  const r = await chrome.storage.local.get("settings");
+  const s = (r["settings"] as Partial<RatingToggles> | undefined) ?? {};
+  return {
+    showAiRecommendation: s.showAiRecommendation ?? true,
+    trackAiAverage: s.trackAiAverage ?? true,
+    askForMyRating: s.askForMyRating ?? true,
+    trackMyAverage: s.trackMyAverage ?? true,
+    includeCommentSentiment: s.includeCommentSentiment ?? false,
+    trackCommunityAverage: s.trackCommunityAverage ?? true,
+  };
+}
 
 function buildSummaryPanel(
   tldw: TldwSummary,
   channelStats?: ChannelComparison,
   initialUserRating?: "watch" | "skim" | "skip",
   videoId?: string | null,
+  toggles: RatingToggles = DEFAULT_RATING_TOGGLES,
+  audienceScore?: number,
 ): HTMLElement {
   const t = theme();
   const panel = document.createElement("div");
@@ -795,10 +907,21 @@ function buildSummaryPanel(
     font: "14px/1.4 Roboto, system-ui, sans-serif", color: t.text,
   });
 
-  // --- header: verdict pill + source ---
-  const verdictPill = pill(tldw.verdict, verdictColor(tldw.verdict), "#fff");
+  // --- header: verdict pill + AI score pill + source ---
+  // AI dimension collect/show gate: when off, omit both the verdict and AI score
+  // pills (the one-line summary stands alone).
+  const headerControls: HTMLElement[] = [];
 
-  const headerControls: HTMLElement[] = [verdictPill];
+  // Parse the numeric AI rating (e.g. "8/10" → 8) for the "AI n" pill + cue.
+  const aiMatch = tldw.rating ? /^(\d+)/.exec(tldw.rating) : null;
+  const aiThisVideo = aiMatch ? parseInt(aiMatch[1], 10) : null;
+
+  if (toggles.showAiRecommendation) {
+    headerControls.push(pill(tldw.verdict, verdictColor(tldw.verdict), "#fff"));
+    if (aiThisVideo !== null) {
+      headerControls.push(pill(`AI ${aiThisVideo}`, t.border, t.sub));
+    }
+  }
 
   if (tldw.source) {
     const srcBtn = document.createElement("button");
@@ -862,43 +985,92 @@ function buildSummaryPanel(
     });
   }
 
-  // --- user personal rating row ---
-  const ratingRow = buildUserRatingRow(t, initialUserRating, videoId, currentChannelInfo?.name);
-
-  // --- channel comparison row (local math, no API call) ---
+  // --- channel comparison row: one cue per dimension, gated by track toggles ---
+  // Each cue shows the channel average plus a ▲/▼/≈ marker comparing this video's
+  // value to that average. The "My" cue is updated live when the user rates.
   const channelRow = document.createElement("div");
+  Object.assign(channelRow.style, {
+    borderTop: `1px solid ${t.border}`,
+    marginTop: "8px", paddingTop: "7px",
+    fontSize: "12px", color: t.sub,
+    display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center",
+  });
+
+  const dimEls: HTMLElement[] = [];
+
+  /** Build/refresh one dimension cue: "<label> avg: n.n <cue>". */
+  const renderCue = (label: string, avg: number, thisValue: number | null): HTMLElement => {
+    const span = document.createElement("span");
+    let cue = "";
+    if (thisValue !== null) {
+      const diff = thisValue - avg;
+      cue = diff > 0.05 ? " ▲" : diff < -0.05 ? " ▼" : " ≈";
+    }
+    span.textContent = `${label} avg: ${avg.toFixed(1)}${cue}`;
+    return span;
+  };
+
   if (channelStats && channelStats.count >= 1) {
-    Object.assign(channelRow.style, {
-      borderTop: `1px solid ${t.border}`,
-      marginTop: "8px", paddingTop: "7px",
-      fontSize: "12px", color: t.sub,
-      display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center",
-    });
-    const fmt = (n: number | null) => n !== null ? n.toFixed(1) : "—";
-    channelRow.innerHTML =
-      `<span>📊 vs channel (${channelStats.count} videos)</span>` +
-      (channelStats.avgAiRating !== null ? `<span>AI avg: ${fmt(channelStats.avgAiRating)}</span>` : "") +
-      (channelStats.avgAudienceScore !== null ? `<span>Audience avg: ${fmt(channelStats.avgAudienceScore)}</span>` : "");
+    const header = document.createElement("span");
+    header.textContent = `📊 vs channel (${channelStats.count} videos)`;
+    dimEls.push(header);
+
+    if (toggles.showAiRecommendation && toggles.trackAiAverage && channelStats.avgAiRating !== null) {
+      dimEls.push(renderCue("AI", channelStats.avgAiRating, aiThisVideo));
+    }
+    if (toggles.includeCommentSentiment && toggles.trackCommunityAverage && channelStats.avgAudienceScore !== null) {
+      dimEls.push(renderCue("Community", channelStats.avgAudienceScore, audienceScore ?? null));
+    }
   }
 
+  // My-dimension cue holder — populated/updated below and on each rating click.
+  const myCueHolder = document.createElement("span");
+  const refreshMyCue = (rating: "watch" | "skim" | "skip" | null) => {
+    myCueHolder.textContent = "";
+    if (
+      !toggles.askForMyRating ||
+      !toggles.trackMyAverage ||
+      !channelStats ||
+      channelStats.count < 1 ||
+      channelStats.avgUserRating === null
+    ) {
+      return;
+    }
+    const thisValue = rating ? USER_RATING_SCALE[rating] : null;
+    myCueHolder.replaceChildren(renderCue("You", channelStats.avgUserRating, thisValue));
+  };
+  refreshMyCue(initialUserRating ?? null);
+  if (channelStats && channelStats.count >= 1) dimEls.push(myCueHolder);
+
+  channelRow.replaceChildren(...dimEls);
+  const showChannelRow = dimEls.length > 1; // more than just the header
+
+  // --- user personal rating row (My dimension collect/show gate) ---
+  const ratingRow = toggles.askForMyRating
+    ? buildUserRatingRow(t, initialUserRating, videoId, currentChannelInfo?.name, refreshMyCue)
+    : null;
+
   panel.append(
-    head, body, ratingRow,
-    ...(channelStats && channelStats.count >= 1 ? [channelRow] : []),
+    head, body,
+    ...(ratingRow ? [ratingRow] : []),
+    ...(showChannelRow ? [channelRow] : []),
   );
   return panel;
 }
 
-/** SKIP / WATCH / SKIM personal rating row shown below the summary text. */
+/** Engaged / Skimmed / Skipped personal rating row shown below the summary text. */
 function buildUserRatingRow(
   t: ReturnType<typeof theme>,
   initial: "watch" | "skim" | "skip" | undefined,
   videoId: string | null | undefined,
   channelName?: string,
+  onRatingChange?: (rating: "watch" | "skim" | "skip") => void,
 ): HTMLElement {
+  // Display labels come from USER_RATING_LABELS; the enum values stay watch/skim/skip.
   const options: { value: "watch" | "skim" | "skip"; label: string; color: string }[] = [
-    { value: "watch", label: "▶ Watch", color: "#16a34a" },
-    { value: "skim",  label: "≈ Skim",  color: "#d97706" },
-    { value: "skip",  label: "✕ Skip",  color: "#dc2626" },
+    { value: "watch", label: `▶ ${USER_RATING_LABELS.watch}`, color: "#16a34a" },
+    { value: "skim",  label: `≈ ${USER_RATING_LABELS.skim}`,  color: "#d97706" },
+    { value: "skip",  label: `✕ ${USER_RATING_LABELS.skip}`,  color: "#dc2626" },
   ];
 
   const wrapper = document.createElement("div");
@@ -955,26 +1127,37 @@ function buildUserRatingRow(
       selected = value;
       applyAll(value);
       const vid = videoId ?? currentVideoId();
-      if (vid) void chrome.storage.local.get("tldwSummaryCache").then((r) => {
-        type SummaryCache = Record<string, { tldw: unknown; cachedAt: string; userRating?: string }>;
-        const cache = (r["tldwSummaryCache"] as SummaryCache) ?? {};
-        if (cache[vid]) {
-          cache[vid]!.userRating = value;
-          void chrome.storage.local.set({ tldwSummaryCache: cache });
-        }
-      });
-      void loadStats();
+      if (vid) {
+        // Write to BOTH stores: the summary cache (instant re-serve) and the
+        // durable history entry (so the per-channel My average survives the
+        // cache's 7-day TTL). Mirrors patchCachedSummary + patchHistoryEntryRating.
+        void chrome.storage.local.get(["tldwSummaryCache", "history"]).then((r) => {
+          type SummaryCache = Record<string, { tldw: unknown; cachedAt: string; userRating?: string }>;
+          const cache = (r["tldwSummaryCache"] as SummaryCache) ?? {};
+          if (cache[vid]) {
+            cache[vid]!.userRating = value;
+            void chrome.storage.local.set({ tldwSummaryCache: cache });
+          }
+          type HistEntry = { videoUrl: string; userRating?: string };
+          const history = (r["history"] as HistEntry[]) ?? [];
+          const idx = history.findIndex((h) => extractVideoIdFromUrl(h.videoUrl) === vid);
+          if (idx !== -1) {
+            history[idx] = { ...history[idx], userRating: value };
+            void chrome.storage.local.set({ history });
+          }
+        });
+      }
+      onRatingChange?.(value);
     });
     row.append(btn);
     btns.push(btn);
   });
 
-  wrapper.append(row);
+  // channelName retained for signature parity with callers; the per-channel cue
+  // is now rendered in the panel's channel-comparison row.
+  void channelName;
 
-  // Bottom row: channel rating pattern (loaded async from cache)
-  const statsEl = document.createElement("div");
-  Object.assign(statsEl.style, { fontSize: "13px", color: t.sub, marginTop: "5px" });
-  wrapper.append(statsEl);
+  wrapper.append(row);
 
   // API usage indicator (loaded async)
   const apiUsageEl = document.createElement("div");
@@ -988,25 +1171,6 @@ function buildUserRatingRow(
   });
   wrapper.append(apiUsageEl);
 
-  const loadStats = async () => {
-    if (!channelName) return;
-    const r = await chrome.storage.local.get("tldwSummaryCache");
-    const cache = (r["tldwSummaryCache"] as Record<string, { userRating?: string; channelName?: string }>) ?? {};
-    const counts = { skip: 0, watch: 0, skim: 0 };
-    let total = 0;
-    for (const entry of Object.values(cache)) {
-      if (entry.channelName === channelName && entry.userRating && entry.userRating in counts) {
-        counts[entry.userRating as keyof typeof counts]++;
-        total++;
-      }
-    }
-    if (total < 2) { statsEl.textContent = ""; return; }
-    const top = (Object.entries(counts) as [keyof typeof counts, number][]).sort(([, a], [, b]) => b - a)[0]!;
-    const labels = { watch: "Watch", skim: "Skim", skip: "Skip" } as const;
-    statsEl.textContent = `Your avg for this channel: ${labels[top[0]]} (${total} rated)`;
-  };
-
-  void loadStats();
   return wrapper;
 }
 
@@ -1015,15 +1179,22 @@ function showSummaryPanel(
   channelStats?: ChannelComparison,
   userRating?: "watch" | "skim" | "skip",
   videoId?: string | null,
+  audienceScore?: number,
 ): void {
   const host = panelHost();
   if (!host) return;
 
-  removeSummaryPanel();
-  const panel = buildSummaryPanel(tldw, channelStats, userRating, videoId ?? currentVideoId());
-  summaryPanel = panel;
-  host.prepend(summaryPanel);
-  log("summary panel injected");
+  const vid = videoId ?? currentVideoId();
+  void loadRatingToggles().then((toggles) => {
+    // The host may have changed between the async read and now; re-resolve.
+    const h = panelHost();
+    if (!h) return;
+    removeSummaryPanel();
+    const panel = buildSummaryPanel(tldw, channelStats, userRating, vid, toggles, audienceScore);
+    summaryPanel = panel;
+    h.prepend(summaryPanel);
+    log("summary panel injected");
+  });
 }
 
 /** Full-page overlay confirmation before permanently skipping a channel. */
@@ -1652,7 +1823,15 @@ async function maybeStartDirectApiRun(): Promise<void> {
 
   // Serve a cached result if fresh, then optionally load pending comment sentiment.
   const serveCached = (entry: CacheEntry) => {
-    showSummaryPanel({ ...entry.tldw, source: "cached" }, undefined, entry.userRating, vid);
+    void computeChannelComparison(currentChannelInfo?.name).then((channelStats) => {
+      showSummaryPanel(
+        { ...entry.tldw, source: "cached" },
+        channelStats,
+        entry.userRating,
+        vid,
+        entry.audienceScore,
+      );
+    });
     if (entry.commentSentiment) {
       pendingCommentSentiment = { sentiment: entry.commentSentiment, audienceScore: entry.audienceScore };
     }
