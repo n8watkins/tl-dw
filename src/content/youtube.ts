@@ -707,10 +707,7 @@ function buildBlockButton(t: ReturnType<typeof theme>, info: ChannelInfo): HTMLB
   btn.addEventListener("mouseleave", () => { btn.style.background = "transparent"; btn.style.color = t.sub; });
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
-    void addBlockedChannelEntry(info).then(() => {
-      removeSummaryPanel();
-      log("channel blocked:", info.name);
-    });
+    showSkipOverlay(info.name, info, "summary", () => { /* panel stays open */ });
   });
   return btn;
 }
