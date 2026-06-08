@@ -822,9 +822,14 @@ function onNavigate(): void {
   setTimeout(() => { void autoRunIfLong(); }, 2500);
 }
 
-onNavigate(); // immediate: page load or hard refresh
-window.addEventListener("yt-navigate-finish", onNavigate); // fast path when it fires
-setInterval(onNavigate, 500); // fallback for navigations that skip the event
+// On page refresh / initial load, delay 1 s so YouTube's Polymer components
+// finish their initial render before we inject. Firing immediately (at
+// document_idle) means YouTube's own DOM update wipes the panel out before
+// the user sees it. yt-navigate-finish and the 500ms interval handle
+// subsequent SPA navigations without any delay.
+setTimeout(onNavigate, 1000);
+window.addEventListener("yt-navigate-finish", onNavigate);
+setInterval(onNavigate, 500);
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const type = (message as { type?: string })?.type;
