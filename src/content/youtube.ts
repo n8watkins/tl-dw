@@ -804,12 +804,25 @@ async function autoRunIfLong(): Promise<void> {
   }
 }
 
-window.addEventListener("yt-navigate-finish", () => {
+// yt-navigate-finish doesn't fire for all YouTube SPA navigation types.
+// Three-layer strategy: immediate (page load / refresh), event-based (when
+// YouTube fires its own event), and 500ms polling (everything else).
+let lastHandledUrl = "";
+
+function onNavigate(): void {
+  // Ignore hash-only changes; video IDs are always in pathname+search.
+  const url = location.pathname + location.search;
+  if (url === lastHandledUrl) return;
+  lastHandledUrl = url;
   removeSummaryPanel();
-  activeTranscriptFetch = null; // reset lock for new video
-  void maybeStartDirectApiRun();                    // immediate: loading panel + API
-  setTimeout(() => { void autoRunIfLong(); }, 2500); // deferred: needs video duration
-});
+  activeTranscriptFetch = null;
+  void maybeStartDirectApiRun();
+  setTimeout(() => { void autoRunIfLong(); }, 2500);
+}
+
+onNavigate(); // immediate: page load or hard refresh
+window.addEventListener("yt-navigate-finish", onNavigate); // fast path when it fires
+setInterval(onNavigate, 500); // fallback for navigations that skip the event
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const type = (message as { type?: string })?.type;
