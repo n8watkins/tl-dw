@@ -861,7 +861,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (type === "SET_COMMENT_SENTIMENT") {
     const msg = message as { sentiment?: string; audienceScore?: number };
-    if (msg.sentiment) fillCommunitySection(msg.sentiment, msg.audienceScore);
+    if (msg.sentiment) {
+      fillCommunitySection(msg.sentiment, msg.audienceScore);
+    } else {
+      // No sentiment (comments unavailable or error) — hide the shimmer.
+      const el = communitySection ?? document.querySelector<HTMLElement>("#tldw-community");
+      if (el) el.style.display = "none";
+    }
     sendResponse({ ok: true });
     return false;
   }

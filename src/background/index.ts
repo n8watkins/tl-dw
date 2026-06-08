@@ -348,15 +348,18 @@ async function runSummary(
       aiRating = aiRatingMatch ? parseInt(aiRatingMatch[1], 10) : undefined;
 
       // Save history BEFORE computing channelStats so this video is included
-      // in the channel average from the very first visit.
+      // in the channel average from the very first visit. Wrapped in its own
+      // try so a storage error never prevents the summary from being shown.
       if (settings.saveHistoryOnSearch) {
-        await addHistoryEntry({
-          video, profile, prompt: logPrompt, settings,
-          destinationId: destination.id,
-          apiResponse: responseText,
-          aiRating,
-          channelAvatarUrl: video.avatarUrl,
-        });
+        try {
+          await addHistoryEntry({
+            video, profile, prompt: logPrompt, settings,
+            destinationId: destination.id,
+            apiResponse: responseText,
+            aiRating,
+            channelAvatarUrl: video.avatarUrl,
+          });
+        } catch { /* storage failure: skip history, don't block summary */ }
       }
 
       // Compute channel comparison from history (now includes this video).
@@ -385,7 +388,11 @@ async function runSummary(
           void (async () => {
             try {
               const comments = await getCommentsFromTab(tabId);
-              if (!comments) return;
+              if (!comments) {
+                // Comments unavailable — clear the shimmer so it doesn't get stuck.
+                void chrome.tabs.sendMessage(tabId, { type: "SET_COMMENT_SENTIMENT" }).catch(() => {});
+                return;
+              }
               const commentPrompt = settings.commentPromptTemplate.replace("{{comments}}", comments);
               const commentResponse = await callGeminiApi(commentPrompt, apiKey!);
 
@@ -414,7 +421,8 @@ async function runSummary(
                 void patchCachedSummary(videoId, { commentSentiment: sentiment, audienceScore });
               }
             } catch {
-              /* best-effort — silently skip on any error */
+              // Clear the shimmer on any error so it doesn't get stuck.
+              void chrome.tabs.sendMessage(tabId, { type: "SET_COMMENT_SENTIMENT" }).catch(() => {});
             }
           })();
         }
