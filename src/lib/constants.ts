@@ -90,6 +90,9 @@ export const GEMINI_USAGE_KEY = "geminiUsage";
 /** chrome.storage.local key holding the list of auto-run channels (AutoRunChannel[]). */
 export const AUTO_RUN_CHANNELS_KEY = "autoRunChannels";
 
+/** chrome.storage.local key holding the list of blocked channels (BlockedChannel[]). */
+export const BLOCKED_CHANNELS_KEY = "tldwBlockedChannels";
+
 /** chrome.storage.local key for comment-only sentiment cache (Record<videoId, CommentCacheEntry>). */
 export const COMMENT_CACHE_KEY = "tldwCommentCache";
 

@@ -85,6 +85,17 @@ export type GeminiUsage = {
 };
 
 /**
+ * A YouTube channel the user has blocked from TL;DW injection entirely.
+ * Stored as an array in chrome.storage.local under "tldwBlockedChannels".
+ */
+export type BlockedChannel = {
+  id: string;
+  name: string;
+  avatarUrl: string;
+  addedAt: string;
+};
+
+/**
  * A YouTube channel the user has opted into automatic TL;DW summarization for.
  * Stored as an array in chrome.storage.local under "autoRunChannels".
  */

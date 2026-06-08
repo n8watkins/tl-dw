@@ -385,14 +385,29 @@ async function getTopComments(): Promise<string | null> {
   return comments.length > 0 ? comments.join("\n") : null;
 }
 
-// --- auto-run channel helpers (direct storage; no lib imports in content script) --
+// --- auto-run / blocked channel helpers (direct storage; no lib imports in content script) --
 
 const AUTO_RUN_CHANNELS_KEY = "autoRunChannels";
+const BLOCKED_CHANNELS_KEY = "tldwBlockedChannels";
 
 type AutoRunChannelEntry = {
   id: string; name: string; avatarUrl: string; addedAt: string;
   autoRunSummary: boolean; autoRunComments: boolean;
 };
+
+type BlockedChannelEntry = { id: string; name: string; avatarUrl: string; addedAt: string };
+
+async function readBlockedChannels(): Promise<BlockedChannelEntry[]> {
+  const r = await chrome.storage.local.get(BLOCKED_CHANNELS_KEY);
+  return (r[BLOCKED_CHANNELS_KEY] as BlockedChannelEntry[]) ?? [];
+}
+
+async function addBlockedChannelEntry(info: ChannelInfo): Promise<void> {
+  const existing = await readBlockedChannels();
+  const filtered = existing.filter((c) => c.id !== info.id && c.name !== info.name);
+  const entry: BlockedChannelEntry = { ...info, addedAt: new Date().toISOString() };
+  await chrome.storage.local.set({ [BLOCKED_CHANNELS_KEY]: [entry, ...filtered] });
+}
 
 async function readAutoRunChannels(): Promise<AutoRunChannelEntry[]> {
   const r = await chrome.storage.local.get(AUTO_RUN_CHANNELS_KEY);
@@ -608,8 +623,31 @@ function buildPanelHead(
     autoToggles.push(buildAutoToggle(channelInfo, "comments", currentAutoRunComments, t));
   }
 
-  head.append(icon, title, ...controls, spacer, ...autoToggles, closeBtn);
+  const blockBtn = channelInfo ? buildBlockButton(t, channelInfo) : null;
+  head.append(icon, title, ...controls, spacer, ...autoToggles, ...(blockBtn ? [blockBtn] : []), closeBtn);
   return head;
+}
+
+/** Block button — hides the panel permanently for this channel on this and future visits. */
+function buildBlockButton(t: ReturnType<typeof theme>, info: ChannelInfo): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.textContent = "⊘";
+  btn.title = `Never show TL;DW panel for ${info.name}`;
+  Object.assign(btn.style, {
+    background: "transparent", border: "none", color: t.sub,
+    cursor: "pointer", fontSize: "14px", lineHeight: "1",
+    padding: "4px 6px", borderRadius: "6px", flexShrink: "0",
+  });
+  btn.addEventListener("mouseenter", () => { btn.style.background = t.hover; btn.style.color = "#dc2626"; });
+  btn.addEventListener("mouseleave", () => { btn.style.background = "transparent"; btn.style.color = t.sub; });
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    void addBlockedChannelEntry(info).then(() => {
+      removeSummaryPanel();
+      log("channel blocked:", info.name);
+    });
+  });
+  return btn;
 }
 
 /** Small "Get Comments" button used in header until comments are loaded. */
@@ -1024,11 +1062,21 @@ async function maybeStartDirectApiRun(): Promise<void> {
   const vid = currentVideoId();
   if (!vid) return;
 
-  const r = await chrome.storage.local.get(["settings", "tldwSummaryCache", AUTO_RUN_CHANNELS_KEY]);
+  const r = await chrome.storage.local.get(["settings", "tldwSummaryCache", AUTO_RUN_CHANNELS_KEY, BLOCKED_CHANNELS_KEY]);
   const s = r["settings"] as Record<string, unknown> | undefined;
   if (!(s?.useDirectApi as boolean) || !(s?.geminiApiKey as string)) return;
 
   const channelInfo = getChannelInfo();
+
+  // If the user has blocked this channel, skip injection entirely.
+  if (channelInfo) {
+    const blocked = (r[BLOCKED_CHANNELS_KEY] as BlockedChannelEntry[]) ?? [];
+    if (blocked.some((c) => c.id === channelInfo.id || c.name === channelInfo.name)) {
+      log("channel blocked, skipping panel injection:", channelInfo.name);
+      return;
+    }
+  }
+
   const autoRunChannels = await readAutoRunChannels();
   const channelEntry = channelInfo
     ? autoRunChannels.find((c) => c.id === channelInfo.id || c.name === channelInfo.name)

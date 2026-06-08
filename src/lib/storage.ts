@@ -1,5 +1,6 @@
 import type {
   AutoRunChannel,
+  BlockedChannel,
   CachedSummary,
   DeliveryStatus,
   GeminiCallEntry,
@@ -12,6 +13,7 @@ import type {
 } from "../types";
 import {
   AUTO_RUN_CHANNELS_KEY,
+  BLOCKED_CHANNELS_KEY,
   CACHE_TTL_MS,
   DEFAULT_SETTINGS,
   DELIVERY_STATUS_KEY,
@@ -351,6 +353,30 @@ export async function addAutoRunChannel(channel: AutoRunChannel): Promise<void> 
 export async function removeAutoRunChannel(channelId: string): Promise<void> {
   const existing = await getAutoRunChannels();
   await setAutoRunChannels(existing.filter((c) => c.id !== channelId && c.name !== channelId));
+}
+
+// --- Blocked channel list ---------------------------------------------------
+
+export async function getBlockedChannels(): Promise<BlockedChannel[]> {
+  const r = await chrome.storage.local.get(BLOCKED_CHANNELS_KEY);
+  return (r[BLOCKED_CHANNELS_KEY] as BlockedChannel[]) ?? [];
+}
+
+export async function setBlockedChannels(channels: BlockedChannel[]): Promise<void> {
+  await chrome.storage.local.set({ [BLOCKED_CHANNELS_KEY]: channels });
+}
+
+/** Add or update a channel in the blocked list (matched by id or name). */
+export async function addBlockedChannel(channel: BlockedChannel): Promise<void> {
+  const existing = await getBlockedChannels();
+  const filtered = existing.filter((c) => c.id !== channel.id && c.name !== channel.name);
+  await setBlockedChannels([channel, ...filtered]);
+}
+
+/** Remove a channel from the blocked list (matched by id or name). */
+export async function removeBlockedChannel(channelId: string): Promise<void> {
+  const existing = await getBlockedChannels();
+  await setBlockedChannels(existing.filter((c) => c.id !== channelId && c.name !== channelId));
 }
 
 /** Open searches whose tabs are still open; prunes any that have closed. */

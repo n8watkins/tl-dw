@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
-import type { AutoRunChannel, SearchHistoryEntry } from "../../types";
-import { getHistory, getAutoRunChannels, setAutoRunChannels } from "../../lib/storage";
+import type { AutoRunChannel, BlockedChannel, SearchHistoryEntry } from "../../types";
+import { getHistory, getAutoRunChannels, setAutoRunChannels, getBlockedChannels, removeBlockedChannel } from "../../lib/storage";
 import { computeChannelStats, type ChannelStats } from "../../lib/history";
 
 // ---- helpers ----------------------------------------------------------------
@@ -135,6 +135,78 @@ function AutoRunCard({
         }}
       >
         Remove
+      </button>
+    </div>
+  );
+}
+
+// ---- Blocked channel card ---------------------------------------------------
+
+function BlockedCard({
+  channel,
+  onUnblock,
+}: {
+  channel: BlockedChannel;
+  onUnblock: (id: string) => void;
+}) {
+  return (
+    <div
+      className="card"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "10px 14px",
+        opacity: 0.8,
+      }}
+    >
+      <ChannelAvatar name={channel.name} avatarUrl={channel.avatarUrl} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontWeight: 700,
+            fontSize: 14,
+            color: "var(--text)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {channel.name}
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+          Blocked {timeAgo(channel.addedAt)}
+        </div>
+      </div>
+      <span
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          padding: "2px 6px",
+          borderRadius: 999,
+          background: "#dc2626",
+          color: "#fff",
+          whiteSpace: "nowrap",
+          letterSpacing: "0.04em",
+          flexShrink: 0,
+        }}
+      >
+        BLOCKED
+      </span>
+      <button
+        onClick={() => onUnblock(channel.id)}
+        style={{
+          flexShrink: 0,
+          fontSize: 12,
+          padding: "4px 10px",
+          borderRadius: 6,
+          border: "1px solid var(--border)",
+          background: "transparent",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+        }}
+      >
+        Unblock
       </button>
     </div>
   );
@@ -438,15 +510,17 @@ function ChannelCard({
 export function ChannelsSection() {
   const [channels, setChannels] = useState<ChannelStats[]>([]);
   const [autoRunChannels, setAutoRunChannels] = useState<AutoRunChannel[]>([]);
+  const [blockedChannels, setBlockedChannels] = useState<BlockedChannel[]>([]);
   const [totalVideos, setTotalVideos] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("count");
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
-    const [history, autoRun] = await Promise.all([getHistory(), getAutoRunChannels()]);
+    const [history, autoRun, blocked] = await Promise.all([getHistory(), getAutoRunChannels(), getBlockedChannels()]);
     const stats = computeChannelStats(history);
     setChannels(stats);
     setAutoRunChannels(autoRun);
+    setBlockedChannels(blocked);
     setTotalVideos(history.filter((e) => !!e.channel).length);
     setLoading(false);
   }, []);
@@ -458,6 +532,11 @@ export function ChannelsSection() {
     const updated = current.filter((c) => c.id !== channelId && c.name !== channelId);
     await setAutoRunChannels(updated);
     setAutoRunChannels(updated);
+  }, []);
+
+  const handleUnblock = useCallback(async (channelId: string) => {
+    await removeBlockedChannel(channelId);
+    setBlockedChannels((prev) => prev.filter((c) => c.id !== channelId && c.name !== channelId));
   }, []);
 
   const handleToggleAutoRun = useCallback(async (stats: ChannelStats, enable: boolean) => {
@@ -528,6 +607,28 @@ export function ChannelsSection() {
             />
           ))}
         </div>
+      )}
+
+      {/* Blocked channels section */}
+      {!loading && blockedChannels.length > 0 && (
+        <>
+          <div className="section-header" style={{ marginTop: 8 }}>
+            <h1 className="section-title">Blocked Channels</h1>
+            <p className="section-desc">
+              TL;DW will never inject a panel on videos from these channels.
+              Click Unblock to restore the panel.
+            </p>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 32 }}>
+            {blockedChannels.map((ch) => (
+              <BlockedCard
+                key={ch.id}
+                channel={ch}
+                onUnblock={(id) => void handleUnblock(id)}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {/* History section */}
