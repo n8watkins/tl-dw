@@ -689,7 +689,7 @@ function buildPanelHead(
   }
 
   const blockBtn = (showBlockBtn && channelInfo) ? buildBlockButton(t, channelInfo) : null;
-  head.append(icon, title, ...controls, spacer, ...autoToggles, ...(blockBtn ? [blockBtn] : []), closeBtn);
+  head.append(icon, title, ...autoToggles, ...(blockBtn ? [blockBtn] : []), ...controls, spacer, closeBtn);
   return head;
 }
 
@@ -803,9 +803,8 @@ function buildSummaryPanel(
     const srcBtn = document.createElement("button");
     srcBtn.textContent = `⚡ ${tldw.source}`;
     Object.assign(srcBtn.style, {
-      fontSize: "11px", color: t.sub, background: "transparent", border: "none",
-      cursor: "pointer", padding: "0", textDecoration: "underline",
-      textUnderlineOffset: "2px", whiteSpace: "nowrap",
+      fontSize: "13px", color: t.sub, background: "transparent", border: "none",
+      cursor: "pointer", padding: "0", whiteSpace: "nowrap",
     });
     srcBtn.title = "Open Direct API settings";
     srcBtn.addEventListener("click", (e) => {
@@ -818,10 +817,9 @@ function buildSummaryPanel(
   const head = buildPanelHead(t, headerControls, currentChannelInfo);
   Object.assign(head.style, { marginBottom: "8px" });
 
-  // --- body: summary always visible; clicking it toggles details if present ---
+  // --- body: summary always visible; clicking the panel toggles details ---
   const hasDetails = !!tldw.details;
   const body = document.createElement("div");
-  if (hasDetails) Object.assign(body.style, { cursor: "pointer", userSelect: "none" });
 
   const summaryRow = document.createElement("div");
   Object.assign(summaryRow.style, { display: "flex", alignItems: "flex-start", gap: "6px" });
@@ -853,18 +851,18 @@ function buildSummaryPanel(
     body.append(detailsWrap);
 
     let expanded = false;
-    body.addEventListener("click", () => {
-      expanded = !expanded;
-      detailsWrap.style.gridTemplateRows = expanded ? "1fr" : "0fr";
-      chevron.textContent = expanded ? "▴" : "▾";
-      body.style.opacity = "1";
+    panel.style.cursor = "pointer";
+    panel.addEventListener("click", (e) => {
+      if (!(e.target as HTMLElement).closest("button, input, a, select")) {
+        expanded = !expanded;
+        detailsWrap.style.gridTemplateRows = expanded ? "1fr" : "0fr";
+        chevron.textContent = expanded ? "▴" : "▾";
+      }
     });
-    body.addEventListener("mouseenter", () => { body.style.opacity = "0.8"; });
-    body.addEventListener("mouseleave", () => { body.style.opacity = "1"; });
   }
 
   // --- user personal rating row ---
-  const ratingRow = buildUserRatingRow(t, initialUserRating, videoId);
+  const ratingRow = buildUserRatingRow(t, initialUserRating, videoId, tldw.verdict, currentChannelInfo?.name);
 
   // --- channel comparison row (local math, no API call) ---
   const channelRow = document.createElement("div");
@@ -889,52 +887,79 @@ function buildSummaryPanel(
   return panel;
 }
 
-/** WATCH / SKIM / SKIP personal rating row shown below the summary text. */
+/** SKIP / WATCH / SKIM personal rating row shown below the summary text. */
 function buildUserRatingRow(
   t: ReturnType<typeof theme>,
   initial: "watch" | "skim" | "skip" | undefined,
   videoId: string | null | undefined,
+  aiVerdict?: string,
+  channelName?: string,
 ): HTMLElement {
   const options: { value: "watch" | "skim" | "skip"; label: string; color: string }[] = [
-    { value: "watch", label: "✓ Worth it", color: "#16a34a" },
-    { value: "skim",  label: "~ OK",        color: "#d97706" },
-    { value: "skip",  label: "✗ Skip",      color: "#dc2626" },
+    { value: "skip",  label: "✕ Skip",  color: "#dc2626" },
+    { value: "watch", label: "▶ Watch", color: "#16a34a" },
+    { value: "skim",  label: "≈ Skim",  color: "#d97706" },
   ];
 
-  const row = document.createElement("div");
-  Object.assign(row.style, {
-    display: "flex", alignItems: "center", gap: "6px",
+  const wrapper = document.createElement("div");
+  Object.assign(wrapper.style, {
     borderTop: `1px solid ${t.border}`, marginTop: "8px", paddingTop: "7px",
   });
 
-  const label = document.createElement("span");
-  label.textContent = "Your take:";
-  Object.assign(label.style, { fontSize: "11px", color: t.sub, flexShrink: "0", marginRight: "2px" });
-  row.append(label);
+  // Top row: AI verdict indicator + "You:" + rating buttons
+  const row = document.createElement("div");
+  Object.assign(row.style, { display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" });
+
+  if (aiVerdict) {
+    const aiLabel = document.createElement("span");
+    aiLabel.textContent = "AI:";
+    Object.assign(aiLabel.style, { fontSize: "11px", color: t.sub, flexShrink: "0" });
+
+    const aiPill = document.createElement("span");
+    aiPill.textContent = aiVerdict;
+    Object.assign(aiPill.style, {
+      fontSize: "11px", fontWeight: "700", padding: "2px 7px", borderRadius: "999px",
+      background: verdictColor(aiVerdict), color: "#fff", flexShrink: "0",
+    });
+
+    const sep = document.createElement("span");
+    sep.textContent = "·";
+    Object.assign(sep.style, { fontSize: "11px", color: t.sub, flexShrink: "0" });
+
+    row.append(aiLabel, aiPill, sep);
+  }
+
+  const youLabel = document.createElement("span");
+  youLabel.textContent = "You:";
+  Object.assign(youLabel.style, { fontSize: "11px", color: t.sub, flexShrink: "0" });
+  row.append(youLabel);
 
   let selected = initial ?? null;
+  const btns: HTMLButtonElement[] = [];
 
-  const btns = options.map(({ value, label: btnLabel, color }) => {
+  const applyAll = (active: "watch" | "skim" | "skip" | null) => {
+    options.forEach(({ value, color }, i) => {
+      const b = btns[i]!;
+      b.style.background = active === value ? color : t.border;
+      b.style.color = active === value ? "#fff" : t.sub;
+    });
+  };
+
+  options.forEach(({ value, label, color }) => {
     const btn = document.createElement("button");
-    btn.textContent = btnLabel;
+    btn.textContent = label;
     Object.assign(btn.style, {
       fontSize: "11px", fontWeight: "700", letterSpacing: "0.03em",
       padding: "3px 9px", borderRadius: "999px",
       border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
       transition: "background 0.12s, color 0.12s",
+      background: selected === value ? color : t.border,
+      color: selected === value ? "#fff" : t.sub,
     });
-
-    const applyState = (active: boolean) => {
-      btn.style.background = active ? color : t.border;
-      btn.style.color = active ? "#fff" : t.sub;
-    };
-    applyState(selected === value);
-
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       selected = value;
-      btns.forEach((b, i) => b && applyState.call(null, options[i]!.value === value));
-      // Persist to cache
+      applyAll(value);
       const vid = videoId ?? currentVideoId();
       if (vid) void chrome.storage.local.get("tldwSummaryCache").then((r) => {
         type SummaryCache = Record<string, { tldw: unknown; cachedAt: string; userRating?: string }>;
@@ -944,23 +969,39 @@ function buildUserRatingRow(
           void chrome.storage.local.set({ tldwSummaryCache: cache });
         }
       });
+      void loadStats();
     });
-
     row.append(btn);
-    return btn;
+    btns.push(btn);
   });
 
-  // Closure captures `btns` for applyState cross-button updates
-  btns.forEach((btn, i) => {
-    btn.addEventListener("click", () => {
-      btns.forEach((b, j) => {
-        b.style.background = j === i ? options[i]!.color : t.border;
-        b.style.color = j === i ? "#fff" : t.sub;
-      });
-    });
-  });
+  wrapper.append(row);
 
-  return row;
+  // Bottom row: channel rating pattern (loaded async from cache)
+  const statsEl = document.createElement("div");
+  Object.assign(statsEl.style, { fontSize: "11px", color: t.sub, marginTop: "5px" });
+  wrapper.append(statsEl);
+
+  const loadStats = async () => {
+    if (!channelName) return;
+    const r = await chrome.storage.local.get("tldwSummaryCache");
+    const cache = (r["tldwSummaryCache"] as Record<string, { userRating?: string; channelName?: string }>) ?? {};
+    const counts = { skip: 0, watch: 0, skim: 0 };
+    let total = 0;
+    for (const entry of Object.values(cache)) {
+      if (entry.channelName === channelName && entry.userRating && entry.userRating in counts) {
+        counts[entry.userRating as keyof typeof counts]++;
+        total++;
+      }
+    }
+    if (total < 2) { statsEl.textContent = ""; return; }
+    const top = (Object.entries(counts) as [keyof typeof counts, number][]).sort(([, a], [, b]) => b - a)[0]!;
+    const labels = { watch: "Watch", skim: "Skim", skip: "Skip" } as const;
+    statsEl.textContent = `Your avg for this channel: ${labels[top[0]]} (${total} rated)`;
+  };
+
+  void loadStats();
+  return wrapper;
 }
 
 function showSummaryPanel(
@@ -1172,7 +1213,7 @@ function showAutoRunConfirmOverlay(
   });
   usageBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    void chrome.tabs.create({ url: "https://aistudio.google.com/apikey" });
+    window.open("https://aistudio.google.com/apikey", "_blank");
   });
 
   textBlock.append(nameLine, apiNote, usageBtn);
