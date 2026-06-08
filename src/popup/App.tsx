@@ -177,6 +177,9 @@ export function App() {
       destinationId: dest.id,
       worthWatchingGate: gate,
       userCuriosity: curiosity.trim() || undefined,
+      // "Send to <destination>" is an explicit request to open that destination,
+      // so this opens a tab even when Direct API is enabled (unlike auto-runs).
+      source: "popup",
     });
     window.close();
   }

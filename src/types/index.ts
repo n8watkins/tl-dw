@@ -257,7 +257,22 @@ export type AskMessage = {
   worthWatchingGate?: boolean;
   /** Optional one-off question to weave into the prompt for this send. */
   userCuriosity?: string;
+  /**
+   * Where this send originated, so the worker can decide between the headless
+   * Direct API path and opening a destination tab. In-page auto-runs default to
+   * "auto" (headless when Direct API is on); the popup's explicit "Send to X"
+   * button passes "popup" so it opens that destination like the right-click menu.
+   */
+  source?: SummarySource;
 };
+
+/**
+ * Entry point that triggered a summarize. Explicit "send to this destination"
+ * gestures ("menu", "popup") open the destination tab even when Direct API is
+ * on; the keyboard shortcut and in-page auto-run ("command", "auto") run
+ * headless so the TL;DW widget fills in place.
+ */
+export type SummarySource = "menu" | "command" | "popup" | "auto";
 
 /** Sent from options page after profiles change to sync the context menu. */
 export type RebuildMenuMessage = { type: "REBUILD_MENU" };
