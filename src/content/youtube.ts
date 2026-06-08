@@ -995,40 +995,43 @@ function showSkipOverlay(
     display: "flex", flexDirection: "column", gap: "16px",
   });
 
-  // Header: TL;DW icon + "Skip [channelName]?"
+  // Header: TL;DW icon + "Skip channel"
   const hd = document.createElement("div");
   Object.assign(hd.style, { display: "flex", alignItems: "center", gap: "12px" });
   const hdIcon = document.createElement("img");
   hdIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
   Object.assign(hdIcon.style, { width: "48px", height: "48px", borderRadius: "8px", flexShrink: "0" });
   const hdTitle = document.createElement("span");
-  hdTitle.textContent = `Skip ${channelName}?`;
+  hdTitle.textContent = "Skip channel";
   Object.assign(hdTitle.style, { fontWeight: "700", fontSize: "18px", color: t.text });
   hd.append(hdIcon, hdTitle);
 
-  // Description: channel avatar + name, then explanation text
+  // Body: [avatar] ChannelName — description flows inline
   const desc = document.createElement("div");
-  Object.assign(desc.style, { fontSize: "13px", color: t.sub, lineHeight: "1.65" });
+  Object.assign(desc.style, { display: "flex", alignItems: "flex-start", gap: "10px" });
 
-  const channelIdentity = document.createElement("div");
-  Object.assign(channelIdentity.style, { display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" });
   if (info?.avatarUrl) {
     const avImg = document.createElement("img");
     avImg.src = info.avatarUrl;
-    Object.assign(avImg.style, { width: "40px", height: "40px", borderRadius: "50%", flexShrink: "0" });
-    channelIdentity.append(avImg);
+    Object.assign(avImg.style, { width: "40px", height: "40px", borderRadius: "50%", flexShrink: "0", marginTop: "2px" });
+    desc.append(avImg);
   }
-  const chNameEl = document.createElement("span");
-  chNameEl.textContent = channelName;
-  Object.assign(chNameEl.style, { fontWeight: "700", fontSize: "15px", color: t.text });
-  channelIdentity.append(chNameEl);
+
+  const textBlock = document.createElement("div");
+  Object.assign(textBlock.style, { fontSize: "13px", color: t.sub, lineHeight: "1.65" });
 
   const what = mode === "summary" ? "AI summary" : "comment analysis";
-  const bodyText = document.createElement("div");
-  bodyText.textContent = `We'll no longer show ${what} panels for this channel. Cached summaries will also be deleted.`;
+  const nameLine = document.createElement("div");
+  Object.assign(nameLine.style, { marginBottom: "8px" });
+  const chNameEl = document.createElement("strong");
+  chNameEl.textContent = channelName;
+  Object.assign(chNameEl.style, { fontSize: "15px", color: t.text });
+  nameLine.append(
+    chNameEl,
+    document.createTextNode(` — We'll no longer show ${what} panels for this channel. Cached summaries will also be deleted.`),
+  );
 
   const reopenNote = document.createElement("div");
-  Object.assign(reopenNote.style, { marginTop: "10px" });
   const settingsBold = document.createElement("strong");
   settingsBold.textContent = "TL;DW Settings → Channels";
   reopenNote.append(
@@ -1037,7 +1040,8 @@ function showSkipOverlay(
     document.createTextNode(" and click Unblock next to this channel."),
   );
 
-  desc.append(channelIdentity, bodyText, reopenNote);
+  textBlock.append(nameLine, reopenNote);
+  desc.append(textBlock);
 
   // Buttons: Cancel on left, Confirm on right
   const row = document.createElement("div");
