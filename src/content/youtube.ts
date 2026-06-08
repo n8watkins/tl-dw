@@ -555,6 +555,12 @@ function verdictColor(verdict: string): string {
   return "#16a34a"; // WATCH
 }
 
+function scoreToVerdict(score: number): string {
+  if (score <= 3) return "SKIP";
+  if (score <= 6) return "SKIM";
+  return "WATCH";
+}
+
 function pill(text: string, bg: string, color: string): HTMLElement {
   const el = document.createElement("span");
   el.textContent = text;
@@ -1349,13 +1355,13 @@ function showCommentsSentimentResult(sentiment: string, audienceScore?: number):
   closeBtn.addEventListener("click", removeCommentsPanel);
 
   if (audienceScore !== undefined) {
+    const verdict = scoreToVerdict(audienceScore);
     const scorePill = document.createElement("span");
-    scorePill.textContent = `${audienceScore}/10`;
+    scorePill.textContent = verdict;
     Object.assign(scorePill.style, {
       fontSize: "11px", fontWeight: "700", padding: "2px 8px",
-      borderRadius: "999px", background: t.border, color: t.text, whiteSpace: "nowrap",
+      borderRadius: "999px", background: verdictColor(verdict), color: "#fff", whiteSpace: "nowrap",
     });
-    // Score left of spacer so it sits next to the title
     head.append(icon, title, scorePill, spacer, closeBtn);
   } else {
     head.append(icon, title, spacer, closeBtn);
