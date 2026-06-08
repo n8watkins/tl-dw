@@ -429,7 +429,7 @@ async function runSummary(
 
         // Cache the result so future visits to this video skip the API call.
         if (videoId) {
-          void setCachedSummary(videoId, { tldw, cachedAt: new Date().toISOString() });
+          void setCachedSummary(videoId, { tldw, cachedAt: new Date().toISOString(), channelName: video.channel });
         }
 
         // Fire the comment sentiment call in parallel (best-effort, never blocks main path).

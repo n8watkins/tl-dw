@@ -404,11 +404,22 @@ async function readBlockedChannels(): Promise<BlockedChannelEntry[]> {
   return (r[BLOCKED_CHANNELS_KEY] as BlockedChannelEntry[]) ?? [];
 }
 
+async function clearCachedSummariesForChannel(channelName: string): Promise<void> {
+  const r = await chrome.storage.local.get("tldwSummaryCache");
+  const cache = (r["tldwSummaryCache"] as Record<string, { channelName?: string }>) ?? {};
+  const updated: Record<string, unknown> = {};
+  for (const [vid, entry] of Object.entries(cache)) {
+    if (entry.channelName !== channelName) updated[vid] = entry;
+  }
+  await chrome.storage.local.set({ tldwSummaryCache: updated });
+}
+
 async function addBlockedChannelEntry(info: ChannelInfo): Promise<void> {
   const existing = await readBlockedChannels();
   const filtered = existing.filter((c) => c.id !== info.id && c.name !== info.name);
   const entry: BlockedChannelEntry = { ...info, addedAt: new Date().toISOString() };
   await chrome.storage.local.set({ [BLOCKED_CHANNELS_KEY]: [entry, ...filtered] });
+  await clearCachedSummariesForChannel(info.name);
 }
 
 async function addBlockedCommentsChannelEntry(info: ChannelInfo): Promise<void> {
@@ -978,41 +989,69 @@ function showSkipOverlay(
     display: "flex", flexDirection: "column", gap: "16px",
   });
 
+  // Header: TL;DW icon + "Skip [channelName]?"
   const hd = document.createElement("div");
   Object.assign(hd.style, { display: "flex", alignItems: "center", gap: "12px" });
   const hdIcon = document.createElement("img");
   hdIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
-  Object.assign(hdIcon.style, { width: "36px", height: "36px", borderRadius: "8px", flexShrink: "0" });
+  Object.assign(hdIcon.style, { width: "48px", height: "48px", borderRadius: "8px", flexShrink: "0" });
   const hdTitle = document.createElement("span");
-  hdTitle.textContent = "Skip this channel?";
-  Object.assign(hdTitle.style, { fontWeight: "700", fontSize: "17px", color: t.text });
+  hdTitle.textContent = `Skip ${channelName}?`;
+  Object.assign(hdTitle.style, { fontWeight: "700", fontSize: "18px", color: t.text });
   hd.append(hdIcon, hdTitle);
 
+  // Description: channel avatar + name, then explanation text
   const desc = document.createElement("div");
-  const what = mode === "summary" ? "AI summaries" : "comment analysis";
-  desc.innerHTML =
-    `<strong>${channelName}</strong> will no longer show <strong>${what}</strong> panels.<br><br>` +
-    `To re-enable, go to <strong>TL;DW Settings → Channels</strong> and click Unblock next to this channel.`;
   Object.assign(desc.style, { fontSize: "13px", color: t.sub, lineHeight: "1.65" });
 
+  const channelIdentity = document.createElement("div");
+  Object.assign(channelIdentity.style, { display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" });
+  if (info?.avatarUrl) {
+    const avImg = document.createElement("img");
+    avImg.src = info.avatarUrl;
+    Object.assign(avImg.style, { width: "40px", height: "40px", borderRadius: "50%", flexShrink: "0" });
+    channelIdentity.append(avImg);
+  }
+  const chNameEl = document.createElement("span");
+  chNameEl.textContent = channelName;
+  Object.assign(chNameEl.style, { fontWeight: "700", fontSize: "15px", color: t.text });
+  channelIdentity.append(chNameEl);
+
+  const what = mode === "summary" ? "AI summary" : "comment analysis";
+  const bodyText = document.createElement("div");
+  bodyText.textContent = `We'll no longer show ${what} panels for this channel. Cached summaries will also be deleted.`;
+
+  const reopenNote = document.createElement("div");
+  Object.assign(reopenNote.style, { marginTop: "10px" });
+  const settingsBold = document.createElement("strong");
+  settingsBold.textContent = "TL;DW Settings → Channels";
+  reopenNote.append(
+    document.createTextNode("To re-enable, go to "),
+    settingsBold,
+    document.createTextNode(" and click Unblock next to this channel."),
+  );
+
+  desc.append(channelIdentity, bodyText, reopenNote);
+
+  // Buttons: Cancel on left, Confirm on right
   const row = document.createElement("div");
-  Object.assign(row.style, { display: "flex", gap: "10px", justifyContent: "flex-end" });
+  Object.assign(row.style, { display: "flex", gap: "10px", justifyContent: "space-between" });
 
   const cancelBtn = document.createElement("button");
   cancelBtn.textContent = "Cancel";
   Object.assign(cancelBtn.style, {
-    padding: "8px 20px", borderRadius: "999px",
+    padding: "10px 24px", borderRadius: "999px",
     border: `1px solid ${t.border}`, background: "transparent",
-    color: t.text, cursor: "pointer", fontSize: "13px", fontWeight: "600",
+    color: t.text, cursor: "pointer", fontSize: "15px", fontWeight: "600",
   });
   cancelBtn.addEventListener("click", () => { overlay.remove(); onCancel(); });
 
   const confirmBtn = document.createElement("button");
   confirmBtn.textContent = "Yes, skip this channel";
   Object.assign(confirmBtn.style, {
-    padding: "8px 20px", borderRadius: "999px",
+    padding: "10px 24px", borderRadius: "999px",
     border: "none", background: "#dc2626",
-    color: "#fff", cursor: "pointer", fontSize: "13px", fontWeight: "600",
+    color: "#fff", cursor: "pointer", fontSize: "15px", fontWeight: "600",
   });
   confirmBtn.addEventListener("click", () => {
     overlay.remove();
@@ -1353,6 +1392,15 @@ async function maybeStartDirectApiRun(): Promise<void> {
   const s = r["settings"] as Record<string, unknown> | undefined;
   if (!(s?.useDirectApi as boolean) || !(s?.geminiApiKey as string)) return;
 
+  // YouTube may not have rendered channel info yet at t=1s on a fresh page load; retry briefly.
+  if (!currentChannelInfo) {
+    for (let i = 0; i < 8; i++) {
+      await sleep(250);
+      currentChannelInfo = getChannelInfo();
+      if (currentChannelInfo) break;
+    }
+  }
+
   // If the user has blocked this channel from summary, skip injection entirely.
   if (currentChannelInfo) {
     const blocked = (r[BLOCKED_CHANNELS_KEY] as BlockedChannelEntry[]) ?? [];
@@ -1380,7 +1428,7 @@ async function maybeStartDirectApiRun(): Promise<void> {
   };
 
   // Fast path: cached result — show immediately, skip API call.
-  type CacheEntry = { tldw: TldwSummary; cachedAt: string; commentSentiment?: string; audienceScore?: number; userRating?: "watch" | "skim" | "skip" };
+  type CacheEntry = { tldw: TldwSummary; cachedAt: string; commentSentiment?: string; audienceScore?: number; userRating?: "watch" | "skim" | "skip"; channelName?: string };
   const cache = r["tldwSummaryCache"] as Record<string, CacheEntry> | undefined;
   const cached = cache?.[vid];
   if (cached && Date.now() - new Date(cached.cachedAt).getTime() < CACHE_TTL_MS) {

@@ -125,6 +125,8 @@ export type CachedSummary = {
   audienceScore?: number;
   /** The user's personal verdict on whether the video was worth watching. */
   userRating?: "watch" | "skim" | "skip";
+  /** Channel display name — used to clear cached entries when a channel is blocked. */
+  channelName?: string;
 };
 
 /** One entry in the Direct API call log — stored per video summarized. */
