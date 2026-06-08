@@ -1235,6 +1235,8 @@ function showIdlePanel(onGetSummary: () => void): void {
     border: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
   });
   summaryBtn.title = "Get AI summary of this video's transcript";
+  summaryBtn.addEventListener("mouseenter", () => { summaryBtn.style.background = "#1557b0"; });
+  summaryBtn.addEventListener("mouseleave", () => { summaryBtn.style.background = "#1a73e8"; });
   summaryBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     removeSummaryPanel();
