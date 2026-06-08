@@ -313,7 +313,7 @@ export async function setCachedSummary(videoId: string, entry: CachedSummary): P
 
 export async function patchCachedSummary(
   videoId: string,
-  patch: Pick<CachedSummary, "commentSentiment" | "audienceScore">,
+  patch: Partial<Pick<CachedSummary, "commentSentiment" | "audienceScore" | "userRating">>,
 ): Promise<void> {
   const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
   const cache = (r[SUMMARY_CACHE_KEY] as SummaryCache) ?? {};
@@ -327,7 +327,13 @@ export async function patchCachedSummary(
 
 export async function getAutoRunChannels(): Promise<AutoRunChannel[]> {
   const r = await chrome.storage.local.get(AUTO_RUN_CHANNELS_KEY);
-  return (r[AUTO_RUN_CHANNELS_KEY] as AutoRunChannel[]) ?? [];
+  const raw = (r[AUTO_RUN_CHANNELS_KEY] as Partial<AutoRunChannel>[]) ?? [];
+  // Normalize legacy entries (added before autoRunSummary/autoRunComments fields existed).
+  return raw.map((c) => ({
+    autoRunSummary: true,
+    autoRunComments: false,
+    ...c,
+  } as AutoRunChannel));
 }
 
 export async function setAutoRunChannels(channels: AutoRunChannel[]): Promise<void> {
@@ -341,7 +347,7 @@ export async function addAutoRunChannel(channel: AutoRunChannel): Promise<void> 
   await setAutoRunChannels([channel, ...filtered]);
 }
 
-/** Remove a channel from the auto-run list (matched by id or name). */
+/** Remove a channel from the auto-run list entirely (matched by id or name). */
 export async function removeAutoRunChannel(channelId: string): Promise<void> {
   const existing = await getAutoRunChannels();
   await setAutoRunChannels(existing.filter((c) => c.id !== channelId && c.name !== channelId));

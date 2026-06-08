@@ -389,21 +389,42 @@ async function getTopComments(): Promise<string | null> {
 
 const AUTO_RUN_CHANNELS_KEY = "autoRunChannels";
 
-type AutoRunChannelEntry = { id: string; name: string; avatarUrl: string; addedAt: string };
+type AutoRunChannelEntry = {
+  id: string; name: string; avatarUrl: string; addedAt: string;
+  autoRunSummary: boolean; autoRunComments: boolean;
+};
 
 async function readAutoRunChannels(): Promise<AutoRunChannelEntry[]> {
   const r = await chrome.storage.local.get(AUTO_RUN_CHANNELS_KEY);
-  return (r[AUTO_RUN_CHANNELS_KEY] as AutoRunChannelEntry[]) ?? [];
+  const raw = (r[AUTO_RUN_CHANNELS_KEY] as Partial<AutoRunChannelEntry>[]) ?? [];
+  return raw.map((c) => ({ autoRunSummary: true, autoRunComments: false, ...c } as AutoRunChannelEntry));
 }
 
-async function writeAutoRunChannel(info: ChannelInfo, enable: boolean): Promise<void> {
+async function writeAutoRunChannel(info: ChannelInfo, field: "summary" | "comments", enable: boolean): Promise<void> {
   const channels = await readAutoRunChannels();
+  const existing = channels.find((c) => c.id === info.id || c.name === info.name);
   let updated: AutoRunChannelEntry[];
-  if (enable) {
-    const others = channels.filter((c) => c.id !== info.id && c.name !== info.name);
-    updated = [{ id: info.id, name: info.name, avatarUrl: info.avatarUrl, addedAt: new Date().toISOString() }, ...others];
+  if (existing) {
+    const patched: AutoRunChannelEntry = {
+      ...existing,
+      avatarUrl: info.avatarUrl, // refresh avatar on each visit
+      autoRunSummary: field === "summary" ? enable : existing.autoRunSummary,
+      autoRunComments: field === "comments" ? enable : existing.autoRunComments,
+    };
+    if (!patched.autoRunSummary && !patched.autoRunComments) {
+      updated = channels.filter((c) => c.id !== existing.id);
+    } else {
+      updated = channels.map((c) => (c.id === existing.id ? patched : c));
+    }
+  } else if (enable) {
+    updated = [{
+      id: info.id, name: info.name, avatarUrl: info.avatarUrl,
+      addedAt: new Date().toISOString(),
+      autoRunSummary: field === "summary",
+      autoRunComments: field === "comments",
+    }, ...channels];
   } else {
-    updated = channels.filter((c) => c.id !== info.id && c.name !== info.name);
+    updated = channels;
   }
   await chrome.storage.local.set({ [AUTO_RUN_CHANNELS_KEY]: updated });
 }
@@ -432,7 +453,11 @@ function getChannelInfo(): ChannelInfo | null {
 // Module-level state so the SET_SUMMARY handler can use the same channel context
 // as the initial maybeStartDirectApiRun call.
 let currentChannelInfo: ChannelInfo | null = null;
-let currentIsAutoRun = false;
+let currentAutoRunSummary = false;
+let currentAutoRunComments = false;
+
+// Reference to the "Get Comments" button so it can be hidden once comments load.
+let getCommentsBtn: HTMLButtonElement | null = null;
 
 // --- TL;DW summary panel -------------------------------------------------
 
@@ -446,6 +471,7 @@ function removeSummaryPanel(): void {
   summaryPanel?.remove();
   summaryPanel = null;
   communitySection = null;
+  getCommentsBtn = null;
 }
 
 function theme(): { bg: string; border: string; text: string; sub: string; hover: string } {
@@ -495,6 +521,120 @@ function panelHost(): Element | null {
   );
 }
 
+// --- auto-run pill toggle (shared by all panel states) -----------------------
+
+/**
+ * A small pill button in the panel header that shows/toggles auto-run state
+ * for either summary or comments. Color reflects current state.
+ */
+function buildAutoToggle(
+  info: ChannelInfo,
+  field: "summary" | "comments",
+  initialOn: boolean,
+  t: ReturnType<typeof theme>,
+): HTMLButtonElement {
+  const label = field === "summary" ? "↻ Summary" : "💬 Comments";
+  const onColor = field === "summary" ? "#1a73e8" : "#0d9488";
+
+  const btn = document.createElement("button");
+  btn.textContent = label;
+  Object.assign(btn.style, {
+    fontSize: "11px", fontWeight: "700", letterSpacing: "0.04em",
+    padding: "3px 8px", borderRadius: "999px", border: "none",
+    cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
+    transition: "background 0.15s, color 0.15s",
+  });
+
+  const applyState = (on: boolean) => {
+    btn.style.background = on ? onColor : t.border;
+    btn.style.color = on ? "#fff" : t.sub;
+    btn.title = on
+      ? `Auto-run ${field} enabled for ${info.name} — click to disable`
+      : `Enable auto-run ${field} for ${info.name}`;
+  };
+
+  applyState(initialOn);
+
+  let busy = false;
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (busy) return;
+    busy = true;
+    const next = field === "summary" ? !currentAutoRunSummary : !currentAutoRunComments;
+    if (field === "summary") currentAutoRunSummary = next;
+    else currentAutoRunComments = next;
+    applyState(next);
+    void writeAutoRunChannel(info, field, next).finally(() => { busy = false; });
+  });
+
+  return btn;
+}
+
+/** Shared header row builder used by all panel states. */
+function buildPanelHead(
+  t: ReturnType<typeof theme>,
+  controls: HTMLElement[],
+  channelInfo: ChannelInfo | null,
+): HTMLElement {
+  const head = document.createElement("div");
+  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px" });
+
+  const icon = document.createElement("img");
+  icon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
+  Object.assign(icon.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
+
+  const title = document.createElement("span");
+  title.textContent = "TL;DW";
+  Object.assign(title.style, { fontWeight: "700", fontSize: "15px", color: t.text, flexShrink: "0" });
+
+  const spacer = document.createElement("div");
+  spacer.style.flex = "1";
+
+  const closeBtn = document.createElement("button");
+  Object.assign(closeBtn.style, {
+    background: "transparent", border: "none", color: t.sub,
+    cursor: "pointer", fontSize: "14px", lineHeight: "1",
+    padding: "4px 6px", borderRadius: "6px", flexShrink: "0",
+  });
+  closeBtn.textContent = "✕";
+  closeBtn.setAttribute("aria-label", "Hide TL;DW");
+  closeBtn.addEventListener("mouseenter", () => (closeBtn.style.background = t.hover));
+  closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
+  closeBtn.addEventListener("click", removeSummaryPanel);
+
+  const autoToggles: HTMLElement[] = [];
+  if (channelInfo) {
+    autoToggles.push(buildAutoToggle(channelInfo, "summary", currentAutoRunSummary, t));
+    autoToggles.push(buildAutoToggle(channelInfo, "comments", currentAutoRunComments, t));
+  }
+
+  head.append(icon, title, ...controls, spacer, ...autoToggles, closeBtn);
+  return head;
+}
+
+/** Small "Get Comments" button used in header until comments are loaded. */
+function buildGetCommentsButton(t: ReturnType<typeof theme>): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.textContent = "💬 Comments";
+  Object.assign(btn.style, {
+    fontSize: "11px", fontWeight: "700", letterSpacing: "0.04em",
+    padding: "3px 8px", borderRadius: "999px",
+    background: t.border, color: t.text,
+    border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
+  });
+  btn.title = "Analyze viewer comments";
+  btn.addEventListener("mouseenter", () => { btn.style.background = t.hover; });
+  btn.addEventListener("mouseleave", () => { btn.style.background = t.border; });
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    btn.style.display = "none";
+    try {
+      void chrome.runtime.sendMessage({ type: "ASK_COMMENTS" });
+    } catch { /* best effort */ }
+  });
+  return btn;
+}
+
 /** Show an instant skeleton panel while the API call is in flight. */
 function showLoadingPanel(showCommentShimmer = false): void {
   const host = panelHost();
@@ -511,24 +651,12 @@ function showLoadingPanel(showCommentShimmer = false): void {
     font: "14px/1.4 Roboto, system-ui, sans-serif",
   });
 
-  const head = document.createElement("div");
-  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" });
-
-  const headIcon = document.createElement("img");
-  headIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
-  Object.assign(headIcon.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
-
-  const titleEl = document.createElement("span");
-  titleEl.textContent = "TL;DW";
-  Object.assign(titleEl.style, { fontWeight: "700", fontSize: "15px", color: t.text });
-
   const analyzing = document.createElement("span");
   analyzing.textContent = "Analyzing…";
   Object.assign(analyzing.style, { fontSize: "12px", color: t.sub, animation: "tldw-shimmer 1.4s infinite" });
 
-  const spacer = document.createElement("div");
-  spacer.style.flex = "1";
-  head.append(headIcon, titleEl, spacer, analyzing);
+  const head = buildPanelHead(t, [analyzing], currentChannelInfo);
+  Object.assign(head.style, { marginBottom: "10px" });
 
   const shimmerLine = (width: string) => {
     const d = document.createElement("div");
@@ -564,77 +692,54 @@ function showLoadingPanel(showCommentShimmer = false): void {
 
 type ChannelComparison = { avgAiRating: number | null; avgAudienceScore: number | null; count: number };
 
-function buildSummaryPanel(tldw: TldwSummary, channelStats?: ChannelComparison, channelInfo?: ChannelInfo | null, isAutoRun?: boolean): HTMLElement {
+function buildSummaryPanel(
+  tldw: TldwSummary,
+  channelStats?: ChannelComparison,
+  initialUserRating?: "watch" | "skim" | "skip",
+  videoId?: string | null,
+): HTMLElement {
   const t = theme();
   const panel = document.createElement("div");
   panel.id = "tldw-summary";
   Object.assign(panel.style, {
-    background: t.bg,
-    border: `1px solid ${t.border}`,
-    borderRadius: "12px",
-    padding: "10px 14px",
-    marginTop: "12px",
-    marginBottom: "16px",
-    font: "14px/1.4 Roboto, system-ui, sans-serif",
-    color: t.text,
+    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
+    padding: "10px 14px", marginTop: "12px", marginBottom: "16px",
+    font: "14px/1.4 Roboto, system-ui, sans-serif", color: t.text,
   });
 
-  // --- header row ---
-  const head = document.createElement("div");
-  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" });
-
-  const headIcon = document.createElement("img");
-  headIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
-  Object.assign(headIcon.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
-
-  const titleEl = document.createElement("span");
-  titleEl.textContent = "TL;DW";
-  Object.assign(titleEl.style, { fontWeight: "700", fontSize: "15px" });
-
+  // --- header: verdict pill + source + Comments button (before auto toggles) ---
   const verdictPill = pill(tldw.verdict, verdictColor(tldw.verdict), "#fff");
-  const ratingPill = pill(tldw.rating, t.border, t.text);
 
-  const spacer = document.createElement("div");
-  spacer.style.flex = "1";
+  const headerControls: HTMLElement[] = [verdictPill];
 
-  const closeBtn = document.createElement("button");
-  Object.assign(closeBtn.style, {
-    background: "transparent", border: "none", color: t.sub,
-    cursor: "pointer", fontSize: "14px", lineHeight: "1",
-    padding: "4px 6px", borderRadius: "6px", flexShrink: "0",
-  });
-  closeBtn.textContent = "✕";
-  closeBtn.setAttribute("aria-label", "Hide TL;DW");
-  closeBtn.addEventListener("mouseenter", () => (closeBtn.style.background = t.hover));
-  closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
-  closeBtn.addEventListener("click", removeSummaryPanel);
-
-  const headChildren: HTMLElement[] = [headIcon, titleEl, verdictPill, ratingPill, spacer];
   if (tldw.source) {
     const srcBtn = document.createElement("button");
     srcBtn.textContent = `⚡ ${tldw.source}`;
     Object.assign(srcBtn.style, {
       fontSize: "11px", color: t.sub, background: "transparent", border: "none",
       cursor: "pointer", padding: "0", textDecoration: "underline",
-      textUnderlineOffset: "2px", whiteSpace: "nowrap", marginRight: "2px",
+      textUnderlineOffset: "2px", whiteSpace: "nowrap",
     });
     srcBtn.title = "Open Direct API settings";
     srcBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS" });
     });
-    headChildren.push(srcBtn);
+    headerControls.push(srcBtn);
   }
-  headChildren.push(closeBtn);
-  head.append(...headChildren);
+
+  // "Get Comments" button — visible until comments are loaded.
+  const commBtn = buildGetCommentsButton(t);
+  getCommentsBtn = commBtn;
+  headerControls.push(commBtn);
+
+  const head = buildPanelHead(t, headerControls, currentChannelInfo);
+  Object.assign(head.style, { marginBottom: "8px" });
 
   // --- body: summary always visible; clicking it toggles details if present ---
   const hasDetails = !!tldw.details;
-
   const body = document.createElement("div");
-  if (hasDetails) {
-    Object.assign(body.style, { cursor: "pointer", userSelect: "none" });
-  }
+  if (hasDetails) Object.assign(body.style, { cursor: "pointer", userSelect: "none" });
 
   const summaryRow = document.createElement("div");
   Object.assign(summaryRow.style, { display: "flex", alignItems: "flex-start", gap: "6px" });
@@ -643,7 +748,6 @@ function buildSummaryPanel(tldw: TldwSummary, channelStats?: ChannelComparison, 
   summaryEl.textContent = tldw.summary;
   Object.assign(summaryEl.style, { fontSize: "13px", lineHeight: "1.5", color: t.text, flex: "1" });
   summaryRow.append(summaryEl);
-
   body.append(summaryRow);
 
   if (hasDetails) {
@@ -677,11 +781,12 @@ function buildSummaryPanel(tldw: TldwSummary, channelStats?: ChannelComparison, 
     body.addEventListener("mouseleave", () => { body.style.opacity = "1"; });
   }
 
+  // --- user personal rating row ---
+  const ratingRow = buildUserRatingRow(t, initialUserRating, videoId);
+
   // --- channel comparison row (local math, no API call) ---
   const channelRow = document.createElement("div");
   if (channelStats && channelStats.count >= 1) {
-    const aiRatingMatch = tldw.rating ? /^(\d+)/.exec(tldw.rating) : null;
-    const thisAi = aiRatingMatch ? parseInt(aiRatingMatch[1], 10) : null;
     Object.assign(channelRow.style, {
       borderTop: `1px solid ${t.border}`,
       marginTop: "8px", paddingTop: "7px",
@@ -689,44 +794,116 @@ function buildSummaryPanel(tldw: TldwSummary, channelStats?: ChannelComparison, 
       display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center",
     });
     const fmt = (n: number | null) => n !== null ? n.toFixed(1) : "—";
-    const delta = (thisAi !== null && channelStats.avgAiRating !== null)
-      ? thisAi - channelStats.avgAiRating : null;
-    const trend = delta === null ? "" : delta > 0.4 ? " ▲" : delta < -0.4 ? " ▼" : " ≈";
-    const trendColor = delta === null ? t.sub : delta > 0.4 ? "#16a34a" : delta < -0.4 ? "#dc2626" : t.sub;
-    channelRow.innerHTML = `<span>📊 vs channel (${channelStats.count} videos)</span>` +
-      `<span>AI avg: ${fmt(channelStats.avgAiRating)}</span>` +
-      (channelStats.avgAudienceScore !== null ? `<span>Audience avg: ${fmt(channelStats.avgAudienceScore)}</span>` : "") +
-      (trend ? `<span style="color:${trendColor};font-weight:700">${trend.trim()} this video</span>` : "");
+    channelRow.innerHTML =
+      `<span>📊 vs channel (${channelStats.count} videos)</span>` +
+      (channelStats.avgAiRating !== null ? `<span>AI avg: ${fmt(channelStats.avgAiRating)}</span>` : "") +
+      (channelStats.avgAudienceScore !== null ? `<span>Audience avg: ${fmt(channelStats.avgAudienceScore)}</span>` : "");
   }
 
   // --- community section (filled in later by SET_COMMENT_SENTIMENT) ---
   const comm = document.createElement("div");
   comm.id = "tldw-community";
-  // Initially hidden; shown when SET_COMMENT_SENTIMENT arrives.
   comm.style.display = "none";
   Object.assign(comm.style, {
-    borderTop: `1px solid ${t.border}`,
-    marginTop: "8px",
-    paddingTop: "8px",
-    fontSize: "13px",
-    color: t.sub,
+    borderTop: `1px solid ${t.border}`, marginTop: "8px", paddingTop: "8px",
+    fontSize: "13px", color: t.sub,
   });
 
-  const channelToggle = channelInfo ? buildChannelToggle(channelInfo, isAutoRun ?? false, t) : null;
-  panel.append(head, body, ...(channelStats && channelStats.count >= 1 ? [channelRow] : []), comm, ...(channelToggle ? [channelToggle] : []));
+  panel.append(
+    head, body, ratingRow,
+    ...(channelStats && channelStats.count >= 1 ? [channelRow] : []),
+    comm,
+  );
   return panel;
 }
 
-function showSummaryPanel(tldw: TldwSummary, keepCommunityShimmer = false, channelStats?: ChannelComparison, channelInfo?: ChannelInfo | null, isAutoRun?: boolean): void {
+/** WATCH / SKIM / SKIP personal rating row shown below the summary text. */
+function buildUserRatingRow(
+  t: ReturnType<typeof theme>,
+  initial: "watch" | "skim" | "skip" | undefined,
+  videoId: string | null | undefined,
+): HTMLElement {
+  const options: { value: "watch" | "skim" | "skip"; label: string; color: string }[] = [
+    { value: "watch", label: "✓ Worth it", color: "#16a34a" },
+    { value: "skim",  label: "~ OK",        color: "#d97706" },
+    { value: "skip",  label: "✗ Skip",      color: "#dc2626" },
+  ];
+
+  const row = document.createElement("div");
+  Object.assign(row.style, {
+    display: "flex", alignItems: "center", gap: "6px",
+    borderTop: `1px solid ${t.border}`, marginTop: "8px", paddingTop: "7px",
+  });
+
+  const label = document.createElement("span");
+  label.textContent = "Your take:";
+  Object.assign(label.style, { fontSize: "11px", color: t.sub, flexShrink: "0", marginRight: "2px" });
+  row.append(label);
+
+  let selected = initial ?? null;
+
+  const btns = options.map(({ value, label: btnLabel, color }) => {
+    const btn = document.createElement("button");
+    btn.textContent = btnLabel;
+    Object.assign(btn.style, {
+      fontSize: "11px", fontWeight: "700", letterSpacing: "0.03em",
+      padding: "3px 9px", borderRadius: "999px",
+      border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
+      transition: "background 0.12s, color 0.12s",
+    });
+
+    const applyState = (active: boolean) => {
+      btn.style.background = active ? color : t.border;
+      btn.style.color = active ? "#fff" : t.sub;
+    };
+    applyState(selected === value);
+
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      selected = value;
+      btns.forEach((b, i) => b && applyState.call(null, options[i]!.value === value));
+      // Persist to cache
+      const vid = videoId ?? currentVideoId();
+      if (vid) void chrome.storage.local.get("tldwSummaryCache").then((r) => {
+        type SummaryCache = Record<string, { tldw: unknown; cachedAt: string; userRating?: string }>;
+        const cache = (r["tldwSummaryCache"] as SummaryCache) ?? {};
+        if (cache[vid]) {
+          cache[vid]!.userRating = value;
+          void chrome.storage.local.set({ tldwSummaryCache: cache });
+        }
+      });
+    });
+
+    row.append(btn);
+    return btn;
+  });
+
+  // Closure captures `btns` for applyState cross-button updates
+  btns.forEach((btn, i) => {
+    btn.addEventListener("click", () => {
+      btns.forEach((b, j) => {
+        b.style.background = j === i ? options[i]!.color : t.border;
+        b.style.color = j === i ? "#fff" : t.sub;
+      });
+    });
+  });
+
+  return row;
+}
+
+function showSummaryPanel(
+  tldw: TldwSummary,
+  keepCommunityShimmer = false,
+  channelStats?: ChannelComparison,
+  userRating?: "watch" | "skim" | "skip",
+  videoId?: string | null,
+): void {
   const host = panelHost();
   if (!host) return;
 
-  // If a loading panel was showing with a community shimmer, preserve a
-  // reference to it so we can update it when the sentiment arrives.
   const prevCommunity = communitySection;
-
   removeSummaryPanel();
-  const panel = buildSummaryPanel(tldw, channelStats, channelInfo ?? currentChannelInfo, isAutoRun ?? currentIsAutoRun);
+  const panel = buildSummaryPanel(tldw, channelStats, userRating, videoId ?? currentVideoId());
   summaryPanel = panel;
 
   // Wire up the community section reference so SET_COMMENT_SENTIMENT can find it.
@@ -751,57 +928,11 @@ function showSummaryPanel(tldw: TldwSummary, keepCommunityShimmer = false, chann
   log("summary panel injected");
 }
 
-// --- channel auto-run toggle (shared between idle and summary panels) --------
-
-function buildChannelToggle(info: ChannelInfo, initialChecked: boolean, t: ReturnType<typeof theme>): HTMLElement {
-  const wrap = document.createElement("div");
-  Object.assign(wrap.style, {
-    borderTop: `1px solid ${t.border}`,
-    marginTop: "8px",
-    paddingTop: "8px",
-    display: "flex",
-    alignItems: "center",
-    gap: "7px",
-  });
-
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.checked = initialChecked;
-  Object.assign(checkbox.style, { cursor: "pointer", flexShrink: "0", accentColor: "#1a73e8" });
-
-  const label = document.createElement("label");
-  label.textContent = `Auto-run for ${info.name}`;
-  Object.assign(label.style, {
-    fontSize: "12px",
-    color: t.sub,
-    cursor: "pointer",
-    userSelect: "none",
-    flex: "1",
-  });
-
-  let busy = false;
-  const toggle = async () => {
-    if (busy) return;
-    busy = true;
-    const next = !checkbox.checked;
-    checkbox.checked = next;
-    currentIsAutoRun = next;
-    await writeAutoRunChannel(info, next);
-    busy = false;
-  };
-  checkbox.addEventListener("change", () => void toggle());
-  label.addEventListener("click", (e) => { e.preventDefault(); void toggle(); });
-
-  wrap.append(checkbox, label);
-  return wrap;
-}
-
-/** Show an idle panel (no summary yet) with a "Get Summary" button and channel toggle. */
-function showIdlePanel(channelInfo: ChannelInfo | null, isAutoRun: boolean, onGetSummary: () => void): void {
+/** Show the idle panel — just a header row with inline Summary + Comments buttons and auto toggles. */
+function showIdlePanel(onGetSummary: () => void): void {
   const host = panelHost();
   if (!host) return;
   removeSummaryPanel();
-  ensureShimmerStyle();
 
   const t = theme();
   const panel = document.createElement("div");
@@ -812,52 +943,28 @@ function showIdlePanel(channelInfo: ChannelInfo | null, isAutoRun: boolean, onGe
     font: "14px/1.4 Roboto, system-ui, sans-serif",
   });
 
-  // Header
-  const head = document.createElement("div");
-  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" });
-
-  const headIcon = document.createElement("img");
-  headIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
-  Object.assign(headIcon.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
-
-  const titleEl = document.createElement("span");
-  titleEl.textContent = "TL;DW";
-  Object.assign(titleEl.style, { fontWeight: "700", fontSize: "15px", color: t.text });
-
-  const spacer = document.createElement("div");
-  spacer.style.flex = "1";
-
-  const closeBtn = document.createElement("button");
-  Object.assign(closeBtn.style, {
-    background: "transparent", border: "none", color: t.sub,
-    cursor: "pointer", fontSize: "14px", lineHeight: "1",
-    padding: "4px 6px", borderRadius: "6px", flexShrink: "0",
+  // "▶ Summary" inline pill button
+  const summaryBtn = document.createElement("button");
+  summaryBtn.textContent = "▶ Summary";
+  Object.assign(summaryBtn.style, {
+    fontSize: "11px", fontWeight: "700", letterSpacing: "0.04em",
+    padding: "3px 9px", borderRadius: "999px",
+    background: "#1a73e8", color: "#fff",
+    border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
   });
-  closeBtn.textContent = "✕";
-  closeBtn.setAttribute("aria-label", "Hide TL;DW");
-  closeBtn.addEventListener("mouseenter", () => (closeBtn.style.background = t.hover));
-  closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
-  closeBtn.addEventListener("click", removeSummaryPanel);
-
-  head.append(headIcon, titleEl, spacer, closeBtn);
-
-  // Get Summary button
-  const btn = document.createElement("button");
-  btn.textContent = "Get Summary";
-  Object.assign(btn.style, {
-    display: "block", width: "100%", padding: "8px 0",
-    background: "#1a73e8", color: "#fff", border: "none", borderRadius: "8px",
-    fontSize: "13px", fontWeight: "600", cursor: "pointer", letterSpacing: "0.02em",
+  summaryBtn.title = "Get AI summary for this video";
+  summaryBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    removeSummaryPanel();
+    onGetSummary();
   });
-  btn.addEventListener("mouseenter", () => (btn.style.background = "#1557b0"));
-  btn.addEventListener("mouseleave", () => (btn.style.background = "#1a73e8"));
-  btn.addEventListener("click", () => { removeSummaryPanel(); onGetSummary(); });
 
-  panel.append(head, btn);
+  // "💬 Comments" inline pill button
+  const commBtn = buildGetCommentsButton(t);
+  getCommentsBtn = commBtn;
 
-  if (channelInfo) {
-    panel.append(buildChannelToggle(channelInfo, isAutoRun, t));
-  }
+  const head = buildPanelHead(t, [summaryBtn, commBtn], currentChannelInfo);
+  panel.append(head);
 
   summaryPanel = panel;
   host.prepend(panel);
@@ -867,6 +974,8 @@ function showIdlePanel(channelInfo: ChannelInfo | null, isAutoRun: boolean, onGe
 // --- community section helper --------------------------------------------
 
 function fillCommunitySection(sentiment: string, audienceScore?: number): void {
+  // Hide the "Get Comments" button since we now have the result.
+  if (getCommentsBtn) { getCommentsBtn.style.display = "none"; getCommentsBtn = null; }
   const el = communitySection ?? document.querySelector<HTMLElement>("#tldw-community");
   if (!el) return;
   el.style.display = "";
@@ -920,35 +1029,38 @@ async function maybeStartDirectApiRun(): Promise<void> {
   if (!(s?.useDirectApi as boolean) || !(s?.geminiApiKey as string)) return;
 
   const channelInfo = getChannelInfo();
-  const autoRunChannels = (r[AUTO_RUN_CHANNELS_KEY] as AutoRunChannelEntry[]) ?? [];
-  const isAutoRun = channelInfo
-    ? autoRunChannels.some((c) => c.id === channelInfo.id || c.name === channelInfo.name)
-    : false;
+  const autoRunChannels = await readAutoRunChannels();
+  const channelEntry = channelInfo
+    ? autoRunChannels.find((c) => c.id === channelInfo.id || c.name === channelInfo.name)
+    : undefined;
 
-  // Persist channel context so SET_SUMMARY handler can add the toggle to the result panel.
   currentChannelInfo = channelInfo;
-  currentIsAutoRun = isAutoRun;
+  currentAutoRunSummary = channelEntry?.autoRunSummary ?? false;
+  currentAutoRunComments = channelEntry?.autoRunComments ?? false;
 
-  const showCommentShimmer = s?.includeCommentSentiment === true;
-
-  // Helper: show loading skeleton and fire the API call.
+  // Helper: show loading skeleton and fire the summary API call.
   const startApiCall = async () => {
-    showLoadingPanel(showCommentShimmer);
+    showLoadingPanel(currentAutoRunComments);
     void getTranscript();
     log("direct API call started");
     try {
       await chrome.runtime.sendMessage({ type: "ASK" });
-    } catch {
-      /* best effort */
-    }
+    } catch { /* best effort */ }
+  };
+
+  // Helper: fire standalone comment analysis.
+  const startCommentsCall = async () => {
+    try {
+      await chrome.runtime.sendMessage({ type: "ASK_COMMENTS" });
+    } catch { /* best effort */ }
   };
 
   // Fast path: cached result — show immediately, skip API call.
-  type CacheEntry = { tldw: TldwSummary; cachedAt: string; commentSentiment?: string; audienceScore?: number };
+  type CacheEntry = { tldw: TldwSummary; cachedAt: string; commentSentiment?: string; audienceScore?: number; userRating?: "watch" | "skim" | "skip" };
   const cache = r["tldwSummaryCache"] as Record<string, CacheEntry> | undefined;
   const cached = cache?.[vid];
   if (cached && Date.now() - new Date(cached.cachedAt).getTime() < CACHE_TTL_MS) {
-    showSummaryPanel({ ...cached.tldw, source: "cached" });
+    showSummaryPanel({ ...cached.tldw, source: "cached" }, false, undefined, cached.userRating, vid);
     if (cached.commentSentiment) {
       fillCommunitySection(cached.commentSentiment, cached.audienceScore);
     }
@@ -956,16 +1068,24 @@ async function maybeStartDirectApiRun(): Promise<void> {
     return;
   }
 
-  // Auto-run channel: fire immediately, no idle panel.
-  if (isAutoRun) {
+  // Auto-run summary: fire immediately.
+  if (currentAutoRunSummary) {
     await startApiCall();
+    // Also auto-run comments if that flag is set (handled via includeCommentSentiment
+    // in runSummary, but we use the local flag here for the standalone path).
+    if (currentAutoRunComments) void startCommentsCall();
     return;
   }
 
-  // Manual channel: show idle panel with button + channel toggle.
-  showIdlePanel(channelInfo, isAutoRun, () => {
-    void startApiCall();
-  });
+  // Auto-run comments only (no summary auto-run): show idle + kick off comments.
+  if (currentAutoRunComments) {
+    showIdlePanel(() => { void startApiCall(); });
+    void startCommentsCall();
+    return;
+  }
+
+  // Neither auto-run: show idle panel with manual buttons.
+  showIdlePanel(() => { void startApiCall(); });
 }
 
 /**
@@ -1006,7 +1126,8 @@ function onNavigate(): void {
   removeSummaryPanel();
   activeTranscriptFetch = null;
   currentChannelInfo = null;
-  currentIsAutoRun = false;
+  currentAutoRunSummary = false;
+  currentAutoRunComments = false;
   void maybeStartDirectApiRun();
   setTimeout(() => { void autoRunIfLong(); }, 2500);
 }
@@ -1048,7 +1169,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const msg = message as { tldw?: TldwSummary; source?: string; channelStats?: ChannelComparison };
     const tldw = msg?.tldw;
     if (tldw?.verdict && tldw.summary) {
-      showSummaryPanel({ ...tldw, source: msg.source }, communitySection !== null, msg.channelStats);
+      showSummaryPanel({ ...tldw, source: msg.source }, communitySection !== null, msg.channelStats, undefined, currentVideoId());
     }
     sendResponse({ ok: true });
     return false;

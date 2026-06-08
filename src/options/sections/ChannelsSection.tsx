@@ -462,18 +462,27 @@ export function ChannelsSection() {
 
   const handleToggleAutoRun = useCallback(async (stats: ChannelStats, enable: boolean) => {
     const current = await getAutoRunChannels();
+    const existing = current.find((c) => c.name === stats.channel);
     let updated: AutoRunChannel[];
     if (enable) {
-      const others = current.filter((c) => c.name !== stats.channel);
-      const entry: AutoRunChannel = {
-        id: `/@${stats.channel}`,
-        name: stats.channel,
-        avatarUrl: stats.avatarUrl ?? "",
-        addedAt: new Date().toISOString(),
-      };
-      updated = [entry, ...others];
+      const entry: AutoRunChannel = existing
+        ? { ...existing, autoRunSummary: true, avatarUrl: stats.avatarUrl ?? existing.avatarUrl }
+        : {
+            id: `/@${stats.channel}`,
+            name: stats.channel,
+            avatarUrl: stats.avatarUrl ?? "",
+            addedAt: new Date().toISOString(),
+            autoRunSummary: true,
+            autoRunComments: false,
+          };
+      updated = [entry, ...current.filter((c) => c.name !== stats.channel)];
     } else {
-      updated = current.filter((c) => c.name !== stats.channel);
+      if (existing?.autoRunComments) {
+        // Keep entry but turn off summary only
+        updated = current.map((c) => c.name === stats.channel ? { ...c, autoRunSummary: false } : c);
+      } else {
+        updated = current.filter((c) => c.name !== stats.channel);
+      }
     }
     await setAutoRunChannels(updated);
     setAutoRunChannels(updated);

@@ -97,6 +97,10 @@ export type AutoRunChannel = {
   avatarUrl: string;
   /** ISO timestamp when the user added this channel to the auto-run list. */
   addedAt: string;
+  /** Auto-fire the AI summary when opening a video from this channel. Defaults true for legacy entries. */
+  autoRunSummary: boolean;
+  /** Auto-fire the comment analysis when opening a video from this channel. */
+  autoRunComments: boolean;
 };
 
 /** Cached summary result keyed by video ID in chrome.storage.local. */
@@ -108,6 +112,8 @@ export type CachedSummary = {
   commentSentiment?: string;
   /** Audience score (1–10) from the comment analysis call. */
   audienceScore?: number;
+  /** The user's personal verdict on whether the video was worth watching. */
+  userRating?: "watch" | "skim" | "skip";
 };
 
 /** One entry in the Direct API call log — stored per video summarized. */
@@ -283,9 +289,13 @@ export type SetCommentSentimentMessage = {
   audienceScore?: number;
 };
 
+/** Sent from the content script to request a standalone comment-sentiment analysis. */
+export type AskCommentsMessage = { type: "ASK_COMMENTS" };
+
 export type RuntimeMessage =
   | GetPendingMessage
   | AskMessage
+  | AskCommentsMessage
   | RebuildMenuMessage
   | InjectResultMessage
   | AiSummaryMessage

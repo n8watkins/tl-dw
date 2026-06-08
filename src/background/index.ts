@@ -181,6 +181,45 @@ async function callGeminiApi(prompt: string, apiKey: string): Promise<string> {
 }
 
 /**
+ * Fetch top comments from `tabId`, call Gemini for sentiment, and send
+ * `SET_COMMENT_SENTIMENT` back to the tab. Patches the summary cache and call
+ * log if IDs are supplied. Best-effort: clears the shimmer on any failure.
+ */
+async function runCommentSentiment(
+  tabId: number | undefined,
+  apiKey: string,
+  settings: Settings,
+  videoId?: string | null,
+  callEntryId?: string,
+): Promise<void> {
+  if (tabId === undefined) return;
+  try {
+    const comments = await getCommentsFromTab(tabId);
+    if (!comments) {
+      void chrome.tabs.sendMessage(tabId, { type: "SET_COMMENT_SENTIMENT" }).catch(() => {});
+      return;
+    }
+    const commentPrompt = settings.commentPromptTemplate.replace("{{comments}}", comments);
+    const commentResponse = await callGeminiApi(commentPrompt, apiKey);
+
+    const scoreMatch = /Audience score:\s*(\d+)\/10/i.exec(commentResponse);
+    const audienceScore = scoreMatch ? parseInt(scoreMatch[1], 10) : undefined;
+    const sentiment = commentResponse
+      .replace(/^.*Audience score:\s*\d+\/10.*$/im, "")
+      .trim();
+
+    void chrome.tabs
+      .sendMessage(tabId, { type: "SET_COMMENT_SENTIMENT", sentiment, audienceScore })
+      .catch(() => {});
+
+    if (callEntryId) void patchGeminiCallEntry(callEntryId, { commentSentiment: sentiment, audienceScore });
+    if (videoId) void patchCachedSummary(videoId, { commentSentiment: sentiment, audienceScore });
+  } catch {
+    void chrome.tabs.sendMessage(tabId, { type: "SET_COMMENT_SENTIMENT" }).catch(() => {});
+  }
+}
+
+/**
  * The core motion: read the target YouTube video, build the prompt from the
  * chosen (or default) profile, then open the destination tab and hand the
  * prompt to its injector to auto-fill and submit. `destinationOverride` lets
@@ -395,47 +434,7 @@ async function runSummary(
 
         // Fire the comment sentiment call in parallel (best-effort, never blocks main path).
         if (settings.includeCommentSentiment) {
-          const tabId = activeTab.id;
-          void (async () => {
-            try {
-              const comments = await getCommentsFromTab(tabId);
-              if (!comments) {
-                // Comments unavailable — clear the shimmer so it doesn't get stuck.
-                void chrome.tabs.sendMessage(tabId, { type: "SET_COMMENT_SENTIMENT" }).catch(() => {});
-                return;
-              }
-              const commentPrompt = settings.commentPromptTemplate.replace("{{comments}}", comments);
-              const commentResponse = await callGeminiApi(commentPrompt, apiKey!);
-
-              // Parse "Audience score: X/10" from the last line.
-              const scoreMatch = /Audience score:\s*(\d+)\/10/i.exec(commentResponse);
-              const audienceScore = scoreMatch ? parseInt(scoreMatch[1], 10) : undefined;
-              // Strip the score line from the display text.
-              const sentiment = commentResponse
-                .replace(/^.*Audience score:\s*\d+\/10.*$/im, "")
-                .trim();
-
-              // Send the result to the content tab.
-              void chrome.tabs
-                .sendMessage(tabId, {
-                  type: "SET_COMMENT_SENTIMENT",
-                  sentiment,
-                  audienceScore,
-                })
-                .catch(() => {});
-
-              // Patch the call log entry and summary cache with the comment data.
-              if (callEntryId) {
-                void patchGeminiCallEntry(callEntryId, { commentSentiment: sentiment, audienceScore });
-              }
-              if (videoId) {
-                void patchCachedSummary(videoId, { commentSentiment: sentiment, audienceScore });
-              }
-            } catch {
-              // Clear the shimmer on any error so it doesn't get stuck.
-              void chrome.tabs.sendMessage(tabId, { type: "SET_COMMENT_SENTIMENT" }).catch(() => {});
-            }
-          })();
+          void runCommentSentiment(activeTab.id, apiKey!, settings, videoId, callEntryId);
         }
       }
       void flashBadge("✓", true);
@@ -526,6 +525,19 @@ chrome.runtime.onMessage.addListener(
         message.userCuriosity,
         sender.tab?.id,
       ).then(() => sendResponse({ ok: true }));
+      return true;
+    }
+    if (message.type === "ASK_COMMENTS") {
+      const tabId = sender.tab?.id;
+      void (async () => {
+        const [settings, activeTab] = await Promise.all([getSettings(), tabId !== undefined ? chrome.tabs.get(tabId) : getActiveTab()]);
+        const apiKey = settings.geminiApiKey?.trim();
+        if (!apiKey || !settings.useDirectApi) { sendResponse({ ok: false }); return; }
+        const url = activeTab?.url ?? "";
+        const videoId = url ? extractVideoId(url) : null;
+        await runCommentSentiment(tabId ?? activeTab?.id, apiKey, settings, videoId);
+        sendResponse({ ok: true });
+      })();
       return true;
     }
     if (message.type === "INJECT_RESULT") {
