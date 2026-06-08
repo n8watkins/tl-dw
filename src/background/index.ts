@@ -233,13 +233,13 @@ async function runCommentSentiment(
  * switches windows between the content script firing and the service worker
  * processing the message.
  *
- * `source` records which entry point fired the send. Explicit "Send to <X>"
- * gestures — the right-click menu and the popup's Send button — open the chosen
- * destination tab even when Direct API is enabled, because the user is asking
- * for that destination specifically. The keyboard shortcut and in-page auto-run
- * stay headless when Direct API is on (filling the TL;DW widget in place), which
- * is the whole point of the feature. Defaults to "auto" so the existing in-page
- * paths keep their headless behavior.
+ * `source` records which entry point fired the send. Explicit user gestures —
+ * the right-click menu, the popup's Send button, and the Alt+Shift+G keyboard
+ * shortcut — open the chosen (or default) destination tab even when Direct API
+ * is enabled, because the user is deliberately asking to send the video. Only
+ * the in-page auto-run ("auto") stays headless when Direct API is on, filling
+ * the TL;DW widget in place. Defaults to "auto" so the existing in-page path
+ * keeps its headless behavior.
  */
 async function runSummary(
   profileId?: string,
@@ -289,10 +289,11 @@ async function runSummary(
 
   const isPromptDest = destination.payload !== "link" && destination.payload !== "source";
   // Determine headless path early so the transcript fetch can account for it.
-  // Explicit "Send to <destination>" gestures (right-click menu, popup Send)
-  // always open that destination's tab — Direct API headless mode only applies
-  // to the keyboard shortcut and in-page auto-run, which want the widget in place.
-  const opensTab = source === "menu" || source === "popup";
+  // Explicit user gestures — the right-click menu, the popup Send button, and
+  // the Alt+Shift+G keyboard shortcut — always open the destination tab with the
+  // chosen (or default) profile. Direct API headless mode only applies to the
+  // in-page auto-run, which wants the TL;DW widget filled on the page itself.
+  const opensTab = source === "menu" || source === "popup" || source === "command";
   const apiKey = settings.geminiApiKey?.trim();
   const willUseDirectApi = !!(apiKey && settings.useDirectApi && isPromptDest && !opensTab);
 
@@ -526,7 +527,8 @@ async function recordOpenSearch(
 chrome.tabs.onRemoved.addListener((tabId) => void pruneOpenSearch(tabId));
 
 chrome.commands.onCommand.addListener((command) => {
-  // The shortcut is the headless "give me the widget" path when Direct API is on.
+  // Alt+Shift+G opens the destination tab with the default profile — same as the
+  // toolbar/menu, and unaffected by an in-page auto-summary running on Direct API.
   if (command === "ask-gemini") void runSummary(undefined, undefined, undefined, undefined, undefined, undefined, "command");
 });
 
