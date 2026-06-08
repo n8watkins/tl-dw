@@ -1,4 +1,5 @@
 import type {
+  CachedSummary,
   DeliveryStatus,
   GeminiCallEntry,
   GeminiUsage,
@@ -9,6 +10,7 @@ import type {
   StorageState,
 } from "../types";
 import {
+  CACHE_TTL_MS,
   DEFAULT_SETTINGS,
   DELIVERY_STATUS_KEY,
   GEMINI_CALL_LOG_KEY,
@@ -16,6 +18,7 @@ import {
   OPEN_SEARCHES_KEY,
   PENDING_KEY,
   STORAGE_KEYS,
+  SUMMARY_CACHE_KEY,
 } from "./constants";
 import { createDefaultProfiles } from "./profiles";
 
@@ -278,6 +281,44 @@ export async function getGeminiCallLog(): Promise<GeminiCallEntry[]> {
 
 export async function clearGeminiCallLog(): Promise<void> {
   await chrome.storage.local.remove(GEMINI_CALL_LOG_KEY);
+}
+
+// --- Summary result cache -------------------------------------------------
+
+type SummaryCache = Record<string, CachedSummary>;
+
+export async function getCachedSummary(videoId: string): Promise<CachedSummary | null> {
+  const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
+  const cache = (r[SUMMARY_CACHE_KEY] as SummaryCache) ?? {};
+  const entry = cache[videoId];
+  if (!entry) return null;
+  if (Date.now() - new Date(entry.cachedAt).getTime() > CACHE_TTL_MS) return null;
+  return entry;
+}
+
+export async function setCachedSummary(videoId: string, entry: CachedSummary): Promise<void> {
+  const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
+  const cache = (r[SUMMARY_CACHE_KEY] as SummaryCache) ?? {};
+  cache[videoId] = entry;
+  // Prune stale entries on every write to bound storage growth.
+  const now = Date.now();
+  for (const id of Object.keys(cache)) {
+    const e = cache[id]!;
+    if (now - new Date(e.cachedAt).getTime() > CACHE_TTL_MS) delete cache[id];
+  }
+  await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
+}
+
+export async function patchCachedSummary(
+  videoId: string,
+  patch: Pick<CachedSummary, "commentSentiment" | "audienceScore">,
+): Promise<void> {
+  const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
+  const cache = (r[SUMMARY_CACHE_KEY] as SummaryCache) ?? {};
+  if (cache[videoId]) {
+    cache[videoId] = { ...cache[videoId]!, ...patch };
+    await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
+  }
 }
 
 /** Open searches whose tabs are still open; prunes any that have closed. */

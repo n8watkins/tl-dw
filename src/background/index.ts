@@ -6,18 +6,22 @@ import {
   addOpenSearch,
   clearGeminiUsage,
   ensureSeeded,
+  getCachedSummary,
   getGeminiUsage,
   getHistory,
   getProfiles,
   getSettings,
+  patchCachedSummary,
   patchGeminiCallEntry,
   pruneOpenSearch,
   recordDeliveryStatus,
   recordGeminiCallReturningId,
   resolveProfile,
+  setCachedSummary,
   setPendingPrompt,
   takePendingPrompt,
 } from "../lib/storage";
+import { extractVideoId } from "../lib/constants";
 import type { GeminiUsage, RuntimeMessage, Settings, VideoContext, VideoMeta } from "../types";
 
 const MENU_ROOT = "tldw-root";
@@ -298,17 +302,50 @@ async function runSummary(
     let logPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity);
     if (gateMinutes > 0) logPrompt = prependWorthWatchingGate(logPrompt, gateMinutes);
 
+    const videoId = extractVideoId(url);
+
+    // --- cache check: serve a previous result instantly, skip the API call ---
+    const cachedSummary = videoId ? await getCachedSummary(videoId) : null;
+    if (cachedSummary && activeTab?.id !== undefined) {
+      // Channel comparison still uses fresh history so the ▲/▼/≈ is up-to-date.
+      let channelStats: { avgAiRating: number | null; avgAudienceScore: number | null; count: number } | undefined;
+      if (video.channel) {
+        const history = await getHistory();
+        const stats = computeChannelStats(history).find((s) => s.channel === video.channel);
+        if (stats && stats.count >= 1) {
+          channelStats = { avgAiRating: stats.avgAiRating, avgAudienceScore: stats.avgAudienceScore, count: stats.count };
+        }
+      }
+      void chrome.tabs
+        .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw: cachedSummary.tldw, source: "cached", channelStats })
+        .catch(() => {});
+      if (cachedSummary.commentSentiment) {
+        void chrome.tabs
+          .sendMessage(activeTab.id, {
+            type: "SET_COMMENT_SENTIMENT",
+            sentiment: cachedSummary.commentSentiment,
+            audienceScore: cachedSummary.audienceScore,
+          })
+          .catch(() => {});
+      }
+      void flashBadge("✓", true);
+      return;
+    }
+
+    // --- live call: fetch from Gemini, then write to cache ---
     let responseText: string | undefined;
     let callEntryId: string | undefined;
+    let tldw: ReturnType<typeof parseTldwBlock> | undefined;
+    let aiRating: number | undefined;
     try {
       responseText = await callGeminiApi(prompt, apiKey!);
       // recordGeminiCall returns the new entry id so we can patch it later.
       callEntryId = await recordGeminiCallReturningId(video, logPrompt, responseText);
-      const tldw = parseTldwBlock(responseText);
+      tldw = parseTldwBlock(responseText);
 
       // Parse the AI rating (e.g. "8/10" → 8) for channel stats storage.
       const aiRatingMatch = tldw?.rating ? /^(\d+)/.exec(tldw.rating) : null;
-      const aiRating = aiRatingMatch ? parseInt(aiRatingMatch[1], 10) : undefined;
+      aiRating = aiRatingMatch ? parseInt(aiRatingMatch[1], 10) : undefined;
 
       // Compute channel comparison stats from existing history (local, no LLM).
       let channelStats: { avgAiRating: number | null; avgAudienceScore: number | null; count: number } | undefined;
@@ -324,6 +361,11 @@ async function runSummary(
         void chrome.tabs
           .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw, source: "Gemini API", channelStats })
           .catch(() => {});
+
+        // Cache the result so future visits to this video skip the API call.
+        if (videoId) {
+          void setCachedSummary(videoId, { tldw, cachedAt: new Date().toISOString() });
+        }
 
         // Fire the comment sentiment call in parallel (best-effort, never blocks main path).
         if (settings.includeCommentSentiment) {
@@ -352,9 +394,12 @@ async function runSummary(
                 })
                 .catch(() => {});
 
-              // Patch the call log entry with the comment data.
+              // Patch the call log entry and summary cache with the comment data.
               if (callEntryId) {
                 void patchGeminiCallEntry(callEntryId, { commentSentiment: sentiment, audienceScore });
+              }
+              if (videoId) {
+                void patchCachedSummary(videoId, { commentSentiment: sentiment, audienceScore });
               }
             } catch {
               /* best-effort — silently skip on any error */

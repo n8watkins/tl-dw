@@ -84,6 +84,17 @@ export type GeminiUsage = {
   lastCalledAt?: string;
 };
 
+/** Cached summary result keyed by video ID in chrome.storage.local. */
+export type CachedSummary = {
+  tldw: TldwSummary;
+  /** ISO timestamp when this entry was written. */
+  cachedAt: string;
+  /** Community sentiment text, filled in after the comment analysis call. */
+  commentSentiment?: string;
+  /** Audience score (1–10) from the comment analysis call. */
+  audienceScore?: number;
+};
+
 /** One entry in the Direct API call log — stored per video summarized. */
 export type GeminiCallEntry = {
   id: string;

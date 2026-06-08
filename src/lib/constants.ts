@@ -69,6 +69,12 @@ export const STORAGE_KEYS = {
   settings: "settings",
 } as const;
 
+/** chrome.storage.local key for the summary result cache (Record<videoId, CachedSummary>). */
+export const SUMMARY_CACHE_KEY = "tldwSummaryCache";
+
+/** How long a cached summary is considered fresh. Video content doesn't change, so 7 days is generous. */
+export const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** chrome.storage.session key holding { [tabId]: prompt } for the handoff. */
 export const PENDING_KEY = "pendingPrompts";
 
@@ -107,6 +113,26 @@ export const DEFAULT_SETTINGS: Settings = {
   commentPromptTemplate:
     "These are the top viewer comments on this YouTube video. In 2-3 sentences, summarize the overall audience sentiment. If multiple commenters mention specific timestamps or moments, include those. End your response with exactly one line in this format: \"Audience score: X/10\"\n\nComments:\n{{comments}}",
 };
+
+/**
+ * Extract the YouTube video ID from any watch/shorts/youtu.be URL.
+ * Returns null for non-video URLs or URLs that don't parse.
+ */
+export function extractVideoId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    if (host === "youtube.com" || host === "m.youtube.com") {
+      if (u.pathname === "/watch") return u.searchParams.get("v");
+      const shorts = /^\/shorts\/([^/?]+)/.exec(u.pathname);
+      if (shorts) return shorts[1];
+    }
+    if (host === "youtu.be") return u.pathname.slice(1) || null;
+  } catch {
+    // fall through
+  }
+  return null;
+}
 
 export function isYouTubeVideoUrl(url: string | undefined): boolean {
   if (!url) return false;

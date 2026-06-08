@@ -701,28 +701,76 @@ function showSummaryPanel(tldw: TldwSummary, keepCommunityShimmer = false, chann
   log("summary panel injected");
 }
 
+// --- community section helper --------------------------------------------
+
+function fillCommunitySection(sentiment: string, audienceScore?: number): void {
+  const el = communitySection ?? document.querySelector<HTMLElement>("#tldw-community");
+  if (!el) return;
+  el.style.display = "";
+  el.style.animation = "";
+  el.style.color = "";
+  el.innerHTML = "";
+  const sentimentText = document.createElement("span");
+  sentimentText.textContent = `💬 ${sentiment}`;
+  el.append(sentimentText);
+  if (audienceScore !== undefined) {
+    const scorePill = document.createElement("span");
+    scorePill.textContent = `Audience: ${audienceScore}/10`;
+    Object.assign(scorePill.style, {
+      display: "inline-block",
+      marginLeft: "10px",
+      fontSize: "11px",
+      fontWeight: "700",
+      padding: "2px 8px",
+      borderRadius: "999px",
+      background: theme().border,
+      color: theme().text,
+      verticalAlign: "middle",
+      whiteSpace: "nowrap",
+    });
+    el.append(scorePill);
+  }
+  log("community sentiment updated");
+}
+
 // --- auto TL;DW ----------------------------------------------------------
+
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const autoRunVideoIds = new Set<string>();
 
 /**
- * Direct API path: fires immediately on navigation — shows a loading skeleton
- * right away and pre-fetches the transcript in parallel so the user sees
- * something instantly rather than waiting 2.5 s for the video duration check.
+ * Direct API path: fires immediately on navigation — checks the local summary
+ * cache first for an instant render, otherwise shows a loading skeleton and
+ * fires the Gemini API call.
  */
 async function maybeStartDirectApiRun(): Promise<void> {
   const vid = currentVideoId();
   if (!vid || autoRunVideoIds.has(vid) || summaryPanel) return;
 
-  const r = await chrome.storage.local.get("settings");
+  const r = await chrome.storage.local.get(["settings", "tldwSummaryCache"]);
   const s = r["settings"] as Record<string, unknown> | undefined;
   if (!(s?.useDirectApi as boolean) || !(s?.geminiApiKey as string)) return;
 
-  const showCommentShimmer = s?.includeCommentSentiment === true;
+  // Fast path: serve from cache — no loading panel, no API call.
+  type CacheEntry = { tldw: TldwSummary; cachedAt: string; commentSentiment?: string; audienceScore?: number };
+  const cache = r["tldwSummaryCache"] as Record<string, CacheEntry> | undefined;
+  const cached = cache?.[vid];
+  if (cached && Date.now() - new Date(cached.cachedAt).getTime() < CACHE_TTL_MS) {
+    autoRunVideoIds.add(vid);
+    showSummaryPanel({ ...cached.tldw, source: "cached" });
+    if (cached.commentSentiment) {
+      fillCommunitySection(cached.commentSentiment, cached.audienceScore);
+    }
+    log("served from cache");
+    return;
+  }
 
+  // Slow path: show loading skeleton and send the real API request.
+  const showCommentShimmer = s?.includeCommentSentiment === true;
   autoRunVideoIds.add(vid);
   showLoadingPanel(showCommentShimmer);
-  void getTranscript(); // pre-fetch so it's cached when the background asks
+  void getTranscript(); // pre-fetch so it's ready when the background asks
   log("direct API auto-run started");
   try {
     await chrome.runtime.sendMessage({ type: "ASK" });
@@ -798,35 +846,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (type === "SET_COMMENT_SENTIMENT") {
     const msg = message as { sentiment?: string; audienceScore?: number };
-    const el = communitySection ?? document.querySelector<HTMLElement>("#tldw-community");
-    if (el && msg.sentiment) {
-      el.style.display = "";
-      el.style.animation = "";
-      el.style.color = "";
-      // Build content: sentiment text + optional score pill.
-      el.innerHTML = "";
-      const sentimentText = document.createElement("span");
-      sentimentText.textContent = `💬 ${msg.sentiment}`;
-      el.append(sentimentText);
-      if (msg.audienceScore !== undefined) {
-        const scorePill = document.createElement("span");
-        scorePill.textContent = `Audience: ${msg.audienceScore}/10`;
-        Object.assign(scorePill.style, {
-          display: "inline-block",
-          marginLeft: "10px",
-          fontSize: "11px",
-          fontWeight: "700",
-          padding: "2px 8px",
-          borderRadius: "999px",
-          background: theme().border,
-          color: theme().text,
-          verticalAlign: "middle",
-          whiteSpace: "nowrap",
-        });
-        el.append(scorePill);
-      }
-      log("community sentiment updated");
-    }
+    if (msg.sentiment) fillCommunitySection(msg.sentiment, msg.audienceScore);
     sendResponse({ ok: true });
     return false;
   }
