@@ -531,10 +531,19 @@ let currentAutoRunComments = false;
 type TldwSummary = { verdict: string; summary: string; rating: string; details?: string; source?: string };
 
 let summaryPanel: HTMLElement | null = null;
+// Which kind of panel is currently injected into the host. Drives mutual
+// exclusion with the standalone rating bar:
+//  - "summary": a real summary, owns the rating row → bar hidden.
+//  - "loading": skeleton while the API call is in flight → bar hidden (the
+//    summary that replaces it owns the rating).
+//  - "idle": the "Get Summary" placeholder, no rating row → bar shown alongside.
+//  - null: no panel → bar shown.
+let summaryPanelKind: "summary" | "loading" | "idle" | null = null;
 
 function removeSummaryPanel(): void {
   summaryPanel?.remove();
   summaryPanel = null;
+  summaryPanelKind = null;
 }
 
 // --- TL;DW comments panel (injected into ytd-comments-header-renderer) ----
@@ -723,7 +732,11 @@ function buildPanelHead(
   closeBtn.setAttribute("aria-label", "Hide TL;DW");
   closeBtn.addEventListener("mouseenter", () => (closeBtn.style.background = t.hover));
   closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
-  closeBtn.addEventListener("click", removeSummaryPanel);
+  closeBtn.addEventListener("click", () => {
+    removeSummaryPanel();
+    // Panel dismissed — fall back to the standalone rating bar (gated inside).
+    void maybeShowStandaloneRatingBar();
+  });
 
   const autoToggles: HTMLElement[] = [];
   if (channelInfo && showAutoRunToggle) {
@@ -791,7 +804,9 @@ function showLoadingPanel(): void {
 
   panel.append(head, shimmerLine("90%"), shimmerLine("65%"));
 
+  removeStandaloneRatingBar();
   summaryPanel = panel;
+  summaryPanelKind = "loading";
   host.prepend(panel);
   log("loading panel shown");
 }
@@ -923,6 +938,40 @@ function buildSummaryPanel(
       void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS" });
     });
     headerControls.push(srcBtn);
+  }
+
+  // Per-video "Clear cached summary": drops THIS video's entry from
+  // tldwSummaryCache, removes the panel, and reverts to the idle/pre-summary
+  // state (re-running maybeStartDirectApiRun with no cache entry shows the idle
+  // "Get Summary" panel, or auto-runs if the channel opted in). The standalone
+  // rating bar from Feature 1 reappears since the summary panel is gone.
+  {
+    const clearBtn = document.createElement("button");
+    clearBtn.textContent = "🗑 Clear cached summary";
+    clearBtn.title = "Remove this video's cached summary and start fresh";
+    Object.assign(clearBtn.style, {
+      fontSize: "13px", color: t.sub, background: "transparent", border: "none",
+      cursor: "pointer", padding: "0", whiteSpace: "nowrap",
+    });
+    clearBtn.addEventListener("mouseenter", () => { clearBtn.style.color = "#dc2626"; });
+    clearBtn.addEventListener("mouseleave", () => { clearBtn.style.color = t.sub; });
+    clearBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const vid = videoId ?? currentVideoId();
+      void chrome.storage.local.get("tldwSummaryCache").then((r) => {
+        const cache = (r["tldwSummaryCache"] as Record<string, unknown>) ?? {};
+        if (vid && cache[vid]) {
+          delete cache[vid];
+          return chrome.storage.local.set({ tldwSummaryCache: cache });
+        }
+      }).finally(() => {
+        removeSummaryPanel();
+        // Re-run the Direct-API flow: with the cache entry gone it lands on the
+        // idle panel (or auto-run). The standalone bar is re-injected after.
+        void maybeStartDirectApiRun().finally(() => { void maybeShowStandaloneRatingBar(); });
+      });
+    });
+    headerControls.push(clearBtn);
   }
 
   const head = buildPanelHead(t, headerControls, currentChannelInfo);
@@ -1080,12 +1129,19 @@ function buildSummaryPanel(
   return panel;
 }
 
-/** Engaged / Skimmed / Skipped personal rating row shown below the summary text. */
-function buildUserRatingRow(
+/**
+ * Shared Engaged / Skimmed / Skipped rating buttons + persistence click handler,
+ * used by BOTH the in-panel rating row and the standalone watch-page rating bar.
+ *
+ * Returns the buttons row element (the three pills, no label/border wrapper) so
+ * each caller can frame it however it likes. The click handler is identical for
+ * both surfaces: instant cache write + RATE_VIDEO background round-trip, then a
+ * channel-stats refresh callback.
+ */
+function buildRatingButtonsRow(
   t: ReturnType<typeof theme>,
   initial: "watch" | "skim" | "skip" | undefined,
   videoId: string | null | undefined,
-  channelName?: string,
   onRatingChange?: (rating: "watch" | "skim" | "skip") => void,
   onChannelStatsRefresh?: (fresh: ChannelComparison) => void,
 ): HTMLElement {
@@ -1096,19 +1152,8 @@ function buildUserRatingRow(
     { value: "skip",  label: `✕ ${USER_RATING_LABELS.skip}`,  color: "#dc2626" },
   ];
 
-  const wrapper = document.createElement("div");
-  Object.assign(wrapper.style, {
-    borderTop: `1px solid ${t.border}`, marginTop: "8px", paddingTop: "7px",
-  });
-
-  // Rating buttons row
   const row = document.createElement("div");
   Object.assign(row.style, { display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" });
-
-  const youLabel = document.createElement("span");
-  youLabel.textContent = "Your rating:";
-  Object.assign(youLabel.style, { fontSize: "13px", color: t.sub, flexShrink: "0" });
-  row.append(youLabel);
 
   let selected = initial ?? null;
   const btns: HTMLButtonElement[] = [];
@@ -1189,6 +1234,30 @@ function buildUserRatingRow(
     btns.push(btn);
   });
 
+  return row;
+}
+
+/** Engaged / Skimmed / Skipped personal rating row shown below the summary text. */
+function buildUserRatingRow(
+  t: ReturnType<typeof theme>,
+  initial: "watch" | "skim" | "skip" | undefined,
+  videoId: string | null | undefined,
+  channelName?: string,
+  onRatingChange?: (rating: "watch" | "skim" | "skip") => void,
+  onChannelStatsRefresh?: (fresh: ChannelComparison) => void,
+): HTMLElement {
+  const wrapper = document.createElement("div");
+  Object.assign(wrapper.style, {
+    borderTop: `1px solid ${t.border}`, marginTop: "8px", paddingTop: "7px",
+  });
+
+  // Rating buttons row, prefixed with a "Your rating:" label.
+  const row = buildRatingButtonsRow(t, initial, videoId, onRatingChange, onChannelStatsRefresh);
+  const youLabel = document.createElement("span");
+  youLabel.textContent = "Your rating:";
+  Object.assign(youLabel.style, { fontSize: "13px", color: t.sub, flexShrink: "0" });
+  row.prepend(youLabel);
+
   // channelName retained for signature parity with callers; the per-channel cue
   // is now rendered in the panel's channel-comparison row.
   void channelName;
@@ -1210,6 +1279,130 @@ function buildUserRatingRow(
   return wrapper;
 }
 
+// --- standalone personal-rating bar (shown when no summary panel exists) -----
+
+const TLDW_RATING_BAR_ID = "tldw-rating-bar";
+let ratingBar: HTMLElement | null = null;
+
+function removeStandaloneRatingBar(): void {
+  ratingBar?.remove();
+  ratingBar = null;
+  document.getElementById(TLDW_RATING_BAR_ID)?.remove();
+}
+
+/**
+ * Read this video's prior personal rating: prefer the summary cache (instant,
+ * what the in-panel row also reads from), fall back to the durable history.
+ */
+async function loadPriorUserRating(
+  videoId: string,
+): Promise<"watch" | "skim" | "skip" | undefined> {
+  const r = await chrome.storage.local.get(["tldwSummaryCache", "history"]);
+  const cache = r["tldwSummaryCache"] as
+    | Record<string, { userRating?: "watch" | "skim" | "skip" }>
+    | undefined;
+  const cached = cache?.[videoId]?.userRating;
+  if (cached) return cached;
+  type HistEntry = { videoUrl?: string; userRating?: "watch" | "skim" | "skip" };
+  const history = (r["history"] as HistEntry[]) ?? [];
+  const match = history.find(
+    (e) => e.userRating && e.videoUrl && new URLSearchParams(new URL(e.videoUrl).search).get("v") === videoId,
+  );
+  return match?.userRating;
+}
+
+/**
+ * Inject the COMPACT standalone rating bar on the current watch page. Gated on
+ * the `askForMyRating` setting and mutually exclusive with the Direct-API
+ * summary panel: when a rating-owning summary panel (or its loading skeleton)
+ * is present, the rating lives in that panel's row, so this is a no-op (and any
+ * stale bar is removed). It coexists with the idle "Get Summary" placeholder.
+ * Shows the user's prior vote highlighted plus the "You: usually <verdict> · n
+ * rated" channel cue.
+ */
+async function maybeShowStandaloneRatingBar(): Promise<void> {
+  // Mutual exclusion: the summary (and its in-flight loading skeleton) owns the
+  // rating, so the bar must stay hidden then. The idle placeholder has no rating
+  // row, so the bar shows alongside it.
+  const ownedByPanel = () => summaryPanelKind === "summary" || summaryPanelKind === "loading";
+  if (ownedByPanel()) { removeStandaloneRatingBar(); return; }
+
+  const vid = currentVideoId();
+  if (!vid) { removeStandaloneRatingBar(); return; }
+
+  const toggles = await loadRatingToggles();
+  if (!toggles.askForMyRating) { removeStandaloneRatingBar(); return; }
+
+  // Re-check exclusion after the async read — a summary may have arrived.
+  if (ownedByPanel()) { removeStandaloneRatingBar(); return; }
+
+  const host = panelHost();
+  if (!host) return;
+
+  const [prior, channelStats] = await Promise.all([
+    loadPriorUserRating(vid),
+    computeChannelComparison(currentChannelInfo?.name),
+  ]);
+
+  // Final exclusion + staleness checks after all async work.
+  if (ownedByPanel()) { removeStandaloneRatingBar(); return; }
+  if (currentVideoId() !== vid) return;
+  const h = panelHost();
+  if (!h) return;
+
+  const t = theme();
+
+  const bar = document.createElement("div");
+  bar.id = TLDW_RATING_BAR_ID;
+  Object.assign(bar.style, {
+    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
+    padding: "8px 14px", marginTop: "12px", marginBottom: "16px",
+    font: "14px/1.4 Roboto, system-ui, sans-serif", color: t.text,
+    display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap",
+  });
+
+  const label = document.createElement("span");
+  label.textContent = "Your rating:";
+  Object.assign(label.style, { fontSize: "13px", color: t.sub, flexShrink: "0", fontWeight: "700" });
+
+  // The "You: usually <verdict> · n rated" channel cue, refreshed after a vote.
+  const cue = document.createElement("span");
+  Object.assign(cue.style, { fontSize: "12px", color: t.sub, flexShrink: "0" });
+  const refreshCue = () => {
+    cue.textContent = "";
+    if (
+      toggles.trackMyAverage &&
+      channelStats &&
+      channelStats.count >= 1 &&
+      channelStats.avgUserRating !== null
+    ) {
+      cue.textContent = `You: usually ${userAvgToLabel(channelStats.avgUserRating)} · ${channelStats.count} rated`;
+    }
+  };
+  refreshCue();
+
+  const onChannelStatsRefresh = (fresh: ChannelComparison) => {
+    if (channelStats) {
+      channelStats.avgUserRating = fresh.avgUserRating;
+      channelStats.count = fresh.count;
+      channelStats.userBreakdown = fresh.userBreakdown;
+    }
+    refreshCue();
+  };
+
+  const buttons = buildRatingButtonsRow(t, prior, vid, undefined, onChannelStatsRefresh);
+
+  const spacer = document.createElement("div");
+  spacer.style.flex = "1";
+
+  bar.append(label, buttons, spacer, cue);
+
+  removeStandaloneRatingBar();
+  ratingBar = bar;
+  h.prepend(bar);
+  log("standalone rating bar injected");
+}
+
 function showSummaryPanel(
   tldw: TldwSummary,
   channelStats?: ChannelComparison,
@@ -1226,8 +1419,11 @@ function showSummaryPanel(
     const h = panelHost();
     if (!h) return;
     removeSummaryPanel();
+    // Summary panel owns the rating now — drop the standalone bar.
+    removeStandaloneRatingBar();
     const panel = buildSummaryPanel(tldw, channelStats, userRating, vid, toggles, audienceScore);
     summaryPanel = panel;
+    summaryPanelKind = "summary";
     h.prepend(summaryPanel);
     log("summary panel injected");
   });
@@ -1550,7 +1746,12 @@ function showIdlePanel(onGetSummary: () => void): void {
   const head = buildPanelHead(t, [summaryBtn, skipBtn], capturedChannelInfo, false, false);
   panel.append(head);
 
+  // Idle panel is shown alongside the standalone rating bar: the bar lets the
+  // user rate without summarizing, while this offers "Get Summary". They are
+  // separate affordances. The bar itself is injected by maybeStartDirectApiRun's
+  // caller (onNavigate) once this resolves, so nothing to do here.
   summaryPanel = panel;
+  summaryPanelKind = "idle";
   host.prepend(panel);
   log("idle panel shown");
 }
@@ -1950,6 +2151,7 @@ function onNavigate(): void {
   if (url === lastHandledUrl) return;
   lastHandledUrl = url;
   removeSummaryPanel();
+  removeStandaloneRatingBar();
   removeCommentsPanel();
   if (commentsObserver) { commentsObserver.disconnect(); commentsObserver = null; }
   pendingCommentSentiment = null;
@@ -1957,7 +2159,13 @@ function onNavigate(): void {
   currentChannelInfo = null;
   currentAutoRunSummary = false;
   currentAutoRunComments = false;
-  void maybeStartDirectApiRun().then(() => { watchForCommentsSection(); });
+  // After the Direct-API flow settles (cached summary / idle panel / Basic-mode
+  // early-return), inject the standalone rating bar. It is gated on the
+  // askForMyRating setting and no-ops when a rating-owning summary panel is up,
+  // so this single call covers Basic mode, idle, and post-summary states.
+  void maybeStartDirectApiRun()
+    .then(() => { watchForCommentsSection(); })
+    .finally(() => { void maybeShowStandaloneRatingBar(); });
   setTimeout(() => { void autoRunIfLong(); }, 2500);
 }
 
