@@ -695,7 +695,8 @@ function buildPanelHead(
   }
 
   const blockBtn = (showBlockBtn && channelInfo) ? buildBlockButton(t, channelInfo) : null;
-  head.append(icon, title, ...autoToggles, ...(blockBtn ? [blockBtn] : []), ...controls, spacer, closeBtn);
+  closeBtn.style.marginLeft = "12px";
+  head.append(icon, title, ...controls, spacer, ...autoToggles, ...(blockBtn ? [blockBtn] : []), closeBtn);
   return head;
 }
 
@@ -1372,6 +1373,7 @@ function showCommentsSentimentResult(sentiment: string, audienceScore?: number):
     ? buildAutoToggle(currentChannelInfo, "comments", currentAutoRunComments, t)
     : null;
 
+  closeBtn.style.marginLeft = "12px";
   if (audienceScore !== undefined) {
     const verdict = scoreToVerdict(audienceScore);
     const scorePill = document.createElement("span");
@@ -1380,9 +1382,9 @@ function showCommentsSentimentResult(sentiment: string, audienceScore?: number):
       fontSize: "11px", fontWeight: "700", padding: "2px 8px",
       borderRadius: "999px", background: verdictColor(verdict), color: "#fff", whiteSpace: "nowrap",
     });
-    head.append(icon, title, scorePill, ...(autoToggle ? [autoToggle] : []), spacer, closeBtn);
+    head.append(icon, title, scorePill, spacer, ...(autoToggle ? [autoToggle] : []), closeBtn);
   } else {
-    head.append(icon, title, ...(autoToggle ? [autoToggle] : []), spacer, closeBtn);
+    head.append(icon, title, spacer, ...(autoToggle ? [autoToggle] : []), closeBtn);
   }
 
   const text = document.createElement("div");
@@ -1478,6 +1480,7 @@ function showCommentsIdlePanel(onGetComments: () => void): void {
   closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
   closeBtn.addEventListener("click", removeCommentsPanel);
 
+  closeBtn.style.marginLeft = "12px";
   head.append(icon, titleEl, getBtn, skipCommentsBtn, spacer, closeBtn);
   panel.append(head);
 
