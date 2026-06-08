@@ -147,7 +147,7 @@ export function DirectApiSection() {
               aistudio.google.com
             </a>{" "}
             → Create API key. No credit card, no billing upgrade needed. The free tier
-            gives you ~500 requests/day with Gemini 2.5 Flash — plenty for daily use.
+            gives you ~500 requests/day with Gemini 3.1 Flash Lite — plenty for daily use.
             Stay on the free tier.
           </div>
           <div className="card-desc" style={{ marginTop: 4, fontSize: 12, color: "var(--text-muted)" }}>
@@ -341,7 +341,7 @@ export function DirectApiSection() {
                   }} />
                 </div>
                 <div style={{ marginTop: 5, fontSize: 11, color: "var(--text-muted)" }}>
-                  Gemini 2.5 Flash free tier · ~500 RPD ·{" "}
+                  Gemini 3.1 Flash Lite free tier · ~500 RPD ·{" "}
                   <a
                     href="https://ai.google.dev/pricing"
                     target="_blank"
