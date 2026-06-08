@@ -185,6 +185,12 @@ async function callGeminiApi(prompt: string, apiKey: string): Promise<string> {
  * chosen (or default) profile, then open the destination tab and hand the
  * prompt to its injector to auto-fill and submit. `destinationOverride` lets
  * the popup pick a destination for one send without touching the saved default.
+ *
+ * `senderTabId` is passed when the request comes from a content script (auto-run
+ * or in-page "Ask" button). Using the sender's tab ID directly avoids the
+ * race condition where `getActiveTab()` returns the wrong tab if the user
+ * switches windows between the content script firing and the service worker
+ * processing the message.
  */
 async function runSummary(
   profileId?: string,
@@ -192,12 +198,17 @@ async function runSummary(
   destinationOverride?: string,
   gateOverride?: boolean,
   userCuriosity?: string,
+  senderTabId?: number,
 ): Promise<void> {
   // A right-clicked video link (a thumbnail) wins over the active tab, so a
   // suggested video gets summarized rather than the page you're sitting on.
   // Everything else — page right-click, toolbar icon, keyboard shortcut —
   // falls back to the active tab.
-  const activeTab = await getActiveTab();
+  let activeTab: chrome.tabs.Tab | undefined;
+  if (senderTabId !== undefined) {
+    try { activeTab = await chrome.tabs.get(senderTabId); } catch { /* tab closed */ }
+  }
+  if (!activeTab) activeTab = await getActiveTab();
   const isThumbnail = !!(linkUrl && isYouTubeVideoUrl(linkUrl));
 
   let url: string | undefined;
@@ -513,6 +524,7 @@ chrome.runtime.onMessage.addListener(
         message.destinationId,
         message.worthWatchingGate,
         message.userCuriosity,
+        sender.tab?.id,
       ).then(() => sendResponse({ ok: true }));
       return true;
     }

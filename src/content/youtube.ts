@@ -350,8 +350,8 @@ async function getTopComments(): Promise<string | null> {
   // Scroll into view to trigger YouTube's lazy comment load.
   commentsEl.scrollIntoView({ behavior: "instant", block: "start" });
 
-  // Poll for comment thread renderers up to 2 s.
-  const deadline = Date.now() + 2000;
+  // Poll for comment thread renderers up to 5 s.
+  const deadline = Date.now() + 5000;
   let threads: NodeListOf<Element> | null = null;
   while (Date.now() < deadline) {
     threads = document.querySelectorAll("ytd-comment-thread-renderer");
