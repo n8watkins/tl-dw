@@ -157,7 +157,7 @@ function isTrusted(bypassTerms: string, channel: string, title?: string): boolea
 
 /** Call the Gemini REST API directly and return the response text. */
 async function callGeminiApi(prompt: string, apiKey: string): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
