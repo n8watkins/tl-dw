@@ -389,6 +389,8 @@ async function getTopComments(): Promise<string | null> {
 
 const AUTO_RUN_CHANNELS_KEY = "autoRunChannels";
 const BLOCKED_CHANNELS_KEY = "tldwBlockedChannels";
+const BLOCKED_COMMENTS_KEY = "tldwBlockedCommentsChannels";
+const TLDW_COMMENTS_PANEL_ID = "tldw-comments-panel";
 
 type AutoRunChannelEntry = {
   id: string; name: string; avatarUrl: string; addedAt: string;
@@ -407,6 +409,14 @@ async function addBlockedChannelEntry(info: ChannelInfo): Promise<void> {
   const filtered = existing.filter((c) => c.id !== info.id && c.name !== info.name);
   const entry: BlockedChannelEntry = { ...info, addedAt: new Date().toISOString() };
   await chrome.storage.local.set({ [BLOCKED_CHANNELS_KEY]: [entry, ...filtered] });
+}
+
+async function addBlockedCommentsChannelEntry(info: ChannelInfo): Promise<void> {
+  const r = await chrome.storage.local.get(BLOCKED_COMMENTS_KEY);
+  const existing = (r[BLOCKED_COMMENTS_KEY] as BlockedChannelEntry[]) ?? [];
+  const filtered = existing.filter((c) => c.id !== info.id && c.name !== info.name);
+  const entry: BlockedChannelEntry = { ...info, addedAt: new Date().toISOString() };
+  await chrome.storage.local.set({ [BLOCKED_COMMENTS_KEY]: [entry, ...filtered] });
 }
 
 async function readAutoRunChannels(): Promise<AutoRunChannelEntry[]> {
@@ -471,22 +481,31 @@ let currentChannelInfo: ChannelInfo | null = null;
 let currentAutoRunSummary = false;
 let currentAutoRunComments = false;
 
-// Reference to the "Get Comments" button so it can be hidden once comments load.
-let getCommentsBtn: HTMLButtonElement | null = null;
-
 // --- TL;DW summary panel -------------------------------------------------
 
 type TldwSummary = { verdict: string; summary: string; rating: string; details?: string; source?: string };
 
 let summaryPanel: HTMLElement | null = null;
-/** Reference to the community sentiment section so `SET_COMMENT_SENTIMENT` can update it. */
-let communitySection: HTMLElement | null = null;
 
 function removeSummaryPanel(): void {
   summaryPanel?.remove();
   summaryPanel = null;
-  communitySection = null;
-  getCommentsBtn = null;
+}
+
+// --- TL;DW comments panel (injected into ytd-comments-header-renderer) ----
+
+let commentsPanel: HTMLElement | null = null;
+let commentsObserver: MutationObserver | null = null;
+/** Pending sentiment to apply as soon as the comments section appears in the DOM. */
+let pendingCommentSentiment: { sentiment: string; audienceScore?: number } | null = null;
+
+function commentsHeaderHost(): Element | null {
+  return document.querySelector("ytd-comments-header-renderer");
+}
+
+function removeCommentsPanel(): void {
+  document.getElementById(TLDW_COMMENTS_PANEL_ID)?.remove();
+  commentsPanel = null;
 }
 
 function theme(): { bg: string; border: string; text: string; sub: string; hover: string } {
@@ -590,6 +609,7 @@ function buildPanelHead(
   t: ReturnType<typeof theme>,
   controls: HTMLElement[],
   channelInfo: ChannelInfo | null,
+  showBlockBtn = true,
 ): HTMLElement {
   const head = document.createElement("div");
   Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px" });
@@ -620,10 +640,9 @@ function buildPanelHead(
   const autoToggles: HTMLElement[] = [];
   if (channelInfo) {
     autoToggles.push(buildAutoToggle(channelInfo, "summary", currentAutoRunSummary, t));
-    autoToggles.push(buildAutoToggle(channelInfo, "comments", currentAutoRunComments, t));
   }
 
-  const blockBtn = channelInfo ? buildBlockButton(t, channelInfo) : null;
+  const blockBtn = (showBlockBtn && channelInfo) ? buildBlockButton(t, channelInfo) : null;
   head.append(icon, title, ...controls, spacer, ...autoToggles, ...(blockBtn ? [blockBtn] : []), closeBtn);
   return head;
 }
@@ -650,13 +669,13 @@ function buildBlockButton(t: ReturnType<typeof theme>, info: ChannelInfo): HTMLB
   return btn;
 }
 
-/** Small "Get Comments" button used in header until comments are loaded. */
+/** "Get Comment Analysis" button used in the result panel header until comments are loaded. */
 function buildGetCommentsButton(t: ReturnType<typeof theme>): HTMLButtonElement {
   const btn = document.createElement("button");
-  btn.textContent = "💬 Comments";
+  btn.textContent = "Get Comment Analysis";
   Object.assign(btn.style, {
-    fontSize: "11px", fontWeight: "700", letterSpacing: "0.04em",
-    padding: "3px 8px", borderRadius: "999px",
+    fontSize: "12px", fontWeight: "600", letterSpacing: "0.02em",
+    padding: "5px 12px", borderRadius: "999px",
     background: t.border, color: t.text,
     border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
   });
@@ -674,7 +693,7 @@ function buildGetCommentsButton(t: ReturnType<typeof theme>): HTMLButtonElement 
 }
 
 /** Show an instant skeleton panel while the API call is in flight. */
-function showLoadingPanel(showCommentShimmer = false): void {
+function showLoadingPanel(): void {
   const host = panelHost();
   if (!host) return;
   removeSummaryPanel();
@@ -707,22 +726,6 @@ function showLoadingPanel(showCommentShimmer = false): void {
 
   panel.append(head, shimmerLine("90%"), shimmerLine("65%"));
 
-  if (showCommentShimmer) {
-    const comm = document.createElement("div");
-    comm.id = "tldw-community";
-    Object.assign(comm.style, {
-      borderTop: `1px solid ${t.border}`,
-      marginTop: "8px",
-      paddingTop: "8px",
-      fontSize: "13px",
-      color: t.sub,
-      animation: "tldw-shimmer 1.4s infinite",
-    });
-    comm.textContent = "💬 Analyzing comments…";
-    panel.append(comm);
-    communitySection = comm;
-  }
-
   summaryPanel = panel;
   host.prepend(panel);
   log("loading panel shown");
@@ -745,7 +748,7 @@ function buildSummaryPanel(
     font: "14px/1.4 Roboto, system-ui, sans-serif", color: t.text,
   });
 
-  // --- header: verdict pill + source + Comments button (before auto toggles) ---
+  // --- header: verdict pill + source ---
   const verdictPill = pill(tldw.verdict, verdictColor(tldw.verdict), "#fff");
 
   const headerControls: HTMLElement[] = [verdictPill];
@@ -765,11 +768,6 @@ function buildSummaryPanel(
     });
     headerControls.push(srcBtn);
   }
-
-  // "Get Comments" button — visible until comments are loaded.
-  const commBtn = buildGetCommentsButton(t);
-  getCommentsBtn = commBtn;
-  headerControls.push(commBtn);
 
   const head = buildPanelHead(t, headerControls, currentChannelInfo);
   Object.assign(head.style, { marginBottom: "8px" });
@@ -838,19 +836,9 @@ function buildSummaryPanel(
       (channelStats.avgAudienceScore !== null ? `<span>Audience avg: ${fmt(channelStats.avgAudienceScore)}</span>` : "");
   }
 
-  // --- community section (filled in later by SET_COMMENT_SENTIMENT) ---
-  const comm = document.createElement("div");
-  comm.id = "tldw-community";
-  comm.style.display = "none";
-  Object.assign(comm.style, {
-    borderTop: `1px solid ${t.border}`, marginTop: "8px", paddingTop: "8px",
-    fontSize: "13px", color: t.sub,
-  });
-
   panel.append(
     head, body, ratingRow,
     ...(channelStats && channelStats.count >= 1 ? [channelRow] : []),
-    comm,
   );
   return panel;
 }
@@ -931,7 +919,6 @@ function buildUserRatingRow(
 
 function showSummaryPanel(
   tldw: TldwSummary,
-  keepCommunityShimmer = false,
   channelStats?: ChannelComparison,
   userRating?: "watch" | "skim" | "skip",
   videoId?: string | null,
@@ -939,34 +926,14 @@ function showSummaryPanel(
   const host = panelHost();
   if (!host) return;
 
-  const prevCommunity = communitySection;
   removeSummaryPanel();
   const panel = buildSummaryPanel(tldw, channelStats, userRating, videoId ?? currentVideoId());
   summaryPanel = panel;
-
-  // Wire up the community section reference so SET_COMMENT_SENTIMENT can find it.
-  communitySection = panel.querySelector<HTMLElement>("#tldw-community");
-
-  // If the loading panel had a shimmer visible, show a shimmer in the new
-  // panel too while we wait for the comment sentiment response.
-  if (keepCommunityShimmer && communitySection) {
-    ensureShimmerStyle();
-    const t = theme();
-    communitySection.style.display = "";
-    communitySection.style.animation = "tldw-shimmer 1.4s infinite";
-    communitySection.style.color = t.sub;
-    communitySection.textContent = "💬 Analyzing comments…";
-  }
-
-  // If there was already a community shimmer div from the loading panel,
-  // we no longer need a separate ref (the new panel has its own).
-  void prevCommunity; // suppress unused-var lint
-
   host.prepend(summaryPanel);
   log("summary panel injected");
 }
 
-/** Show the idle panel — just a header row with inline Summary + Comments buttons and auto toggles. */
+/** Show the idle panel — header with auto toggle, then an action row with Get Summary + Never. */
 function showIdlePanel(onGetSummary: () => void): void {
   const host = panelHost();
   if (!host) return;
@@ -981,66 +948,251 @@ function showIdlePanel(onGetSummary: () => void): void {
     font: "14px/1.4 Roboto, system-ui, sans-serif",
   });
 
-  // "▶ Summary" inline pill button
+  // Header — auto toggle and close; no block btn here (it's in the action row)
+  const head = buildPanelHead(t, [], currentChannelInfo, false);
+  Object.assign(head.style, { marginBottom: "10px" });
+
+  // Action row
+  const actionRow = document.createElement("div");
+  Object.assign(actionRow.style, { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" });
+
   const summaryBtn = document.createElement("button");
-  summaryBtn.textContent = "▶ Summary";
+  summaryBtn.textContent = "Get Summary";
   Object.assign(summaryBtn.style, {
-    fontSize: "11px", fontWeight: "700", letterSpacing: "0.04em",
-    padding: "3px 9px", borderRadius: "999px",
+    fontSize: "13px", fontWeight: "600",
+    padding: "7px 18px", borderRadius: "999px",
     background: "#1a73e8", color: "#fff",
-    border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
+    border: "none", cursor: "pointer", whiteSpace: "nowrap",
   });
-  summaryBtn.title = "Get AI summary for this video";
+  summaryBtn.title = "Get AI summary of this video's transcript";
   summaryBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     removeSummaryPanel();
     onGetSummary();
   });
 
-  // "💬 Comments" inline pill button
-  const commBtn = buildGetCommentsButton(t);
-  getCommentsBtn = commBtn;
+  const neverBtn = document.createElement("button");
+  neverBtn.textContent = "Never";
+  Object.assign(neverBtn.style, {
+    fontSize: "12px", fontWeight: "600",
+    padding: "7px 14px", borderRadius: "999px",
+    background: "transparent", color: t.sub,
+    border: `1px solid ${t.border}`, cursor: "pointer", whiteSpace: "nowrap",
+  });
+  neverBtn.title = currentChannelInfo
+    ? `Never show AI summaries for ${currentChannelInfo.name}`
+    : "Never show AI summaries for this channel";
+  neverBtn.addEventListener("mouseenter", () => { neverBtn.style.borderColor = "#dc2626"; neverBtn.style.color = "#dc2626"; });
+  neverBtn.addEventListener("mouseleave", () => { neverBtn.style.borderColor = t.border; neverBtn.style.color = t.sub; });
+  neverBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (currentChannelInfo) {
+      void addBlockedChannelEntry(currentChannelInfo).then(() => {
+        removeSummaryPanel();
+        log("channel blocked from summary:", currentChannelInfo!.name);
+      });
+    }
+  });
 
-  const head = buildPanelHead(t, [summaryBtn, commBtn], currentChannelInfo);
-  panel.append(head);
+  actionRow.append(summaryBtn, neverBtn);
+  panel.append(head, actionRow);
 
   summaryPanel = panel;
   host.prepend(panel);
   log("idle panel shown");
 }
 
-// --- community section helper --------------------------------------------
+// --- comments panel (injected into ytd-comments-header-renderer) ----------
 
-function fillCommunitySection(sentiment: string, audienceScore?: number): void {
-  // Hide the "Get Comments" button since we now have the result.
-  if (getCommentsBtn) { getCommentsBtn.style.display = "none"; getCommentsBtn = null; }
-  const el = communitySection ?? document.querySelector<HTMLElement>("#tldw-community");
-  if (!el) return;
-  el.style.display = "";
-  el.style.animation = "";
-  el.style.color = "";
-  el.innerHTML = "";
-  const sentimentText = document.createElement("span");
-  sentimentText.textContent = `💬 ${sentiment}`;
-  el.append(sentimentText);
+function showCommentsSentimentResult(sentiment: string, audienceScore?: number): void {
+  const host = commentsHeaderHost();
+  removeCommentsPanel();
+  if (!host) return;
+
+  const t = theme();
+  const panel = document.createElement("div");
+  panel.id = TLDW_COMMENTS_PANEL_ID;
+  Object.assign(panel.style, {
+    display: "flex", alignItems: "flex-start", flexDirection: "column", gap: "4px",
+    padding: "10px 0 12px",
+    font: "13px/1.5 Roboto, system-ui, sans-serif",
+    borderBottom: `1px solid ${t.border}`,
+    marginBottom: "4px",
+  });
+
+  const row = document.createElement("div");
+  Object.assign(row.style, { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" });
+
+  const label = document.createElement("span");
+  label.textContent = "💬 Comment Analysis";
+  Object.assign(label.style, { fontWeight: "700", fontSize: "12px", color: t.sub });
+
   if (audienceScore !== undefined) {
     const scorePill = document.createElement("span");
-    scorePill.textContent = `Audience: ${audienceScore}/10`;
+    scorePill.textContent = `${audienceScore}/10`;
     Object.assign(scorePill.style, {
-      display: "inline-block",
-      marginLeft: "10px",
-      fontSize: "11px",
-      fontWeight: "700",
-      padding: "2px 8px",
-      borderRadius: "999px",
-      background: theme().border,
-      color: theme().text,
-      verticalAlign: "middle",
-      whiteSpace: "nowrap",
+      fontSize: "11px", fontWeight: "700", padding: "2px 8px",
+      borderRadius: "999px", background: t.border, color: t.text, whiteSpace: "nowrap",
     });
-    el.append(scorePill);
+    row.append(label, scorePill);
+  } else {
+    row.append(label);
   }
-  log("community sentiment updated");
+
+  const text = document.createElement("div");
+  text.textContent = sentiment;
+  Object.assign(text.style, { fontSize: "13px", color: t.text, lineHeight: "1.5" });
+
+  panel.append(row, text);
+  host.prepend(panel);
+  commentsPanel = panel;
+  pendingCommentSentiment = null;
+  log("comment sentiment shown in comments panel");
+}
+
+/** Fill the comments panel with sentiment. Falls back to storing pending if comments section not yet in DOM. */
+function fillCommunitySection(sentiment: string, audienceScore?: number): void {
+  if (commentsHeaderHost()) {
+    showCommentsSentimentResult(sentiment, audienceScore);
+  } else {
+    pendingCommentSentiment = { sentiment, audienceScore };
+    log("comment sentiment stored as pending — comments section not yet in DOM");
+  }
+}
+
+function showCommentsIdlePanel(onGetComments: () => void): void {
+  const host = commentsHeaderHost();
+  if (!host) return;
+  removeCommentsPanel();
+
+  const t = theme();
+  const panel = document.createElement("div");
+  panel.id = TLDW_COMMENTS_PANEL_ID;
+  Object.assign(panel.style, {
+    display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap",
+    padding: "10px 0 12px",
+    font: "14px/1.4 Roboto, system-ui, sans-serif",
+    borderBottom: `1px solid ${t.border}`,
+    marginBottom: "4px",
+  });
+
+  const getBtn = document.createElement("button");
+  getBtn.textContent = "Get Comment Analysis";
+  Object.assign(getBtn.style, {
+    fontSize: "13px", fontWeight: "600", padding: "7px 18px", borderRadius: "999px",
+    background: "#0d9488", color: "#fff", border: "none", cursor: "pointer", whiteSpace: "nowrap",
+  });
+  getBtn.title = "Analyze viewer comments for this video";
+  getBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    getBtn.textContent = "Analyzing…";
+    getBtn.disabled = true;
+    onGetComments();
+  });
+
+  // Auto-run toggle for comments
+  const autoToggle = currentChannelInfo
+    ? buildAutoToggle(currentChannelInfo, "comments", currentAutoRunComments, t)
+    : null;
+
+  const neverBtn = document.createElement("button");
+  neverBtn.textContent = "Never";
+  Object.assign(neverBtn.style, {
+    fontSize: "12px", fontWeight: "600", padding: "7px 14px", borderRadius: "999px",
+    background: "transparent", color: t.sub, border: `1px solid ${t.border}`,
+    cursor: "pointer", whiteSpace: "nowrap",
+  });
+  neverBtn.title = currentChannelInfo
+    ? `Never show comment analysis for ${currentChannelInfo.name}`
+    : "Never show comment analysis for this channel";
+  neverBtn.addEventListener("mouseenter", () => { neverBtn.style.borderColor = "#dc2626"; neverBtn.style.color = "#dc2626"; });
+  neverBtn.addEventListener("mouseleave", () => { neverBtn.style.borderColor = t.border; neverBtn.style.color = t.sub; });
+  neverBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (currentChannelInfo) {
+      void addBlockedCommentsChannelEntry(currentChannelInfo).then(() => {
+        removeCommentsPanel();
+        log("channel blocked from comment analysis:", currentChannelInfo!.name);
+      });
+    }
+  });
+
+  panel.append(getBtn, ...(autoToggle ? [autoToggle] : []), neverBtn);
+  host.prepend(panel);
+  commentsPanel = panel;
+  log("comments idle panel shown");
+}
+
+async function maybeStartCommentsInjection(): Promise<void> {
+  const r = await chrome.storage.local.get(["settings", AUTO_RUN_CHANNELS_KEY, BLOCKED_COMMENTS_KEY]);
+  const s = r["settings"] as Record<string, unknown> | undefined;
+  if (!(s?.useDirectApi as boolean) || !(s?.geminiApiKey as string)) return;
+
+  // If we have a pending cached sentiment, show it immediately.
+  if (pendingCommentSentiment) {
+    showCommentsSentimentResult(pendingCommentSentiment.sentiment, pendingCommentSentiment.audienceScore);
+    return;
+  }
+
+  // Check if comments are blocked for this channel.
+  if (currentChannelInfo) {
+    const blocked = (r[BLOCKED_COMMENTS_KEY] as BlockedChannelEntry[]) ?? [];
+    if (blocked.some((c) => c.id === currentChannelInfo!.id || c.name === currentChannelInfo!.name)) {
+      log("comment analysis blocked for channel:", currentChannelInfo.name);
+      return;
+    }
+  }
+
+  const autoRunChannels = (r[AUTO_RUN_CHANNELS_KEY] as AutoRunChannelEntry[]) ?? [];
+  const channelEntry = currentChannelInfo
+    ? autoRunChannels.find((c) => c.id === currentChannelInfo!.id || c.name === currentChannelInfo!.name)
+    : undefined;
+  const shouldAutoRun = channelEntry?.autoRunComments ?? false;
+  currentAutoRunComments = shouldAutoRun;
+
+  const fireComments = () => {
+    try { void chrome.runtime.sendMessage({ type: "ASK_COMMENTS" }); } catch { /* best effort */ }
+  };
+
+  if (shouldAutoRun) {
+    // Show a loading shimmer in the comments panel and kick off the call.
+    const host = commentsHeaderHost();
+    if (host) {
+      removeCommentsPanel();
+      const t = theme();
+      ensureShimmerStyle();
+      const panel = document.createElement("div");
+      panel.id = TLDW_COMMENTS_PANEL_ID;
+      Object.assign(panel.style, {
+        padding: "10px 0 12px", fontSize: "13px", color: t.sub,
+        animation: "tldw-shimmer 1.4s infinite",
+        borderBottom: `1px solid ${t.border}`, marginBottom: "4px",
+        font: "13px/1.4 Roboto, system-ui, sans-serif",
+      });
+      panel.textContent = "💬 Analyzing comments…";
+      host.prepend(panel);
+      commentsPanel = panel;
+    }
+    fireComments();
+  } else {
+    showCommentsIdlePanel(fireComments);
+  }
+}
+
+function watchForCommentsSection(): void {
+  if (commentsObserver) { commentsObserver.disconnect(); commentsObserver = null; }
+  if (commentsHeaderHost()) {
+    void maybeStartCommentsInjection();
+    return;
+  }
+  commentsObserver = new MutationObserver(() => {
+    if (commentsHeaderHost()) {
+      commentsObserver?.disconnect();
+      commentsObserver = null;
+      void maybeStartCommentsInjection();
+    }
+  });
+  commentsObserver.observe(document.body, { childList: true, subtree: true });
 }
 
 // --- auto TL;DW ----------------------------------------------------------
@@ -1062,44 +1214,36 @@ async function maybeStartDirectApiRun(): Promise<void> {
   const vid = currentVideoId();
   if (!vid) return;
 
+  // Set currentChannelInfo early so comments injection can use it even when we return early.
+  currentChannelInfo = getChannelInfo();
+
   const r = await chrome.storage.local.get(["settings", "tldwSummaryCache", AUTO_RUN_CHANNELS_KEY, BLOCKED_CHANNELS_KEY]);
   const s = r["settings"] as Record<string, unknown> | undefined;
   if (!(s?.useDirectApi as boolean) || !(s?.geminiApiKey as string)) return;
 
-  const channelInfo = getChannelInfo();
-
-  // If the user has blocked this channel, skip injection entirely.
-  if (channelInfo) {
+  // If the user has blocked this channel from summary, skip injection entirely.
+  if (currentChannelInfo) {
     const blocked = (r[BLOCKED_CHANNELS_KEY] as BlockedChannelEntry[]) ?? [];
-    if (blocked.some((c) => c.id === channelInfo.id || c.name === channelInfo.name)) {
-      log("channel blocked, skipping panel injection:", channelInfo.name);
+    if (blocked.some((c) => c.id === currentChannelInfo!.id || c.name === currentChannelInfo!.name)) {
+      log("channel blocked from summary, skipping panel injection:", currentChannelInfo.name);
       return;
     }
   }
 
   const autoRunChannels = await readAutoRunChannels();
-  const channelEntry = channelInfo
-    ? autoRunChannels.find((c) => c.id === channelInfo.id || c.name === channelInfo.name)
+  const channelEntry = currentChannelInfo
+    ? autoRunChannels.find((c) => c.id === currentChannelInfo!.id || c.name === currentChannelInfo!.name)
     : undefined;
 
-  currentChannelInfo = channelInfo;
   currentAutoRunSummary = channelEntry?.autoRunSummary ?? false;
-  currentAutoRunComments = channelEntry?.autoRunComments ?? false;
 
   // Helper: show loading skeleton and fire the summary API call.
   const startApiCall = async () => {
-    showLoadingPanel(currentAutoRunComments);
+    showLoadingPanel();
     void getTranscript();
     log("direct API call started");
     try {
       await chrome.runtime.sendMessage({ type: "ASK" });
-    } catch { /* best effort */ }
-  };
-
-  // Helper: fire standalone comment analysis.
-  const startCommentsCall = async () => {
-    try {
-      await chrome.runtime.sendMessage({ type: "ASK_COMMENTS" });
     } catch { /* best effort */ }
   };
 
@@ -1108,9 +1252,10 @@ async function maybeStartDirectApiRun(): Promise<void> {
   const cache = r["tldwSummaryCache"] as Record<string, CacheEntry> | undefined;
   const cached = cache?.[vid];
   if (cached && Date.now() - new Date(cached.cachedAt).getTime() < CACHE_TTL_MS) {
-    showSummaryPanel({ ...cached.tldw, source: "cached" }, false, undefined, cached.userRating, vid);
+    showSummaryPanel({ ...cached.tldw, source: "cached" }, undefined, cached.userRating, vid);
+    // Store cached comment sentiment so the comments panel can show it when it appears.
     if (cached.commentSentiment) {
-      fillCommunitySection(cached.commentSentiment, cached.audienceScore);
+      pendingCommentSentiment = { sentiment: cached.commentSentiment, audienceScore: cached.audienceScore };
     }
     log("served from cache");
     return;
@@ -1119,20 +1264,10 @@ async function maybeStartDirectApiRun(): Promise<void> {
   // Auto-run summary: fire immediately.
   if (currentAutoRunSummary) {
     await startApiCall();
-    // Also auto-run comments if that flag is set (handled via includeCommentSentiment
-    // in runSummary, but we use the local flag here for the standalone path).
-    if (currentAutoRunComments) void startCommentsCall();
     return;
   }
 
-  // Auto-run comments only (no summary auto-run): show idle + kick off comments.
-  if (currentAutoRunComments) {
-    showIdlePanel(() => { void startApiCall(); });
-    void startCommentsCall();
-    return;
-  }
-
-  // Neither auto-run: show idle panel with manual buttons.
+  // Show idle panel with manual "Get Summary" + "Never" buttons.
   showIdlePanel(() => { void startApiCall(); });
 }
 
@@ -1172,11 +1307,14 @@ function onNavigate(): void {
   if (url === lastHandledUrl) return;
   lastHandledUrl = url;
   removeSummaryPanel();
+  removeCommentsPanel();
+  if (commentsObserver) { commentsObserver.disconnect(); commentsObserver = null; }
+  pendingCommentSentiment = null;
   activeTranscriptFetch = null;
   currentChannelInfo = null;
   currentAutoRunSummary = false;
   currentAutoRunComments = false;
-  void maybeStartDirectApiRun();
+  void maybeStartDirectApiRun().then(() => { watchForCommentsSection(); });
   setTimeout(() => { void autoRunIfLong(); }, 2500);
 }
 
@@ -1217,7 +1355,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const msg = message as { tldw?: TldwSummary; source?: string; channelStats?: ChannelComparison };
     const tldw = msg?.tldw;
     if (tldw?.verdict && tldw.summary) {
-      showSummaryPanel({ ...tldw, source: msg.source }, communitySection !== null, msg.channelStats, undefined, currentVideoId());
+      showSummaryPanel({ ...tldw, source: msg.source }, msg.channelStats, undefined, currentVideoId());
     }
     sendResponse({ ok: true });
     return false;
@@ -1227,9 +1365,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (msg.sentiment) {
       fillCommunitySection(msg.sentiment, msg.audienceScore);
     } else {
-      // No sentiment (comments unavailable or error) — hide the shimmer.
-      const el = communitySection ?? document.querySelector<HTMLElement>("#tldw-community");
-      if (el) el.style.display = "none";
+      // No sentiment (comments unavailable or error) — just remove loading shimmer.
+      removeCommentsPanel();
     }
     sendResponse({ ok: true });
     return false;
