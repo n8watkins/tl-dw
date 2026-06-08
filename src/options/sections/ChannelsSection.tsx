@@ -3,6 +3,7 @@ import type { AutoRunChannel, BlockedChannel, SearchHistoryEntry } from "../../t
 import { getHistory, getAutoRunChannels, setAutoRunChannels as persistAutoRunChannels, getBlockedChannels, removeBlockedChannel, getBlockedCommentsChannels, removeBlockedCommentsChannel, getSettings } from "../../lib/storage";
 import { computeChannelStats, type ChannelStats } from "../../lib/history";
 import { USER_RATING_LABELS, scoreToVerdict, userAvgToLabel } from "../../lib/constants";
+import { TierBadge } from "../components/TierBadge";
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -726,9 +727,21 @@ export function ChannelsSection() {
           )}
         </div>
         {!loading && channels.length > 0 && (
-          <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
-            {channels.length} {channels.length === 1 ? "channel" : "channels"} · {totalVideos} {totalVideos === 1 ? "video" : "videos"} total
-          </p>
+          <>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
+              {channels.length} {channels.length === 1 ? "channel" : "channels"} · {totalVideos} {totalVideos === 1 ? "video" : "videos"} total
+            </p>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                <strong>You</strong> ratings
+              </span>
+              <TierBadge tier="basic" />
+              <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 4 }}>
+                <strong>AI</strong> &amp; <strong>Audience</strong>
+              </span>
+              <TierBadge tier="integrated" label="Direct API" />
+            </div>
+          </>
         )}
       </div>
 

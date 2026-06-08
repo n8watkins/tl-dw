@@ -450,6 +450,30 @@ kbd {
 .badge-default { background: rgba(124,58,237,0.2); color: var(--accent); }
 .badge-custom  { background: rgba(34,197,94,0.15); color: var(--success); }
 
+/* Two-tier product badges */
+.tier-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.tier-badge-basic {
+  background: var(--surface2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.tier-badge-integrated {
+  background: rgba(124,58,237,0.18);
+  color: var(--accent);
+  border: 1px solid rgba(124,58,237,0.35);
+}
+
 .chevron {
   color: var(--faint);
   display: inline-flex;

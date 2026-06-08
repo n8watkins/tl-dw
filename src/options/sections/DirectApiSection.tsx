@@ -12,6 +12,7 @@ import {
 } from "../../lib/storage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
+import { TierBadge } from "../components/TierBadge";
 
 export function DirectApiSection() {
   const [settings, setLocal] = useState<Settings | null>(null);
@@ -134,6 +135,14 @@ export function DirectApiSection() {
             "Call Gemini directly on every summarize — no tab opens, regardless of destination."
           )}
         </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+          <TierBadge tier="integrated" label="Integrated" />
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            Everything on this page is part of the Integrated tier — it needs the Direct API
+            (Gemini) key. The on-page summary panel, AI verdict, and community sentiment all
+            come from the model's structured output.
+          </span>
+        </div>
       </div>
 
       {/* API key */}
@@ -268,6 +277,69 @@ export function DirectApiSection() {
           </div>
         )}
 
+      </div>
+
+      {/* Integrated: AI + Community ratings (all require the API key) */}
+      <div className="settings-group">
+        <div className="settings-group-title">
+          <Icon name="sparkles" /> Integrated
+          <TierBadge tier="integrated" label="Needs API key" style={{ marginLeft: 8 }} />
+        </div>
+        <div className="setting-sub" style={{ marginBottom: 12 }}>
+          AI verdict and community sentiment are derived from the model's structured output,
+          so they only exist when the Direct API is configured. The per-channel averages are
+          computed locally from those results.
+        </div>
+
+        {/* AI rating: collect/show (A) */}
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Show AI recommendation</div>
+            <div className="setting-sub">
+              Show the AI verdict (Watch/Skim/Skip) and numeric score on the panel.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.showAiRecommendation}
+                onChange={(e) =>
+                  void update(
+                    e.target.checked
+                      ? { showAiRecommendation: true }
+                      : { showAiRecommendation: false, trackAiAverage: false },
+                  )
+                }
+                disabled={!hasKey}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
+        {/* AI rating: track average (B, requires A) */}
+        <div className="setting-row" style={{ opacity: settings.showAiRecommendation ? 1 : 0.5 }}>
+          <div className="setting-info">
+            <div className="setting-label">Track AI average</div>
+            <div className="setting-sub">
+              Average the AI score per channel and show a this-video-vs-channel cue.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                disabled={!hasKey || !settings.showAiRecommendation}
+                checked={settings.trackAiAverage}
+                onChange={(e) => void update({ trackAiAverage: e.target.checked })}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
+        {/* Community: collect/show (A) */}
         <div className="setting-row">
           <div className="setting-info">
             <div className="setting-label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -316,7 +388,7 @@ export function DirectApiSection() {
                 type="checkbox"
                 checked={settings.trackCommunityAverage}
                 onChange={(e) => void update({ trackCommunityAverage: e.target.checked })}
-                disabled={!settings.includeCommentSentiment}
+                disabled={!hasKey || !settings.includeCommentSentiment}
               />
               <span className="toggle-track" />
             </label>
