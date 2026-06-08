@@ -320,6 +320,15 @@ export type SetCommentSentimentMessage = {
 /** Sent from the content script to request a standalone comment-sentiment analysis. */
 export type AskCommentsMessage = { type: "ASK_COMMENTS" };
 
+/** Popup requesting the direct-API usage stats; responds with GeminiUsage. */
+export type GetGeminiUsageMessage = { type: "GET_GEMINI_USAGE" };
+
+/** Popup asking to reset the direct-API usage counter. */
+export type ClearGeminiUsageMessage = { type: "CLEAR_GEMINI_USAGE" };
+
+/** Popup/content asking the worker to open the extension's options page. */
+export type OpenOptionsMessage = { type: "OPEN_OPTIONS" };
+
 /** Popup asking the content script whether the current channel is blocked. */
 export type GetChannelStatusMessage = { type: "GET_CHANNEL_STATUS" };
 
@@ -338,4 +347,7 @@ export type RuntimeMessage =
   | InjectResultMessage
   | AiSummaryMessage
   | GetCommentsMessage
-  | SetCommentSentimentMessage;
+  | SetCommentSentimentMessage
+  | GetGeminiUsageMessage
+  | ClearGeminiUsageMessage
+  | OpenOptionsMessage;

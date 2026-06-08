@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import type { AutoRunChannel, BlockedChannel, SearchHistoryEntry } from "../../types";
-import { getHistory, getAutoRunChannels, setAutoRunChannels, getBlockedChannels, removeBlockedChannel, getBlockedCommentsChannels, removeBlockedCommentsChannel } from "../../lib/storage";
+import { getHistory, getAutoRunChannels, setAutoRunChannels as persistAutoRunChannels, getBlockedChannels, removeBlockedChannel, getBlockedCommentsChannels, removeBlockedCommentsChannel } from "../../lib/storage";
 import { computeChannelStats, type ChannelStats } from "../../lib/history";
 
 // ---- helpers ----------------------------------------------------------------
@@ -534,7 +534,7 @@ export function ChannelsSection() {
   const handleRemoveAutoRun = useCallback(async (channelId: string) => {
     const current = await getAutoRunChannels();
     const updated = current.filter((c) => c.id !== channelId && c.name !== channelId);
-    await setAutoRunChannels(updated);
+    await persistAutoRunChannels(updated);
     setAutoRunChannels(updated);
   }, []);
 
@@ -572,7 +572,7 @@ export function ChannelsSection() {
         updated = current.filter((c) => c.name !== stats.channel);
       }
     }
-    await setAutoRunChannels(updated);
+    await persistAutoRunChannels(updated);
     setAutoRunChannels(updated);
   }, []);
 

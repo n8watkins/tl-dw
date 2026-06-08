@@ -85,7 +85,6 @@ export function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [selectedId, setSelectedId] = useState<string>("");
   const [tab, setTab] = useState<chrome.tabs.Tab | null>(null);
-  const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
   const [destinationId, setDestinationId] = useState("gemini");
@@ -94,7 +93,7 @@ export function App() {
   const [openSearches, setOpenSearches] = useState<OpenSearch[]>([]);
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   const [statuses, setStatuses] = useState<DeliveryStatus[]>([]);
-  const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({ totalCalls: 0 });
+  const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({ totalCalls: 0, allTimeCalls: 0, todayCalls: 0 });
   const [channelStatus, setChannelStatus] = useState<ChannelStatusResponse | null>(null);
 
   useEffect(() => {
@@ -387,7 +386,7 @@ export function App() {
                   </option>
                 ))}
               </select>
-              <button className="ask-btn" onClick={send} disabled={busy}>
+              <button className="ask-btn" onClick={send}>
                 <SparkIcon />
                 <span className="ask-btn-label">
                   <span>{destinationVerb(getDestination(effectiveDestinationId))} {getDestination(effectiveDestinationId).label}</span>
@@ -497,7 +496,6 @@ export function App() {
                 key={h.id}
                 className="search-item"
                 onClick={() => void askAgain(h)}
-                disabled={busy}
                 title={h.videoTitle}
               >
                 <span className="search-item-title">

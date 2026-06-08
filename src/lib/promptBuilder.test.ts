@@ -40,7 +40,9 @@ describe("buildDestinationPrompt", () => {
 
   it("substitutes template variables for a chat prompt", () => {
     const out = buildDestinationPrompt(profile, video, dest({ payload: "prompt", canWatch: true }));
-    expect(out).toBe("Summarize My Video at https://youtube.com/watch?v=abc");
+    // The substituted template leads; the structured TL;DW block is appended after.
+    expect(out.startsWith("Summarize My Video at https://youtube.com/watch?v=abc")).toBe(true);
+    expect(out).toContain("---TLDW---");
   });
 
   it("a watch-capable destination (Gemini) never appends the transcript", () => {
@@ -83,7 +85,8 @@ describe("buildDestinationPrompt", () => {
       null,
       "what about pricing?",
     );
-    expect(out).toBe("Q: what about pricing?");
+    expect(out.startsWith("Q: what about pricing?")).toBe(true);
+    expect(out).toContain("---TLDW---");
   });
 
   it("appends the curiosity (labelled) when the template lacks the placeholder", () => {
@@ -105,6 +108,8 @@ describe("buildDestinationPrompt", () => {
       null,
       "   ",
     );
-    expect(out).toBe("Summarize My Video at https://youtube.com/watch?v=abc");
+    // Blank curiosity adds nothing — no labelled "address this" line appears.
+    expect(out.startsWith("Summarize My Video at https://youtube.com/watch?v=abc")).toBe(true);
+    expect(out).not.toContain("In particular, address this");
   });
 });

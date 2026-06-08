@@ -515,7 +515,6 @@ function removeSummaryPanel(): void {
 
 // --- TL;DW comments panel (injected into ytd-comments-header-renderer) ----
 
-let commentsPanel: HTMLElement | null = null;
 let commentsObserver: MutationObserver | null = null;
 /** Pending sentiment to apply as soon as the comments section appears in the DOM. */
 let pendingCommentSentiment: { sentiment: string; audienceScore?: number } | null = null;
@@ -539,7 +538,6 @@ function commentsHeaderHost(): Element | null {
 
 function removeCommentsPanel(): void {
   document.getElementById(TLDW_COMMENTS_PANEL_ID)?.remove();
-  commentsPanel = null;
 }
 
 function theme(): { bg: string; border: string; text: string; sub: string; hover: string } {
@@ -741,29 +739,6 @@ function buildBlockButton(t: ReturnType<typeof theme>, info: ChannelInfo): HTMLB
   return btn;
 }
 
-/** "Get Comment Analysis" button used in the result panel header until comments are loaded. */
-function buildGetCommentsButton(t: ReturnType<typeof theme>): HTMLButtonElement {
-  const btn = document.createElement("button");
-  btn.textContent = "Get Comment Analysis";
-  Object.assign(btn.style, {
-    fontSize: "12px", fontWeight: "600", letterSpacing: "0.02em",
-    padding: "5px 12px", borderRadius: "999px",
-    background: t.border, color: t.text,
-    border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
-  });
-  btn.title = "Analyze viewer comments";
-  btn.addEventListener("mouseenter", () => { btn.style.background = t.hover; });
-  btn.addEventListener("mouseleave", () => { btn.style.background = t.border; });
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    btn.style.display = "none";
-    try {
-      void chrome.runtime.sendMessage({ type: "ASK_COMMENTS" });
-    } catch { /* best effort */ }
-  });
-  return btn;
-}
-
 /** Show an instant skeleton panel while the API call is in flight. */
 function showLoadingPanel(): void {
   const host = panelHost();
@@ -888,7 +863,7 @@ function buildSummaryPanel(
   }
 
   // --- user personal rating row ---
-  const ratingRow = buildUserRatingRow(t, initialUserRating, videoId, tldw.verdict, currentChannelInfo?.name);
+  const ratingRow = buildUserRatingRow(t, initialUserRating, videoId, currentChannelInfo?.name);
 
   // --- channel comparison row (local math, no API call) ---
   const channelRow = document.createElement("div");
@@ -918,7 +893,6 @@ function buildUserRatingRow(
   t: ReturnType<typeof theme>,
   initial: "watch" | "skim" | "skip" | undefined,
   videoId: string | null | undefined,
-  aiVerdict?: string,
   channelName?: string,
 ): HTMLElement {
   const options: { value: "watch" | "skim" | "skip"; label: string; color: string }[] = [
@@ -1457,7 +1431,6 @@ function showCommentsSentimentResult(sentiment: string, audienceScore?: number):
 
   panel.append(head, text);
   target.container.insertBefore(panel, target.referenceNode);
-  commentsPanel = panel;
   pendingCommentSentiment = null;
   log("comment sentiment shown in comments panel");
 }
@@ -1549,7 +1522,6 @@ function showCommentsIdlePanel(onGetComments: () => void): void {
   panel.append(head);
 
   target.container.insertBefore(panel, target.referenceNode);
-  commentsPanel = panel;
   log("comments idle panel shown");
 }
 
@@ -1602,7 +1574,6 @@ async function maybeStartCommentsInjection(): Promise<void> {
       });
       panel.textContent = "💬 Analyzing comments…";
       target.container.insertBefore(panel, target.referenceNode);
-      commentsPanel = panel;
     }
     fireComments();
   } else {
