@@ -14,6 +14,7 @@ import type {
 import {
   AUTO_RUN_CHANNELS_KEY,
   BLOCKED_CHANNELS_KEY,
+  BLOCKED_COMMENTS_KEY,
   CACHE_TTL_MS,
   DEFAULT_SETTINGS,
   DELIVERY_STATUS_KEY,
@@ -377,6 +378,20 @@ export async function addBlockedChannel(channel: BlockedChannel): Promise<void> 
 export async function removeBlockedChannel(channelId: string): Promise<void> {
   const existing = await getBlockedChannels();
   await setBlockedChannels(existing.filter((c) => c.id !== channelId && c.name !== channelId));
+}
+
+// --- Blocked comments channel list ------------------------------------------
+
+export async function getBlockedCommentsChannels(): Promise<BlockedChannel[]> {
+  const r = await chrome.storage.local.get(BLOCKED_COMMENTS_KEY);
+  return (r[BLOCKED_COMMENTS_KEY] as BlockedChannel[]) ?? [];
+}
+
+export async function removeBlockedCommentsChannel(channelId: string): Promise<void> {
+  const existing = await getBlockedCommentsChannels();
+  await chrome.storage.local.set({
+    [BLOCKED_COMMENTS_KEY]: existing.filter((c) => c.id !== channelId && c.name !== channelId),
+  });
 }
 
 /** Open searches whose tabs are still open; prunes any that have closed. */

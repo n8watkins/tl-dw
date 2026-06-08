@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import type { AutoRunChannel, BlockedChannel, SearchHistoryEntry } from "../../types";
-import { getHistory, getAutoRunChannels, setAutoRunChannels, getBlockedChannels, removeBlockedChannel } from "../../lib/storage";
+import { getHistory, getAutoRunChannels, setAutoRunChannels, getBlockedChannels, removeBlockedChannel, getBlockedCommentsChannels, removeBlockedCommentsChannel } from "../../lib/storage";
 import { computeChannelStats, type ChannelStats } from "../../lib/history";
 
 // ---- helpers ----------------------------------------------------------------
@@ -511,16 +511,20 @@ export function ChannelsSection() {
   const [channels, setChannels] = useState<ChannelStats[]>([]);
   const [autoRunChannels, setAutoRunChannels] = useState<AutoRunChannel[]>([]);
   const [blockedChannels, setBlockedChannels] = useState<BlockedChannel[]>([]);
+  const [blockedCommentsChannels, setBlockedCommentsChannels] = useState<BlockedChannel[]>([]);
   const [totalVideos, setTotalVideos] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("count");
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
-    const [history, autoRun, blocked] = await Promise.all([getHistory(), getAutoRunChannels(), getBlockedChannels()]);
+    const [history, autoRun, blocked, blockedComments] = await Promise.all([
+      getHistory(), getAutoRunChannels(), getBlockedChannels(), getBlockedCommentsChannels(),
+    ]);
     const stats = computeChannelStats(history);
     setChannels(stats);
     setAutoRunChannels(autoRun);
     setBlockedChannels(blocked);
+    setBlockedCommentsChannels(blockedComments);
     setTotalVideos(history.filter((e) => !!e.channel).length);
     setLoading(false);
   }, []);
@@ -537,6 +541,11 @@ export function ChannelsSection() {
   const handleUnblock = useCallback(async (channelId: string) => {
     await removeBlockedChannel(channelId);
     setBlockedChannels((prev) => prev.filter((c) => c.id !== channelId && c.name !== channelId));
+  }, []);
+
+  const handleUnblockComments = useCallback(async (channelId: string) => {
+    await removeBlockedCommentsChannel(channelId);
+    setBlockedCommentsChannels((prev) => prev.filter((c) => c.id !== channelId && c.name !== channelId));
   }, []);
 
   const handleToggleAutoRun = useCallback(async (stats: ChannelStats, enable: boolean) => {
@@ -609,14 +618,14 @@ export function ChannelsSection() {
         </div>
       )}
 
-      {/* Blocked channels section */}
+      {/* Blocked summary channels section */}
       {!loading && blockedChannels.length > 0 && (
         <>
           <div className="section-header" style={{ marginTop: 8 }}>
-            <h1 className="section-title">Blocked Channels</h1>
+            <h1 className="section-title">Blocked — AI Summaries</h1>
             <p className="section-desc">
-              TL;DW will never inject a panel on videos from these channels.
-              Click Unblock to restore the panel.
+              TL;DW will never show an AI summary panel for videos from these channels.
+              Click Unblock to restore it.
             </p>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 32 }}>
@@ -625,6 +634,28 @@ export function ChannelsSection() {
                 key={ch.id}
                 channel={ch}
                 onUnblock={(id) => void handleUnblock(id)}
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Blocked comment analysis channels section */}
+      {!loading && blockedCommentsChannels.length > 0 && (
+        <>
+          <div className="section-header" style={{ marginTop: 8 }}>
+            <h1 className="section-title">Blocked — Comment Analysis</h1>
+            <p className="section-desc">
+              TL;DW will never show a comment analysis panel for videos from these channels.
+              Click Unblock to restore it.
+            </p>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 32 }}>
+            {blockedCommentsChannels.map((ch) => (
+              <BlockedCard
+                key={ch.id}
+                channel={ch}
+                onUnblock={(id) => void handleUnblockComments(id)}
               />
             ))}
           </div>

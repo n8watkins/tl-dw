@@ -499,6 +499,14 @@ let commentsObserver: MutationObserver | null = null;
 /** Pending sentiment to apply as soon as the comments section appears in the DOM. */
 let pendingCommentSentiment: { sentiment: string; audienceScore?: number } | null = null;
 
+/** Returns the element that contains ytd-comments-header-renderer, for inserting our card before it. */
+function commentsCardTarget(): { container: Element; referenceNode: Element } | null {
+  const header = document.querySelector("ytd-comments-header-renderer");
+  if (!header?.parentElement) return null;
+  return { container: header.parentElement, referenceNode: header };
+}
+
+/** Still used by watchForCommentsSection to detect when comments section appears. */
 function commentsHeaderHost(): Element | null {
   return document.querySelector("ytd-comments-header-renderer");
 }
@@ -933,7 +941,7 @@ function showSummaryPanel(
   log("summary panel injected");
 }
 
-/** Show the idle panel — header with auto toggle, then an action row with Get Summary + Never. */
+/** Show the idle panel — TL;DW icon + title + Get Summary + Never all in one header row. */
 function showIdlePanel(onGetSummary: () => void): void {
   const host = panelHost();
   if (!host) return;
@@ -948,21 +956,15 @@ function showIdlePanel(onGetSummary: () => void): void {
     font: "14px/1.4 Roboto, system-ui, sans-serif",
   });
 
-  // Header — auto toggle and close; no block btn here (it's in the action row)
-  const head = buildPanelHead(t, [], currentChannelInfo, false);
-  Object.assign(head.style, { marginBottom: "10px" });
-
-  // Action row
-  const actionRow = document.createElement("div");
-  Object.assign(actionRow.style, { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" });
+  const capturedChannelInfo = currentChannelInfo;
 
   const summaryBtn = document.createElement("button");
   summaryBtn.textContent = "Get Summary";
   Object.assign(summaryBtn.style, {
     fontSize: "13px", fontWeight: "600",
-    padding: "7px 18px", borderRadius: "999px",
+    padding: "6px 16px", borderRadius: "999px",
     background: "#1a73e8", color: "#fff",
-    border: "none", cursor: "pointer", whiteSpace: "nowrap",
+    border: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
   });
   summaryBtn.title = "Get AI summary of this video's transcript";
   summaryBtn.addEventListener("click", (e) => {
@@ -975,27 +977,61 @@ function showIdlePanel(onGetSummary: () => void): void {
   neverBtn.textContent = "Never";
   Object.assign(neverBtn.style, {
     fontSize: "12px", fontWeight: "600",
-    padding: "7px 14px", borderRadius: "999px",
+    padding: "6px 14px", borderRadius: "999px",
     background: "transparent", color: t.sub,
-    border: `1px solid ${t.border}`, cursor: "pointer", whiteSpace: "nowrap",
+    border: `1px solid ${t.border}`, cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
   });
-  neverBtn.title = currentChannelInfo
-    ? `Never show AI summaries for ${currentChannelInfo.name}`
+  neverBtn.title = capturedChannelInfo
+    ? `Never show AI summaries for ${capturedChannelInfo.name}`
     : "Never show AI summaries for this channel";
   neverBtn.addEventListener("mouseenter", () => { neverBtn.style.borderColor = "#dc2626"; neverBtn.style.color = "#dc2626"; });
   neverBtn.addEventListener("mouseleave", () => { neverBtn.style.borderColor = t.border; neverBtn.style.color = t.sub; });
   neverBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (currentChannelInfo) {
-      void addBlockedChannelEntry(currentChannelInfo).then(() => {
+    if (!capturedChannelInfo) return;
+    // Replace action buttons with inline confirmation
+    const channelName = capturedChannelInfo.name;
+    head.innerHTML = "";
+    const icon2 = document.createElement("img");
+    icon2.src = chrome.runtime.getURL("icons/tl-dw-32.png");
+    Object.assign(icon2.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
+    const msg = document.createElement("span");
+    msg.textContent = `Block ${channelName} from AI summaries?`;
+    Object.assign(msg.style, { fontSize: "13px", color: t.text, flex: "1", fontWeight: "600" });
+    const confirmBtn = document.createElement("button");
+    confirmBtn.textContent = "Yes, block";
+    Object.assign(confirmBtn.style, {
+      fontSize: "12px", fontWeight: "600", padding: "5px 12px", borderRadius: "999px",
+      background: "#dc2626", color: "#fff", border: "none", cursor: "pointer", whiteSpace: "nowrap",
+    });
+    confirmBtn.addEventListener("click", (e2) => {
+      e2.stopPropagation();
+      void addBlockedChannelEntry(capturedChannelInfo).then(() => {
         removeSummaryPanel();
-        log("channel blocked from summary:", currentChannelInfo!.name);
+        log("channel blocked from summary:", channelName);
       });
-    }
+    });
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "Cancel";
+    Object.assign(cancelBtn.style, {
+      fontSize: "12px", fontWeight: "600", padding: "5px 12px", borderRadius: "999px",
+      background: "transparent", color: t.sub, border: `1px solid ${t.border}`, cursor: "pointer", whiteSpace: "nowrap",
+    });
+    cancelBtn.addEventListener("click", () => { removeSummaryPanel(); showIdlePanel(onGetSummary); });
+    const spacer2 = document.createElement("div"); spacer2.style.flex = "1";
+    const closeBtn2 = document.createElement("button");
+    Object.assign(closeBtn2.style, {
+      background: "transparent", border: "none", color: t.sub, cursor: "pointer",
+      fontSize: "14px", lineHeight: "1", padding: "4px 6px", borderRadius: "6px",
+    });
+    closeBtn2.textContent = "✕";
+    closeBtn2.addEventListener("click", removeSummaryPanel);
+    head.append(icon2, msg, spacer2, confirmBtn, cancelBtn, closeBtn2);
   });
 
-  actionRow.append(summaryBtn, neverBtn);
-  panel.append(head, actionRow);
+  // Build the header with Get Summary + Never as inline controls
+  const head = buildPanelHead(t, [summaryBtn, neverBtn], capturedChannelInfo, false);
+  panel.append(head);
 
   summaryPanel = panel;
   host.prepend(panel);
@@ -1005,46 +1041,62 @@ function showIdlePanel(onGetSummary: () => void): void {
 // --- comments panel (injected into ytd-comments-header-renderer) ----------
 
 function showCommentsSentimentResult(sentiment: string, audienceScore?: number): void {
-  const host = commentsHeaderHost();
+  const target = commentsCardTarget();
   removeCommentsPanel();
-  if (!host) return;
+  if (!target) return;
 
   const t = theme();
   const panel = document.createElement("div");
   panel.id = TLDW_COMMENTS_PANEL_ID;
   Object.assign(panel.style, {
-    display: "flex", alignItems: "flex-start", flexDirection: "column", gap: "4px",
-    padding: "10px 0 12px",
-    font: "13px/1.5 Roboto, system-ui, sans-serif",
-    borderBottom: `1px solid ${t.border}`,
-    marginBottom: "4px",
+    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
+    padding: "10px 14px", marginBottom: "12px",
+    font: "14px/1.4 Roboto, system-ui, sans-serif", color: t.text,
   });
 
-  const row = document.createElement("div");
-  Object.assign(row.style, { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" });
+  // Header row: icon + title + score + close
+  const head = document.createElement("div");
+  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px", marginBottom: "8px" });
 
-  const label = document.createElement("span");
-  label.textContent = "💬 Comment Analysis";
-  Object.assign(label.style, { fontWeight: "700", fontSize: "12px", color: t.sub });
+  const icon = document.createElement("img");
+  icon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
+  Object.assign(icon.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
+
+  const title = document.createElement("span");
+  title.textContent = "Comment Analysis";
+  Object.assign(title.style, { fontWeight: "700", fontSize: "15px", color: t.text, flexShrink: "0" });
+
+  const spacer = document.createElement("div"); spacer.style.flex = "1";
 
   if (audienceScore !== undefined) {
     const scorePill = document.createElement("span");
-    scorePill.textContent = `${audienceScore}/10`;
+    scorePill.textContent = `Audience: ${audienceScore}/10`;
     Object.assign(scorePill.style, {
       fontSize: "11px", fontWeight: "700", padding: "2px 8px",
       borderRadius: "999px", background: t.border, color: t.text, whiteSpace: "nowrap",
     });
-    row.append(label, scorePill);
+    head.append(icon, title, spacer, scorePill);
   } else {
-    row.append(label);
+    head.append(icon, title, spacer);
   }
+
+  const closeBtn = document.createElement("button");
+  Object.assign(closeBtn.style, {
+    background: "transparent", border: "none", color: t.sub, cursor: "pointer",
+    fontSize: "14px", lineHeight: "1", padding: "4px 6px", borderRadius: "6px", flexShrink: "0",
+  });
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("mouseenter", () => (closeBtn.style.background = t.hover));
+  closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
+  closeBtn.addEventListener("click", removeCommentsPanel);
+  head.append(closeBtn);
 
   const text = document.createElement("div");
   text.textContent = sentiment;
   Object.assign(text.style, { fontSize: "13px", color: t.text, lineHeight: "1.5" });
 
-  panel.append(row, text);
-  host.prepend(panel);
+  panel.append(head, text);
+  target.container.insertBefore(panel, target.referenceNode);
   commentsPanel = panel;
   pendingCommentSentiment = null;
   log("comment sentiment shown in comments panel");
@@ -1061,26 +1113,27 @@ function fillCommunitySection(sentiment: string, audienceScore?: number): void {
 }
 
 function showCommentsIdlePanel(onGetComments: () => void): void {
-  const host = commentsHeaderHost();
-  if (!host) return;
+  const target = commentsCardTarget();
+  if (!target) return;
   removeCommentsPanel();
 
   const t = theme();
+  const capturedChannelInfo = currentChannelInfo;
+
   const panel = document.createElement("div");
   panel.id = TLDW_COMMENTS_PANEL_ID;
   Object.assign(panel.style, {
-    display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap",
-    padding: "10px 0 12px",
+    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
+    padding: "10px 14px", marginBottom: "12px",
     font: "14px/1.4 Roboto, system-ui, sans-serif",
-    borderBottom: `1px solid ${t.border}`,
-    marginBottom: "4px",
   });
 
   const getBtn = document.createElement("button");
   getBtn.textContent = "Get Comment Analysis";
   Object.assign(getBtn.style, {
-    fontSize: "13px", fontWeight: "600", padding: "7px 18px", borderRadius: "999px",
-    background: "#0d9488", color: "#fff", border: "none", cursor: "pointer", whiteSpace: "nowrap",
+    fontSize: "13px", fontWeight: "600", padding: "6px 16px", borderRadius: "999px",
+    background: "#0d9488", color: "#fff", border: "none", cursor: "pointer",
+    whiteSpace: "nowrap", flexShrink: "0",
   });
   getBtn.title = "Analyze viewer comments for this video";
   getBtn.addEventListener("click", (e) => {
@@ -1090,35 +1143,94 @@ function showCommentsIdlePanel(onGetComments: () => void): void {
     onGetComments();
   });
 
-  // Auto-run toggle for comments
-  const autoToggle = currentChannelInfo
-    ? buildAutoToggle(currentChannelInfo, "comments", currentAutoRunComments, t)
-    : null;
-
   const neverBtn = document.createElement("button");
   neverBtn.textContent = "Never";
   Object.assign(neverBtn.style, {
-    fontSize: "12px", fontWeight: "600", padding: "7px 14px", borderRadius: "999px",
+    fontSize: "12px", fontWeight: "600", padding: "6px 14px", borderRadius: "999px",
     background: "transparent", color: t.sub, border: `1px solid ${t.border}`,
-    cursor: "pointer", whiteSpace: "nowrap",
+    cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
   });
-  neverBtn.title = currentChannelInfo
-    ? `Never show comment analysis for ${currentChannelInfo.name}`
+  neverBtn.title = capturedChannelInfo
+    ? `Never show comment analysis for ${capturedChannelInfo.name}`
     : "Never show comment analysis for this channel";
   neverBtn.addEventListener("mouseenter", () => { neverBtn.style.borderColor = "#dc2626"; neverBtn.style.color = "#dc2626"; });
   neverBtn.addEventListener("mouseleave", () => { neverBtn.style.borderColor = t.border; neverBtn.style.color = t.sub; });
   neverBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (currentChannelInfo) {
-      void addBlockedCommentsChannelEntry(currentChannelInfo).then(() => {
+    if (!capturedChannelInfo) return;
+    // Inline confirmation
+    const channelName = capturedChannelInfo.name;
+    head.innerHTML = "";
+    const icon2 = document.createElement("img");
+    icon2.src = chrome.runtime.getURL("icons/tl-dw-32.png");
+    Object.assign(icon2.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
+    const msg = document.createElement("span");
+    msg.textContent = `Block ${channelName} from comment analysis?`;
+    Object.assign(msg.style, { fontSize: "13px", color: t.text, flex: "1", fontWeight: "600" });
+    const confirmBtn = document.createElement("button");
+    confirmBtn.textContent = "Yes, block";
+    Object.assign(confirmBtn.style, {
+      fontSize: "12px", fontWeight: "600", padding: "5px 12px", borderRadius: "999px",
+      background: "#dc2626", color: "#fff", border: "none", cursor: "pointer", whiteSpace: "nowrap",
+    });
+    confirmBtn.addEventListener("click", (e2) => {
+      e2.stopPropagation();
+      void addBlockedCommentsChannelEntry(capturedChannelInfo).then(() => {
         removeCommentsPanel();
-        log("channel blocked from comment analysis:", currentChannelInfo!.name);
+        log("channel blocked from comment analysis:", channelName);
       });
-    }
+    });
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "Cancel";
+    Object.assign(cancelBtn.style, {
+      fontSize: "12px", fontWeight: "600", padding: "5px 12px", borderRadius: "999px",
+      background: "transparent", color: t.sub, border: `1px solid ${t.border}`, cursor: "pointer", whiteSpace: "nowrap",
+    });
+    cancelBtn.addEventListener("click", () => { removeCommentsPanel(); showCommentsIdlePanel(onGetComments); });
+    const spacer2 = document.createElement("div"); spacer2.style.flex = "1";
+    const closeBtn2 = document.createElement("button");
+    Object.assign(closeBtn2.style, {
+      background: "transparent", border: "none", color: t.sub, cursor: "pointer",
+      fontSize: "14px", lineHeight: "1", padding: "4px 6px", borderRadius: "6px",
+    });
+    closeBtn2.textContent = "✕";
+    closeBtn2.addEventListener("click", removeCommentsPanel);
+    head.append(icon2, msg, spacer2, confirmBtn, cancelBtn, closeBtn2);
   });
 
-  panel.append(getBtn, ...(autoToggle ? [autoToggle] : []), neverBtn);
-  host.prepend(panel);
+  // Auto-run toggle for comments
+  const autoToggle = capturedChannelInfo
+    ? buildAutoToggle(capturedChannelInfo, "comments", currentAutoRunComments, t)
+    : null;
+
+  // Header row: icon + title + action buttons + close
+  const head = document.createElement("div");
+  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px" });
+
+  const icon = document.createElement("img");
+  icon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
+  Object.assign(icon.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
+
+  const titleEl = document.createElement("span");
+  titleEl.textContent = "TL;DW";
+  Object.assign(titleEl.style, { fontWeight: "700", fontSize: "15px", color: t.text, flexShrink: "0" });
+
+  const spacer = document.createElement("div"); spacer.style.flex = "1";
+
+  const closeBtn = document.createElement("button");
+  Object.assign(closeBtn.style, {
+    background: "transparent", border: "none", color: t.sub, cursor: "pointer",
+    fontSize: "14px", lineHeight: "1", padding: "4px 6px", borderRadius: "6px", flexShrink: "0",
+  });
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("mouseenter", () => (closeBtn.style.background = t.hover));
+  closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
+  closeBtn.addEventListener("click", removeCommentsPanel);
+
+  head.append(icon, titleEl, getBtn, neverBtn, spacer, ...(autoToggle ? [autoToggle] : []), closeBtn);
+  panel.append(head);
+
+  target.container.insertBefore(panel, target.referenceNode);
   commentsPanel = panel;
   log("comments idle panel shown");
 }
@@ -1155,22 +1267,23 @@ async function maybeStartCommentsInjection(): Promise<void> {
   };
 
   if (shouldAutoRun) {
-    // Show a loading shimmer in the comments panel and kick off the call.
-    const host = commentsHeaderHost();
-    if (host) {
+    // Show a loading shimmer card and kick off the call.
+    const target = commentsCardTarget();
+    if (target) {
       removeCommentsPanel();
       const t = theme();
       ensureShimmerStyle();
       const panel = document.createElement("div");
       panel.id = TLDW_COMMENTS_PANEL_ID;
       Object.assign(panel.style, {
-        padding: "10px 0 12px", fontSize: "13px", color: t.sub,
-        animation: "tldw-shimmer 1.4s infinite",
-        borderBottom: `1px solid ${t.border}`, marginBottom: "4px",
+        background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
+        padding: "10px 14px", marginBottom: "12px",
         font: "13px/1.4 Roboto, system-ui, sans-serif",
+        fontSize: "13px", color: t.sub,
+        animation: "tldw-shimmer 1.4s infinite",
       });
       panel.textContent = "💬 Analyzing comments…";
-      host.prepend(panel);
+      target.container.insertBefore(panel, target.referenceNode);
       commentsPanel = panel;
     }
     fireComments();
