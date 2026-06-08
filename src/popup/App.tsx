@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type {
+  ChannelStatusResponse,
   DeliveryStatus,
   OpenSearch,
   PromptProfile,
@@ -94,6 +95,7 @@ export function App() {
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   const [statuses, setStatuses] = useState<DeliveryStatus[]>([]);
   const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({ totalCalls: 0 });
+  const [channelStatus, setChannelStatus] = useState<ChannelStatusResponse | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -108,7 +110,8 @@ export function App() {
       ]);
       setProfiles(p);
       setSettings(s);
-      setTab(tabs[0] ?? null);
+      const activeTab = tabs[0] ?? null;
+      setTab(activeTab);
       setSelectedId(s.defaultProfileId ?? p[0]?.id ?? "");
       setDestinationId(s.destinationId ?? "gemini");
       setGate(s.worthWatchingGate ?? false);
@@ -117,6 +120,15 @@ export function App() {
       setStatuses(stat);
       setGeminiUsage(usage);
       setReady(true);
+      // Ask the content script if this channel is blocked
+      if (activeTab?.id && isYouTubeVideoUrl(activeTab.url)) {
+        try {
+          const status = await chrome.tabs.sendMessage(activeTab.id, { type: "GET_CHANNEL_STATUS" }) as ChannelStatusResponse;
+          setChannelStatus(status);
+        } catch {
+          // Content script not ready or not a video page — ignore
+        }
+      }
     })();
   }, []);
 
@@ -311,6 +323,25 @@ export function App() {
               <span className="status-note-time">({timeAgo(g.at)})</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {onVideo && channelStatus && (channelStatus.isBlocked || channelStatus.isCommentsBlocked) && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "var(--border)", borderRadius: 8, fontSize: 12, color: "var(--text-muted)" }}>
+          <span style={{ flex: 1 }}>
+            {channelStatus.channelName ?? "This channel"} is on your skip list
+            {channelStatus.isBlocked && channelStatus.isCommentsBlocked
+              ? " (summaries + comments)"
+              : channelStatus.isBlocked
+              ? " (summaries)"
+              : " (comments)"}
+          </span>
+          <button
+            onClick={openOptions}
+            style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 6, border: "none", background: "var(--text-muted)", color: "var(--bg)", cursor: "pointer" }}
+          >
+            View Blacklist
+          </button>
         </div>
       )}
 

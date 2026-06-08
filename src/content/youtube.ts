@@ -950,6 +950,92 @@ function showSummaryPanel(
   log("summary panel injected");
 }
 
+/** Full-page overlay confirmation before permanently skipping a channel. */
+function showSkipOverlay(
+  channelName: string,
+  info: ChannelInfo | null,
+  mode: "summary" | "comments",
+  onCancel: () => void,
+): void {
+  document.getElementById("tldw-skip-overlay")?.remove();
+  const t = theme();
+
+  const overlay = document.createElement("div");
+  overlay.id = "tldw-skip-overlay";
+  Object.assign(overlay.style, {
+    position: "fixed", inset: "0",
+    background: "rgba(0,0,0,0.55)",
+    zIndex: "2147483647",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    font: "14px/1.4 Roboto, system-ui, sans-serif",
+  });
+
+  const modal = document.createElement("div");
+  Object.assign(modal.style, {
+    background: t.bg, borderRadius: "16px",
+    padding: "28px 32px", maxWidth: "420px", width: "90%",
+    boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
+    display: "flex", flexDirection: "column", gap: "16px",
+  });
+
+  const hd = document.createElement("div");
+  Object.assign(hd.style, { display: "flex", alignItems: "center", gap: "12px" });
+  const hdIcon = document.createElement("img");
+  hdIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
+  Object.assign(hdIcon.style, { width: "36px", height: "36px", borderRadius: "8px", flexShrink: "0" });
+  const hdTitle = document.createElement("span");
+  hdTitle.textContent = "Skip this channel?";
+  Object.assign(hdTitle.style, { fontWeight: "700", fontSize: "17px", color: t.text });
+  hd.append(hdIcon, hdTitle);
+
+  const desc = document.createElement("div");
+  const what = mode === "summary" ? "AI summaries" : "comment analysis";
+  desc.innerHTML =
+    `<strong>${channelName}</strong> will no longer show <strong>${what}</strong> panels.<br><br>` +
+    `To re-enable, go to <strong>TL;DW Settings → Channels</strong> and click Unblock next to this channel.`;
+  Object.assign(desc.style, { fontSize: "13px", color: t.sub, lineHeight: "1.65" });
+
+  const row = document.createElement("div");
+  Object.assign(row.style, { display: "flex", gap: "10px", justifyContent: "flex-end" });
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.textContent = "Cancel";
+  Object.assign(cancelBtn.style, {
+    padding: "8px 20px", borderRadius: "999px",
+    border: `1px solid ${t.border}`, background: "transparent",
+    color: t.text, cursor: "pointer", fontSize: "13px", fontWeight: "600",
+  });
+  cancelBtn.addEventListener("click", () => { overlay.remove(); onCancel(); });
+
+  const confirmBtn = document.createElement("button");
+  confirmBtn.textContent = "Yes, skip this channel";
+  Object.assign(confirmBtn.style, {
+    padding: "8px 20px", borderRadius: "999px",
+    border: "none", background: "#dc2626",
+    color: "#fff", cursor: "pointer", fontSize: "13px", fontWeight: "600",
+  });
+  confirmBtn.addEventListener("click", () => {
+    overlay.remove();
+    const finalInfo = info ?? getChannelInfo();
+    if (mode === "summary") {
+      if (finalInfo) void addBlockedChannelEntry(finalInfo).then(() => { removeSummaryPanel(); });
+      else removeSummaryPanel();
+    } else {
+      if (finalInfo) void addBlockedCommentsChannelEntry(finalInfo).then(() => { removeCommentsPanel(); });
+      else removeCommentsPanel();
+    }
+  });
+
+  row.append(cancelBtn, confirmBtn);
+  modal.append(hd, desc, row);
+  overlay.append(modal);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) { overlay.remove(); onCancel(); } });
+  document.addEventListener("keydown", function esc(e) {
+    if (e.key === "Escape") { overlay.remove(); onCancel(); document.removeEventListener("keydown", esc); }
+  });
+  document.body.appendChild(overlay);
+}
+
 /** Show the idle panel — TL;DW icon + title + Get Summary + Never all in one header row. */
 function showIdlePanel(onGetSummary: () => void): void {
   const host = panelHost();
@@ -995,51 +1081,9 @@ function showIdlePanel(onGetSummary: () => void): void {
   skipBtn.addEventListener("mouseleave", () => { skipBtn.style.borderColor = t.border; skipBtn.style.color = t.sub; });
   skipBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    // Try to resolve channel info; always show the confirmation regardless.
     const info = capturedChannelInfo ?? getChannelInfo();
     const channelName = info?.name ?? "this channel";
-    head.innerHTML = "";
-    const icon2 = document.createElement("img");
-    icon2.src = chrome.runtime.getURL("icons/tl-dw-32.png");
-    Object.assign(icon2.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
-    const msg = document.createElement("span");
-    msg.textContent = `Skip TL;DW for ${channelName}?`;
-    Object.assign(msg.style, { fontSize: "13px", color: t.text, flex: "1", fontWeight: "600" });
-    const confirmBtn = document.createElement("button");
-    confirmBtn.textContent = "Yes, skip";
-    Object.assign(confirmBtn.style, {
-      fontSize: "12px", fontWeight: "600", padding: "5px 12px", borderRadius: "999px",
-      background: "#dc2626", color: "#fff", border: "none", cursor: "pointer", whiteSpace: "nowrap",
-    });
-    confirmBtn.addEventListener("click", (e2) => {
-      e2.stopPropagation();
-      // One final attempt to resolve channel info at confirm time.
-      const finalInfo = info ?? getChannelInfo();
-      if (finalInfo) {
-        void addBlockedChannelEntry(finalInfo).then(() => {
-          removeSummaryPanel();
-          log("channel skipped from summary:", finalInfo.name);
-        });
-      } else {
-        removeSummaryPanel();
-      }
-    });
-    const cancelBtn = document.createElement("button");
-    cancelBtn.textContent = "Cancel";
-    Object.assign(cancelBtn.style, {
-      fontSize: "12px", fontWeight: "600", padding: "5px 12px", borderRadius: "999px",
-      background: "transparent", color: t.sub, border: `1px solid ${t.border}`, cursor: "pointer", whiteSpace: "nowrap",
-    });
-    cancelBtn.addEventListener("click", () => { removeSummaryPanel(); showIdlePanel(onGetSummary); });
-    const spacer2 = document.createElement("div"); spacer2.style.flex = "1";
-    const closeBtn2 = document.createElement("button");
-    Object.assign(closeBtn2.style, {
-      background: "transparent", border: "none", color: t.sub, cursor: "pointer",
-      fontSize: "14px", lineHeight: "1", padding: "4px 6px", borderRadius: "6px",
-    });
-    closeBtn2.textContent = "✕";
-    closeBtn2.addEventListener("click", removeSummaryPanel);
-    head.append(icon2, msg, spacer2, confirmBtn, cancelBtn, closeBtn2);
+    showSkipOverlay(channelName, info, "summary", () => { /* panel stays open */ });
   });
 
   // Build the header with Get Summary + Skip channel as inline controls
@@ -1081,18 +1125,6 @@ function showCommentsSentimentResult(sentiment: string, audienceScore?: number):
 
   const spacer = document.createElement("div"); spacer.style.flex = "1";
 
-  if (audienceScore !== undefined) {
-    const scorePill = document.createElement("span");
-    scorePill.textContent = `Audience: ${audienceScore}/10`;
-    Object.assign(scorePill.style, {
-      fontSize: "11px", fontWeight: "700", padding: "2px 8px",
-      borderRadius: "999px", background: t.border, color: t.text, whiteSpace: "nowrap",
-    });
-    head.append(icon, title, spacer, scorePill);
-  } else {
-    head.append(icon, title, spacer);
-  }
-
   const closeBtn = document.createElement("button");
   Object.assign(closeBtn.style, {
     background: "transparent", border: "none", color: t.sub, cursor: "pointer",
@@ -1102,7 +1134,19 @@ function showCommentsSentimentResult(sentiment: string, audienceScore?: number):
   closeBtn.addEventListener("mouseenter", () => (closeBtn.style.background = t.hover));
   closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
   closeBtn.addEventListener("click", removeCommentsPanel);
-  head.append(closeBtn);
+
+  if (audienceScore !== undefined) {
+    const scorePill = document.createElement("span");
+    scorePill.textContent = `${audienceScore}/10`;
+    Object.assign(scorePill.style, {
+      fontSize: "11px", fontWeight: "700", padding: "2px 8px",
+      borderRadius: "999px", background: t.border, color: t.text, whiteSpace: "nowrap",
+    });
+    // Score left of spacer so it sits next to the title
+    head.append(icon, title, scorePill, spacer, closeBtn);
+  } else {
+    head.append(icon, title, spacer, closeBtn);
+  }
 
   const text = document.createElement("div");
   text.textContent = sentiment;
@@ -1170,47 +1214,7 @@ function showCommentsIdlePanel(onGetComments: () => void): void {
     e.stopPropagation();
     const info = capturedChannelInfo ?? getChannelInfo();
     const channelName = info?.name ?? "this channel";
-    head.innerHTML = "";
-    const icon2 = document.createElement("img");
-    icon2.src = chrome.runtime.getURL("icons/tl-dw-32.png");
-    Object.assign(icon2.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
-    const msg = document.createElement("span");
-    msg.textContent = `Skip comment analysis for ${channelName}?`;
-    Object.assign(msg.style, { fontSize: "13px", color: t.text, flex: "1", fontWeight: "600" });
-    const confirmBtn = document.createElement("button");
-    confirmBtn.textContent = "Yes, skip";
-    Object.assign(confirmBtn.style, {
-      fontSize: "12px", fontWeight: "600", padding: "5px 12px", borderRadius: "999px",
-      background: "#dc2626", color: "#fff", border: "none", cursor: "pointer", whiteSpace: "nowrap",
-    });
-    confirmBtn.addEventListener("click", (e2) => {
-      e2.stopPropagation();
-      const finalInfo = info ?? getChannelInfo();
-      if (finalInfo) {
-        void addBlockedCommentsChannelEntry(finalInfo).then(() => {
-          removeCommentsPanel();
-          log("channel skipped from comment analysis:", finalInfo.name);
-        });
-      } else {
-        removeCommentsPanel();
-      }
-    });
-    const cancelBtn = document.createElement("button");
-    cancelBtn.textContent = "Cancel";
-    Object.assign(cancelBtn.style, {
-      fontSize: "12px", fontWeight: "600", padding: "5px 12px", borderRadius: "999px",
-      background: "transparent", color: t.sub, border: `1px solid ${t.border}`, cursor: "pointer", whiteSpace: "nowrap",
-    });
-    cancelBtn.addEventListener("click", () => { removeCommentsPanel(); showCommentsIdlePanel(onGetComments); });
-    const spacer2 = document.createElement("div"); spacer2.style.flex = "1";
-    const closeBtn2 = document.createElement("button");
-    Object.assign(closeBtn2.style, {
-      background: "transparent", border: "none", color: t.sub, cursor: "pointer",
-      fontSize: "14px", lineHeight: "1", padding: "4px 6px", borderRadius: "6px",
-    });
-    closeBtn2.textContent = "✕";
-    closeBtn2.addEventListener("click", removeCommentsPanel);
-    head.append(icon2, msg, spacer2, confirmBtn, cancelBtn, closeBtn2);
+    showSkipOverlay(channelName, info, "comments", () => { /* panel stays open */ });
   });
 
   // Auto-run toggle for comments
@@ -1480,6 +1484,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (type === "GET_VIDEO_META") {
     sendResponse(getVideoMeta());
     return false;
+  }
+  if (type === "GET_CHANNEL_STATUS") {
+    const info = currentChannelInfo ?? getChannelInfo();
+    if (!info) {
+      sendResponse({ isBlocked: false, isCommentsBlocked: false, channelName: null });
+      return false;
+    }
+    void Promise.all([
+      chrome.storage.local.get(BLOCKED_CHANNELS_KEY),
+      chrome.storage.local.get(BLOCKED_COMMENTS_KEY),
+    ]).then(([r1, r2]) => {
+      const blocked = (r1[BLOCKED_CHANNELS_KEY] as BlockedChannelEntry[]) ?? [];
+      const blockedComments = (r2[BLOCKED_COMMENTS_KEY] as BlockedChannelEntry[]) ?? [];
+      sendResponse({
+        isBlocked: blocked.some((c) => c.id === info.id || c.name === info.name),
+        isCommentsBlocked: blockedComments.some((c) => c.id === info.id || c.name === info.name),
+        channelName: info.name,
+      });
+    });
+    return true; // async response
   }
   if (type === "SET_SUMMARY") {
     const msg = message as { tldw?: TldwSummary; source?: string; channelStats?: ChannelComparison };

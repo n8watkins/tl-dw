@@ -303,6 +303,16 @@ export type SetCommentSentimentMessage = {
 /** Sent from the content script to request a standalone comment-sentiment analysis. */
 export type AskCommentsMessage = { type: "ASK_COMMENTS" };
 
+/** Popup asking the content script whether the current channel is blocked. */
+export type GetChannelStatusMessage = { type: "GET_CHANNEL_STATUS" };
+
+/** Response to GET_CHANNEL_STATUS. */
+export type ChannelStatusResponse = {
+  isBlocked: boolean;
+  isCommentsBlocked: boolean;
+  channelName: string | null;
+};
+
 export type RuntimeMessage =
   | GetPendingMessage
   | AskMessage
