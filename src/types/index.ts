@@ -84,6 +84,21 @@ export type GeminiUsage = {
   lastCalledAt?: string;
 };
 
+/**
+ * A YouTube channel the user has opted into automatic TL;DW summarization for.
+ * Stored as an array in chrome.storage.local under "autoRunChannels".
+ */
+export type AutoRunChannel = {
+  /** Href path from the channel link, e.g. "/@PiersMorgan" or "/channel/UCxxxxx". */
+  id: string;
+  /** Display name shown on the channel page, e.g. "Piers Morgan Uncensored". */
+  name: string;
+  /** YouTube avatar URL scraped from the watch page (refreshed on each visit). */
+  avatarUrl: string;
+  /** ISO timestamp when the user added this channel to the auto-run list. */
+  addedAt: string;
+};
+
 /** Cached summary result keyed by video ID in chrome.storage.local. */
 export type CachedSummary = {
   tldw: TldwSummary;

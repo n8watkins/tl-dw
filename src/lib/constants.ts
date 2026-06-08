@@ -87,6 +87,9 @@ export const DELIVERY_STATUS_KEY = "deliveryStatus";
 /** chrome.storage.local key holding direct Gemini API usage stats. */
 export const GEMINI_USAGE_KEY = "geminiUsage";
 
+/** chrome.storage.local key holding the list of auto-run channels (AutoRunChannel[]). */
+export const AUTO_RUN_CHANNELS_KEY = "autoRunChannels";
+
 /** chrome.storage.local key holding per-call Direct API history entries. */
 export const GEMINI_CALL_LOG_KEY = "geminiCallLog";
 

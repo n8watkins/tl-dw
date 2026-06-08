@@ -1,4 +1,5 @@
 import type {
+  AutoRunChannel,
   CachedSummary,
   DeliveryStatus,
   GeminiCallEntry,
@@ -10,6 +11,7 @@ import type {
   StorageState,
 } from "../types";
 import {
+  AUTO_RUN_CHANNELS_KEY,
   CACHE_TTL_MS,
   DEFAULT_SETTINGS,
   DELIVERY_STATUS_KEY,
@@ -319,6 +321,30 @@ export async function patchCachedSummary(
     cache[videoId] = { ...cache[videoId]!, ...patch };
     await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
   }
+}
+
+// --- Auto-run channel list ---------------------------------------------------
+
+export async function getAutoRunChannels(): Promise<AutoRunChannel[]> {
+  const r = await chrome.storage.local.get(AUTO_RUN_CHANNELS_KEY);
+  return (r[AUTO_RUN_CHANNELS_KEY] as AutoRunChannel[]) ?? [];
+}
+
+export async function setAutoRunChannels(channels: AutoRunChannel[]): Promise<void> {
+  await chrome.storage.local.set({ [AUTO_RUN_CHANNELS_KEY]: channels });
+}
+
+/** Add or update a channel in the auto-run list (matched by id or name). */
+export async function addAutoRunChannel(channel: AutoRunChannel): Promise<void> {
+  const existing = await getAutoRunChannels();
+  const filtered = existing.filter((c) => c.id !== channel.id && c.name !== channel.name);
+  await setAutoRunChannels([channel, ...filtered]);
+}
+
+/** Remove a channel from the auto-run list (matched by id or name). */
+export async function removeAutoRunChannel(channelId: string): Promise<void> {
+  const existing = await getAutoRunChannels();
+  await setAutoRunChannels(existing.filter((c) => c.id !== channelId && c.name !== channelId));
 }
 
 /** Open searches whose tabs are still open; prunes any that have closed. */

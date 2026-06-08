@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import type { SearchHistoryEntry } from "../../types";
-import { getHistory } from "../../lib/storage";
+import { useEffect, useState, useCallback } from "react";
+import type { AutoRunChannel, SearchHistoryEntry } from "../../types";
+import { getHistory, getAutoRunChannels, setAutoRunChannels } from "../../lib/storage";
 import { computeChannelStats, type ChannelStats } from "../../lib/history";
 
 // ---- helpers ----------------------------------------------------------------
@@ -80,6 +80,62 @@ function ChannelAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }
         />
       )}
       {showFallback && letter}
+    </div>
+  );
+}
+
+// ---- Auto-run channel card --------------------------------------------------
+
+function AutoRunCard({
+  channel,
+  onRemove,
+}: {
+  channel: AutoRunChannel;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <div
+      className="card"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "10px 14px",
+      }}
+    >
+      <ChannelAvatar name={channel.name} avatarUrl={channel.avatarUrl} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontWeight: 700,
+            fontSize: 14,
+            color: "var(--text)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {channel.name}
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+          Added {timeAgo(channel.addedAt)}
+        </div>
+      </div>
+      <button
+        onClick={() => onRemove(channel.id)}
+        style={{
+          flexShrink: 0,
+          fontSize: 12,
+          padding: "4px 10px",
+          borderRadius: 6,
+          border: "1px solid var(--border)",
+          background: "transparent",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+        }}
+      >
+        Remove
+      </button>
     </div>
   );
 }
@@ -177,9 +233,17 @@ function VideoRow({ entry }: { entry: SearchHistoryEntry }) {
   );
 }
 
-// ---- Channel card -----------------------------------------------------------
+// ---- History channel card ---------------------------------------------------
 
-function ChannelCard({ stats }: { stats: ChannelStats }) {
+function ChannelCard({
+  stats,
+  isAutoRun,
+  onToggleAutoRun,
+}: {
+  stats: ChannelStats;
+  isAutoRun: boolean;
+  onToggleAutoRun: (stats: ChannelStats, enable: boolean) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
 
   const aiStyle = scorePillStyle(stats.avgAiRating);
@@ -210,17 +274,35 @@ function ChannelCard({ stats }: { stats: ChannelStats }) {
 
         {/* Main info */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              fontWeight: 700,
-              fontSize: 15,
-              color: "var(--text)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {stats.channel}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <div
+              style={{
+                fontWeight: 700,
+                fontSize: 15,
+                color: "var(--text)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {stats.channel}
+            </div>
+            {isAutoRun && (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "2px 6px",
+                  borderRadius: 999,
+                  background: "#1a73e8",
+                  color: "#fff",
+                  whiteSpace: "nowrap",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                AUTO
+              </span>
+            )}
           </div>
           <div
             style={{
@@ -315,6 +397,35 @@ function ChannelCard({ stats }: { stats: ChannelStats }) {
             {stats.videos.map((v) => (
               <VideoRow key={v.id} entry={v} />
             ))}
+            {/* Auto-run toggle at the bottom of expanded card */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                paddingTop: 10,
+                marginTop: 4,
+              }}
+            >
+              <input
+                type="checkbox"
+                id={`auto-run-${stats.channel}`}
+                checked={isAutoRun}
+                style={{ cursor: "pointer", accentColor: "#1a73e8" }}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  onToggleAutoRun(stats, e.target.checked);
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+              <label
+                htmlFor={`auto-run-${stats.channel}`}
+                style={{ fontSize: 12, color: "var(--text-muted)", cursor: "pointer", userSelect: "none" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                Auto-run for this channel
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -326,19 +437,49 @@ function ChannelCard({ stats }: { stats: ChannelStats }) {
 
 export function ChannelsSection() {
   const [channels, setChannels] = useState<ChannelStats[]>([]);
+  const [autoRunChannels, setAutoRunChannels] = useState<AutoRunChannel[]>([]);
   const [totalVideos, setTotalVideos] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("count");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    void (async () => {
-      const history = await getHistory();
-      const stats = computeChannelStats(history);
-      setChannels(stats);
-      setTotalVideos(history.filter((e) => !!e.channel).length);
-      setLoading(false);
-    })();
+  const reload = useCallback(async () => {
+    const [history, autoRun] = await Promise.all([getHistory(), getAutoRunChannels()]);
+    const stats = computeChannelStats(history);
+    setChannels(stats);
+    setAutoRunChannels(autoRun);
+    setTotalVideos(history.filter((e) => !!e.channel).length);
+    setLoading(false);
   }, []);
+
+  useEffect(() => { void reload(); }, [reload]);
+
+  const handleRemoveAutoRun = useCallback(async (channelId: string) => {
+    const current = await getAutoRunChannels();
+    const updated = current.filter((c) => c.id !== channelId && c.name !== channelId);
+    await setAutoRunChannels(updated);
+    setAutoRunChannels(updated);
+  }, []);
+
+  const handleToggleAutoRun = useCallback(async (stats: ChannelStats, enable: boolean) => {
+    const current = await getAutoRunChannels();
+    let updated: AutoRunChannel[];
+    if (enable) {
+      const others = current.filter((c) => c.name !== stats.channel);
+      const entry: AutoRunChannel = {
+        id: `/@${stats.channel}`,
+        name: stats.channel,
+        avatarUrl: stats.avatarUrl ?? "",
+        addedAt: new Date().toISOString(),
+      };
+      updated = [entry, ...others];
+    } else {
+      updated = current.filter((c) => c.name !== stats.channel);
+    }
+    await setAutoRunChannels(updated);
+    setAutoRunChannels(updated);
+  }, []);
+
+  const autoRunNames = new Set(autoRunChannels.map((c) => c.name));
 
   const sorted = [...channels].sort((a, b) => {
     if (sortKey === "count") return b.count - a.count;
@@ -353,13 +494,40 @@ export function ChannelsSection() {
 
   return (
     <div>
-      {/* Header */}
+      {/* Auto-run section */}
       <div className="section-header">
+        <h1 className="section-title">Auto-run Channels</h1>
+        <p className="section-desc">
+          TL;DW automatically summarizes new videos from these channels when you open them.
+          Toggle auto-run from any YouTube watch page, or from the history list below.
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="empty-state">Loading…</div>
+      ) : autoRunChannels.length === 0 ? (
+        <div className="empty-state">
+          No channels tracked yet. Open a YouTube video and use the Auto-run toggle in the TL;DW panel to add one.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 32 }}>
+          {autoRunChannels.map((ch) => (
+            <AutoRunCard
+              key={ch.id}
+              channel={ch}
+              onRemove={(id) => void handleRemoveAutoRun(id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* History section */}
+      <div className="section-header" style={{ marginTop: autoRunChannels.length > 0 ? 8 : 0 }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
           <div>
-            <h1 className="section-title">Channels</h1>
+            <h1 className="section-title">Channel History</h1>
             <p className="section-desc">
-              Channels you've watched with TL;DW. Scores are averages across all summarized videos from that channel.
+              Channels you've watched with TL;DW. Expand a channel to see its video history and toggle auto-run.
             </p>
           </div>
           {channels.length > 0 && (
@@ -380,22 +548,24 @@ export function ChannelsSection() {
         </div>
         {!loading && channels.length > 0 && (
           <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
-            {channels.length} {channels.length === 1 ? "channel" : "channels"} tracked · {totalVideos} {totalVideos === 1 ? "video" : "videos"} total
+            {channels.length} {channels.length === 1 ? "channel" : "channels"} · {totalVideos} {totalVideos === 1 ? "video" : "videos"} total
           </p>
         )}
       </div>
 
-      {/* Body */}
-      {loading ? (
-        <div className="empty-state">Loading…</div>
-      ) : channels.length === 0 ? (
+      {!loading && channels.length === 0 ? (
         <div className="empty-state">
           No channel data yet. Watch some YouTube videos with TL;DW and your channel history will appear here.
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {sorted.map((ch) => (
-            <ChannelCard key={ch.channel} stats={ch} />
+            <ChannelCard
+              key={ch.channel}
+              stats={ch}
+              isAutoRun={autoRunNames.has(ch.channel)}
+              onToggleAutoRun={(stats, enable) => void handleToggleAutoRun(stats, enable)}
+            />
           ))}
         </div>
       )}

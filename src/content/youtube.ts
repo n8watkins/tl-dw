@@ -385,6 +385,55 @@ async function getTopComments(): Promise<string | null> {
   return comments.length > 0 ? comments.join("\n") : null;
 }
 
+// --- auto-run channel helpers (direct storage; no lib imports in content script) --
+
+const AUTO_RUN_CHANNELS_KEY = "autoRunChannels";
+
+type AutoRunChannelEntry = { id: string; name: string; avatarUrl: string; addedAt: string };
+
+async function readAutoRunChannels(): Promise<AutoRunChannelEntry[]> {
+  const r = await chrome.storage.local.get(AUTO_RUN_CHANNELS_KEY);
+  return (r[AUTO_RUN_CHANNELS_KEY] as AutoRunChannelEntry[]) ?? [];
+}
+
+async function writeAutoRunChannel(info: ChannelInfo, enable: boolean): Promise<void> {
+  const channels = await readAutoRunChannels();
+  let updated: AutoRunChannelEntry[];
+  if (enable) {
+    const others = channels.filter((c) => c.id !== info.id && c.name !== info.name);
+    updated = [{ id: info.id, name: info.name, avatarUrl: info.avatarUrl, addedAt: new Date().toISOString() }, ...others];
+  } else {
+    updated = channels.filter((c) => c.id !== info.id && c.name !== info.name);
+  }
+  await chrome.storage.local.set({ [AUTO_RUN_CHANNELS_KEY]: updated });
+}
+
+// --- channel info extracted from the page ------------------------------------
+
+type ChannelInfo = { id: string; name: string; avatarUrl: string };
+
+/** Extract channel handle/ID, display name, and avatar from the current watch page. */
+function getChannelInfo(): ChannelInfo | null {
+  const anchor = document.querySelector<HTMLAnchorElement>(
+    "ytd-channel-name a, #owner #channel-name a, ytd-video-owner-renderer a.yt-simple-endpoint",
+  );
+  if (!anchor) return null;
+  const name = anchor.textContent?.trim() ?? "";
+  if (!name) return null;
+  const href = anchor.getAttribute("href") ?? "";
+  const id = href.startsWith("/") ? href : `/@${name}`;
+  const avatarUrl =
+    document.querySelector<HTMLImageElement>(
+      "ytd-video-owner-renderer #avatar img, #owner yt-img-shadow img, ytd-video-owner-renderer yt-img-shadow img",
+    )?.src ?? "";
+  return { id, name, avatarUrl };
+}
+
+// Module-level state so the SET_SUMMARY handler can use the same channel context
+// as the initial maybeStartDirectApiRun call.
+let currentChannelInfo: ChannelInfo | null = null;
+let currentIsAutoRun = false;
+
 // --- TL;DW summary panel -------------------------------------------------
 
 type TldwSummary = { verdict: string; summary: string; rating: string; details?: string; source?: string };
@@ -515,7 +564,7 @@ function showLoadingPanel(showCommentShimmer = false): void {
 
 type ChannelComparison = { avgAiRating: number | null; avgAudienceScore: number | null; count: number };
 
-function buildSummaryPanel(tldw: TldwSummary, channelStats?: ChannelComparison): HTMLElement {
+function buildSummaryPanel(tldw: TldwSummary, channelStats?: ChannelComparison, channelInfo?: ChannelInfo | null, isAutoRun?: boolean): HTMLElement {
   const t = theme();
   const panel = document.createElement("div");
   panel.id = "tldw-summary";
@@ -663,11 +712,12 @@ function buildSummaryPanel(tldw: TldwSummary, channelStats?: ChannelComparison):
     color: t.sub,
   });
 
-  panel.append(head, body, ...(channelStats && channelStats.count >= 1 ? [channelRow] : []), comm);
+  const channelToggle = channelInfo ? buildChannelToggle(channelInfo, isAutoRun ?? false, t) : null;
+  panel.append(head, body, ...(channelStats && channelStats.count >= 1 ? [channelRow] : []), comm, ...(channelToggle ? [channelToggle] : []));
   return panel;
 }
 
-function showSummaryPanel(tldw: TldwSummary, keepCommunityShimmer = false, channelStats?: ChannelComparison): void {
+function showSummaryPanel(tldw: TldwSummary, keepCommunityShimmer = false, channelStats?: ChannelComparison, channelInfo?: ChannelInfo | null, isAutoRun?: boolean): void {
   const host = panelHost();
   if (!host) return;
 
@@ -676,7 +726,7 @@ function showSummaryPanel(tldw: TldwSummary, keepCommunityShimmer = false, chann
   const prevCommunity = communitySection;
 
   removeSummaryPanel();
-  const panel = buildSummaryPanel(tldw, channelStats);
+  const panel = buildSummaryPanel(tldw, channelStats, channelInfo ?? currentChannelInfo, isAutoRun ?? currentIsAutoRun);
   summaryPanel = panel;
 
   // Wire up the community section reference so SET_COMMENT_SENTIMENT can find it.
@@ -699,6 +749,119 @@ function showSummaryPanel(tldw: TldwSummary, keepCommunityShimmer = false, chann
 
   host.prepend(summaryPanel);
   log("summary panel injected");
+}
+
+// --- channel auto-run toggle (shared between idle and summary panels) --------
+
+function buildChannelToggle(info: ChannelInfo, initialChecked: boolean, t: ReturnType<typeof theme>): HTMLElement {
+  const wrap = document.createElement("div");
+  Object.assign(wrap.style, {
+    borderTop: `1px solid ${t.border}`,
+    marginTop: "8px",
+    paddingTop: "8px",
+    display: "flex",
+    alignItems: "center",
+    gap: "7px",
+  });
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = initialChecked;
+  Object.assign(checkbox.style, { cursor: "pointer", flexShrink: "0", accentColor: "#1a73e8" });
+
+  const label = document.createElement("label");
+  label.textContent = `Auto-run for ${info.name}`;
+  Object.assign(label.style, {
+    fontSize: "12px",
+    color: t.sub,
+    cursor: "pointer",
+    userSelect: "none",
+    flex: "1",
+  });
+
+  let busy = false;
+  const toggle = async () => {
+    if (busy) return;
+    busy = true;
+    const next = !checkbox.checked;
+    checkbox.checked = next;
+    currentIsAutoRun = next;
+    await writeAutoRunChannel(info, next);
+    busy = false;
+  };
+  checkbox.addEventListener("change", () => void toggle());
+  label.addEventListener("click", (e) => { e.preventDefault(); void toggle(); });
+
+  wrap.append(checkbox, label);
+  return wrap;
+}
+
+/** Show an idle panel (no summary yet) with a "Get Summary" button and channel toggle. */
+function showIdlePanel(channelInfo: ChannelInfo | null, isAutoRun: boolean, onGetSummary: () => void): void {
+  const host = panelHost();
+  if (!host) return;
+  removeSummaryPanel();
+  ensureShimmerStyle();
+
+  const t = theme();
+  const panel = document.createElement("div");
+  panel.id = "tldw-summary";
+  Object.assign(panel.style, {
+    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
+    padding: "10px 14px", marginTop: "12px", marginBottom: "16px",
+    font: "14px/1.4 Roboto, system-ui, sans-serif",
+  });
+
+  // Header
+  const head = document.createElement("div");
+  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" });
+
+  const headIcon = document.createElement("img");
+  headIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
+  Object.assign(headIcon.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
+
+  const titleEl = document.createElement("span");
+  titleEl.textContent = "TL;DW";
+  Object.assign(titleEl.style, { fontWeight: "700", fontSize: "15px", color: t.text });
+
+  const spacer = document.createElement("div");
+  spacer.style.flex = "1";
+
+  const closeBtn = document.createElement("button");
+  Object.assign(closeBtn.style, {
+    background: "transparent", border: "none", color: t.sub,
+    cursor: "pointer", fontSize: "14px", lineHeight: "1",
+    padding: "4px 6px", borderRadius: "6px", flexShrink: "0",
+  });
+  closeBtn.textContent = "✕";
+  closeBtn.setAttribute("aria-label", "Hide TL;DW");
+  closeBtn.addEventListener("mouseenter", () => (closeBtn.style.background = t.hover));
+  closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
+  closeBtn.addEventListener("click", removeSummaryPanel);
+
+  head.append(headIcon, titleEl, spacer, closeBtn);
+
+  // Get Summary button
+  const btn = document.createElement("button");
+  btn.textContent = "Get Summary";
+  Object.assign(btn.style, {
+    display: "block", width: "100%", padding: "8px 0",
+    background: "#1a73e8", color: "#fff", border: "none", borderRadius: "8px",
+    fontSize: "13px", fontWeight: "600", cursor: "pointer", letterSpacing: "0.02em",
+  });
+  btn.addEventListener("mouseenter", () => (btn.style.background = "#1557b0"));
+  btn.addEventListener("mouseleave", () => (btn.style.background = "#1a73e8"));
+  btn.addEventListener("click", () => { removeSummaryPanel(); onGetSummary(); });
+
+  panel.append(head, btn);
+
+  if (channelInfo) {
+    panel.append(buildChannelToggle(channelInfo, isAutoRun, t));
+  }
+
+  summaryPanel = panel;
+  host.prepend(panel);
+  log("idle panel shown");
 }
 
 // --- community section helper --------------------------------------------
@@ -740,23 +903,47 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const autoRunVideoIds = new Set<string>();
 
 /**
- * Direct API path: fires immediately on navigation — checks the local summary
- * cache first for an instant render, otherwise shows a loading skeleton and
- * fires the Gemini API call.
- *
- * Deduplication is handled by the `lastHandledUrl` guard in `onNavigate()`,
- * so this function intentionally has no `autoRunVideoIds` check — that would
- * block cache hits when revisiting a video.
+ * Direct API path: fires on navigation.
+ * - Reads the channel auto-run list and cache from storage.
+ * - If there's a cached result: show it immediately.
+ * - If the channel is on the auto-run list: show the loading skeleton and fire
+ *   the Gemini API call automatically.
+ * - Otherwise: show an idle panel with a "Get Summary" button and a per-channel
+ *   auto-run toggle so the user can opt in for future visits.
  */
 async function maybeStartDirectApiRun(): Promise<void> {
   const vid = currentVideoId();
-  if (!vid || summaryPanel) return;
+  if (!vid) return;
 
-  const r = await chrome.storage.local.get(["settings", "tldwSummaryCache"]);
+  const r = await chrome.storage.local.get(["settings", "tldwSummaryCache", AUTO_RUN_CHANNELS_KEY]);
   const s = r["settings"] as Record<string, unknown> | undefined;
   if (!(s?.useDirectApi as boolean) || !(s?.geminiApiKey as string)) return;
 
-  // Fast path: serve from cache — no loading panel, no API call.
+  const channelInfo = getChannelInfo();
+  const autoRunChannels = (r[AUTO_RUN_CHANNELS_KEY] as AutoRunChannelEntry[]) ?? [];
+  const isAutoRun = channelInfo
+    ? autoRunChannels.some((c) => c.id === channelInfo.id || c.name === channelInfo.name)
+    : false;
+
+  // Persist channel context so SET_SUMMARY handler can add the toggle to the result panel.
+  currentChannelInfo = channelInfo;
+  currentIsAutoRun = isAutoRun;
+
+  const showCommentShimmer = s?.includeCommentSentiment === true;
+
+  // Helper: show loading skeleton and fire the API call.
+  const startApiCall = async () => {
+    showLoadingPanel(showCommentShimmer);
+    void getTranscript();
+    log("direct API call started");
+    try {
+      await chrome.runtime.sendMessage({ type: "ASK" });
+    } catch {
+      /* best effort */
+    }
+  };
+
+  // Fast path: cached result — show immediately, skip API call.
   type CacheEntry = { tldw: TldwSummary; cachedAt: string; commentSentiment?: string; audienceScore?: number };
   const cache = r["tldwSummaryCache"] as Record<string, CacheEntry> | undefined;
   const cached = cache?.[vid];
@@ -769,16 +956,16 @@ async function maybeStartDirectApiRun(): Promise<void> {
     return;
   }
 
-  // Slow path: show loading skeleton and send the real API request.
-  const showCommentShimmer = s?.includeCommentSentiment === true;
-  showLoadingPanel(showCommentShimmer);
-  void getTranscript(); // pre-fetch so it's ready when the background asks
-  log("direct API auto-run started");
-  try {
-    await chrome.runtime.sendMessage({ type: "ASK" });
-  } catch {
-    /* best effort */
+  // Auto-run channel: fire immediately, no idle panel.
+  if (isAutoRun) {
+    await startApiCall();
+    return;
   }
+
+  // Manual channel: show idle panel with button + channel toggle.
+  showIdlePanel(channelInfo, isAutoRun, () => {
+    void startApiCall();
+  });
 }
 
 /**
@@ -818,6 +1005,8 @@ function onNavigate(): void {
   lastHandledUrl = url;
   removeSummaryPanel();
   activeTranscriptFetch = null;
+  currentChannelInfo = null;
+  currentIsAutoRun = false;
   void maybeStartDirectApiRun();
   setTimeout(() => { void autoRunIfLong(); }, 2500);
 }
