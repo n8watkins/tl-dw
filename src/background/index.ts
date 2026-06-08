@@ -347,7 +347,19 @@ async function runSummary(
       const aiRatingMatch = tldw?.rating ? /^(\d+)/.exec(tldw.rating) : null;
       aiRating = aiRatingMatch ? parseInt(aiRatingMatch[1], 10) : undefined;
 
-      // Compute channel comparison stats from existing history (local, no LLM).
+      // Save history BEFORE computing channelStats so this video is included
+      // in the channel average from the very first visit.
+      if (settings.saveHistoryOnSearch) {
+        await addHistoryEntry({
+          video, profile, prompt: logPrompt, settings,
+          destinationId: destination.id,
+          apiResponse: responseText,
+          aiRating,
+          channelAvatarUrl: video.avatarUrl,
+        });
+      }
+
+      // Compute channel comparison from history (now includes this video).
       let channelStats: { avgAiRating: number | null; avgAudienceScore: number | null; count: number } | undefined;
       if (video.channel) {
         const history = await getHistory();
@@ -416,15 +428,6 @@ async function runSummary(
         ok: false,
         reason: err instanceof Error ? err.message : "API call failed",
         at: new Date().toISOString(),
-      });
-    }
-    if (settings.saveHistoryOnSearch) {
-      await addHistoryEntry({
-        video, profile, prompt: logPrompt, settings,
-        destinationId: destination.id,
-        apiResponse: responseText,
-        aiRating,
-        channelAvatarUrl: video.avatarUrl,
       });
     }
     return;

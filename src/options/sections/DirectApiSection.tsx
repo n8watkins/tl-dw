@@ -457,7 +457,23 @@ export function DirectApiSection() {
                             <pre className="prompt-preview">{entry.response}</pre>
                           </div>
                         )}
-                        {!entry.prompt && !entry.response && (
+                        {entry.commentSentiment && (
+                          <div className="history-detail" style={{ marginTop: 12 }}>
+                            <p className="field-label" style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                              💬 Community sentiment
+                              {entry.audienceScore !== undefined && (
+                                <span style={{
+                                  fontSize: 11, fontWeight: 700, padding: "2px 8px",
+                                  borderRadius: 999, background: "var(--border)", color: "var(--text)",
+                                }}>
+                                  Audience: {entry.audienceScore}/10
+                                </span>
+                              )}
+                            </p>
+                            <pre className="prompt-preview">{entry.commentSentiment}</pre>
+                          </div>
+                        )}
+                        {!entry.prompt && !entry.response && !entry.commentSentiment && (
                           <div className="history-detail">
                             <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
                               No prompt/response stored for this entry.
