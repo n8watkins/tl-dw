@@ -743,10 +743,14 @@ const autoRunVideoIds = new Set<string>();
  * Direct API path: fires immediately on navigation — checks the local summary
  * cache first for an instant render, otherwise shows a loading skeleton and
  * fires the Gemini API call.
+ *
+ * Deduplication is handled by the `lastHandledUrl` guard in `onNavigate()`,
+ * so this function intentionally has no `autoRunVideoIds` check — that would
+ * block cache hits when revisiting a video.
  */
 async function maybeStartDirectApiRun(): Promise<void> {
   const vid = currentVideoId();
-  if (!vid || autoRunVideoIds.has(vid) || summaryPanel) return;
+  if (!vid || summaryPanel) return;
 
   const r = await chrome.storage.local.get(["settings", "tldwSummaryCache"]);
   const s = r["settings"] as Record<string, unknown> | undefined;
@@ -757,7 +761,6 @@ async function maybeStartDirectApiRun(): Promise<void> {
   const cache = r["tldwSummaryCache"] as Record<string, CacheEntry> | undefined;
   const cached = cache?.[vid];
   if (cached && Date.now() - new Date(cached.cachedAt).getTime() < CACHE_TTL_MS) {
-    autoRunVideoIds.add(vid);
     showSummaryPanel({ ...cached.tldw, source: "cached" });
     if (cached.commentSentiment) {
       fillCommunitySection(cached.commentSentiment, cached.audienceScore);
@@ -768,7 +771,6 @@ async function maybeStartDirectApiRun(): Promise<void> {
 
   // Slow path: show loading skeleton and send the real API request.
   const showCommentShimmer = s?.includeCommentSentiment === true;
-  autoRunVideoIds.add(vid);
   showLoadingPanel(showCommentShimmer);
   void getTranscript(); // pre-fetch so it's ready when the background asks
   log("direct API auto-run started");
