@@ -613,7 +613,32 @@ chrome.runtime.onMessage.addListener(
       return true;
     }
     if (message.type === "OPEN_OPTIONS") {
-      void chrome.runtime.openOptionsPage();
+      const section = message.section;
+      if (section) {
+        // Deep-link to a sidebar section via the page's URL hash. Focus an
+        // existing options tab if one's open (so the address bar updates in
+        // place) rather than piling up duplicates; otherwise open a new tab.
+        const base = chrome.runtime.getURL(
+          chrome.runtime.getManifest().options_ui?.page ?? "src/options/index.html",
+        );
+        const url = `${base}#${section}`;
+        void (async () => {
+          const tabs = await chrome.tabs.query({});
+          const existing = tabs.find(
+            (tb) => tb.url?.startsWith(base) || tb.pendingUrl?.startsWith(base),
+          );
+          if (existing?.id != null) {
+            await chrome.tabs.update(existing.id, { url, active: true });
+            if (existing.windowId != null) {
+              await chrome.windows.update(existing.windowId, { focused: true });
+            }
+          } else {
+            await chrome.tabs.create({ url });
+          }
+        })();
+      } else {
+        void chrome.runtime.openOptionsPage();
+      }
       sendResponse({ ok: true });
       return false;
     }

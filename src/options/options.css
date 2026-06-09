@@ -657,6 +657,43 @@ textarea { min-height: 176px; font-family: "JetBrains Mono", "Fira Code", ui-mon
   gap: 8px;
 }
 
+/* Direct API sub-tabs (Key & Behavior / Usage / History) */
+.directapi-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+.directapi-tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  cursor: pointer;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.directapi-tab:hover { color: var(--text); }
+.directapi-tab.active {
+  color: var(--accent, #1a73e8);
+  border-bottom-color: var(--accent, #1a73e8);
+}
+
+/* Date bucket header in the API call history list */
+.history-date-header {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 8px 2px;
+}
+
 /* Moved-in history settings, pinned above the scrolling list. */
 .history-options {
   flex: 0 0 auto;

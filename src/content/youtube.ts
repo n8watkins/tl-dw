@@ -682,11 +682,14 @@ function buildAutoToggle(
   initialOn: boolean,
   t: ReturnType<typeof theme>,
 ): HTMLButtonElement {
-  const label = field === "summary" ? "↻ Auto-summarize" : "💬 Auto analyze";
-  const onColor = field === "summary" ? "#1a73e8" : "#0d9488";
+  // OFF state reads as the offer ("turn it on"); ON state reads as a clear,
+  // unmistakable red STOP so it never looks like "nothing changed".
+  const offLabel = field === "summary" ? "↻ Auto-summarize" : "💬 Auto analyze";
+  const onLabel = field === "summary" ? "■ Stop auto-summarize" : "■ Stop auto analyze";
+  const enableColor = field === "summary" ? "#1a73e8" : "#0d9488"; // feature color, used as OFF-hover preview
+  const STOP_COLOR = "#dc2626";
 
   const btn = document.createElement("button");
-  btn.textContent = label;
   Object.assign(btn.style, {
     fontSize: "13px", fontWeight: "700", letterSpacing: "0.04em",
     padding: "0 12px", borderRadius: "999px", border: "none",
@@ -698,19 +701,21 @@ function buildAutoToggle(
   let isOn = initialOn;
   const applyState = (on: boolean) => {
     isOn = on;
-    btn.style.background = on ? onColor : t.border;
+    btn.textContent = on ? onLabel : offLabel;
+    btn.style.background = on ? STOP_COLOR : t.border;
     btn.style.color = on ? "#fff" : t.sub;
     btn.title = on
-      ? `Auto-run ${field} enabled for ${info.name} — click to disable`
-      : `Enable auto-run ${field} for ${info.name}`;
+      ? `Auto-run ${field} is ON for ${info.name} — click to stop`
+      : `Turn on auto-run ${field} for ${info.name}`;
   };
 
   applyState(initialOn);
 
   btn.addEventListener("mouseenter", () => {
-    btn.style.background = isOn ? darken(onColor) : onColor;
+    // OFF → preview the feature color ("click to enable"); ON → darken red ("click to stop").
+    btn.style.background = isOn ? darken(STOP_COLOR) : enableColor;
     btn.style.color = "#fff";
-    btn.style.opacity = isOn ? "1" : "0.8";
+    btn.style.opacity = "1";
   });
   btn.addEventListener("mouseleave", () => {
     btn.style.opacity = "1";
@@ -751,6 +756,7 @@ function buildPanelHead(
   showBlockBtn = true,
   showAutoRunToggle = true,
   showTitle = true,
+  rightControls: HTMLElement[] = [],
 ): HTMLElement {
   const head = document.createElement("div");
   Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px" });
@@ -789,7 +795,17 @@ function buildPanelHead(
 
   const blockBtn = (showBlockBtn && channelInfo) ? buildBlockButton(t, channelInfo) : null;
   closeBtn.style.marginLeft = "12px";
-  head.append(icon, ...(showTitle ? [title] : []), ...controls, spacer, ...autoToggles, ...(blockBtn ? [blockBtn] : []), closeBtn);
+  // Right cluster order: extra right controls (e.g. Clear · Gemini) · Skip channel · Auto-summarize · ✕
+  head.append(
+    icon,
+    ...(showTitle ? [title] : []),
+    ...controls,
+    spacer,
+    ...rightControls,
+    ...(blockBtn ? [blockBtn] : []),
+    ...autoToggles,
+    closeBtn,
+  );
   return head;
 }
 
@@ -815,6 +831,44 @@ function buildBlockButton(t: ReturnType<typeof theme>, info: ChannelInfo): HTMLB
   return btn;
 }
 
+/** "⚡ Gemini" header link that deep-links to the Direct API options section. */
+function buildGeminiLink(t: ReturnType<typeof theme>, label = "⚡ Gemini"): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.textContent = label;
+  Object.assign(b.style, {
+    fontSize: "13px", color: t.sub, background: "transparent", border: "none",
+    cursor: "pointer", padding: "0", whiteSpace: "nowrap",
+  });
+  b.title = "Open Direct API settings";
+  b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" });
+  });
+  return b;
+}
+
+/**
+ * Compact "Your rating:" + Engaged/Skimmed/Skipped row for the loading panel, so
+ * the user can vote while the summary is still in flight. Any prior vote loads
+ * in pre-selected a tick later; the arriving summary panel then owns the rating.
+ */
+function buildLoadingRatingRow(t: ReturnType<typeof theme>, vid: string | null): HTMLElement {
+  const wrap = document.createElement("div");
+  Object.assign(wrap.style, {
+    borderTop: `1px solid ${t.border}`, marginTop: "10px", paddingTop: "9px",
+    display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap",
+  });
+  const label = document.createElement("span");
+  label.textContent = "Your rating:";
+  Object.assign(label.style, { fontSize: "13px", color: t.sub, fontWeight: "700", flexShrink: "0" });
+  wrap.append(label);
+  const mount = (initial: "watch" | "skim" | "skip" | undefined) =>
+    wrap.append(buildRatingButtonsRow(t, initial, vid));
+  if (vid) void loadPriorUserRating(vid).then(mount).catch(() => mount(undefined));
+  else mount(undefined);
+  return wrap;
+}
+
 /** Show an instant skeleton panel while the API call is in flight. */
 function showLoadingPanel(): void {
   const host = panelHost();
@@ -835,7 +889,8 @@ function showLoadingPanel(): void {
   analyzing.textContent = "Analyzing…";
   Object.assign(analyzing.style, { fontSize: "12px", color: t.sub, animation: "tldw-shimmer 1.4s infinite" });
 
-  const head = buildPanelHead(t, [analyzing], currentChannelInfo, true, false);
+  // Keep the ⚡ Gemini link visible during loading (it's part of what's running).
+  const head = buildPanelHead(t, [analyzing], currentChannelInfo, true, false, true, [buildGeminiLink(t)]);
   Object.assign(head.style, { marginBottom: "10px" });
 
   const shimmerLine = (width: string) => {
@@ -847,7 +902,8 @@ function showLoadingPanel(): void {
     return d;
   };
 
-  panel.append(head, shimmerLine("90%"), shimmerLine("65%"));
+  // Show what we're voting on while the summary loads — the rating row is live.
+  panel.append(head, shimmerLine("90%"), shimmerLine("65%"), buildLoadingRatingRow(t, currentVideoId()));
 
   removeStandaloneRatingBar();
   summaryPanel = panel;
@@ -970,8 +1026,13 @@ function buildSummaryPanel(
     headerControls.push(pill(tldw.verdict, verdictColor(tldw.verdict), "#fff"));
   }
 
+  // Right-cluster controls (built below, placed on the right of the header):
+  // 🗑 Clear cached summary · ⚡ Gemini.
+  const rightControls: HTMLElement[] = [];
+
+  let srcBtn: HTMLElement | null = null;
   if (tldw.source) {
-    const srcBtn = document.createElement("button");
+    srcBtn = document.createElement("button");
     srcBtn.textContent = `⚡ ${tldw.source}`;
     Object.assign(srcBtn.style, {
       fontSize: "13px", color: t.sub, background: "transparent", border: "none",
@@ -980,9 +1041,8 @@ function buildSummaryPanel(
     srcBtn.title = "Open Direct API settings";
     srcBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS" });
+      void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" });
     });
-    headerControls.push(srcBtn);
   }
 
   // Per-video "Clear cached summary": drops THIS video's entry from
@@ -1016,10 +1076,12 @@ function buildSummaryPanel(
         void maybeStartDirectApiRun().finally(() => { void maybeShowStandaloneRatingBar(); });
       });
     });
-    headerControls.push(clearBtn);
+    // Order: 🗑 Clear · ⚡ Gemini (then Skip channel · Auto-summarize · ✕ from buildPanelHead).
+    rightControls.push(clearBtn);
+    if (srcBtn) rightControls.push(srcBtn);
   }
 
-  const head = buildPanelHead(t, headerControls, currentChannelInfo);
+  const head = buildPanelHead(t, headerControls, currentChannelInfo, true, true, true, rightControls);
   Object.assign(head.style, { marginBottom: "8px" });
 
   // --- body: summary always visible; clicking the panel toggles details ---

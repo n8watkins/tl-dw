@@ -14,6 +14,27 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 import { TierBadge } from "../components/TierBadge";
 
+type DirectApiTab = "key" | "usage" | "history";
+
+const DIRECT_API_TABS: { id: DirectApiTab; label: string }[] = [
+  { id: "key", label: "Key & Behavior" },
+  { id: "usage", label: "Usage" },
+  { id: "history", label: "History" },
+];
+
+/** Date-bucket label for grouping call-log entries (Today / Yesterday / date). */
+function dateGroupLabel(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return "Today";
+  if (d.toDateString() === new Date(now.getTime() - 86400000).toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: d.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
+}
+
 export function DirectApiSection() {
   const [settings, setLocal] = useState<Settings | null>(null);
   const [profiles, setProfiles] = useState<PromptProfile[]>([]);
@@ -29,6 +50,8 @@ export function DirectApiSection() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmClearStats, setConfirmClearStats] = useState(false);
   const [confirmClearLog, setConfirmClearLog] = useState(false);
+  const [tab, setTab] = useState<DirectApiTab>("key");
+  const [historySearch, setHistorySearch] = useState("");
 
   useEffect(() => {
     void Promise.all([getSettings(), getGeminiUsage(), getGeminiCallLog(), getProfiles()]).then(
@@ -145,6 +168,23 @@ export function DirectApiSection() {
         </div>
       </div>
 
+      {/* Sub-nav: switches between separate views so nothing lives below the fold. */}
+      <div className="directapi-tabs" role="tablist">
+        {DIRECT_API_TABS.map((tb) => (
+          <button
+            key={tb.id}
+            role="tab"
+            aria-selected={tab === tb.id}
+            className={`directapi-tab ${tab === tb.id ? "active" : ""}`}
+            onClick={() => setTab(tb.id)}
+          >
+            {tb.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "key" && (
+      <>
       {/* API key */}
       <div className="settings-group">
         <div className="settings-group-title"><Icon name="send" /> API key</div>
@@ -411,7 +451,11 @@ export function DirectApiSection() {
           </div>
         )}
       </div>
+      </>
+      )}
 
+      {tab === "usage" && (
+      <>
       {/* Usage stats */}
       <div className="settings-group">
         <div className="settings-group-title"><Icon name="eye" /> Usage</div>
@@ -497,7 +541,11 @@ export function DirectApiSection() {
           </button>
         </div>
       </div>
+      </>
+      )}
 
+      {tab === "history" && (
+      <>
       {/* Per-call history */}
       <div className="settings-group">
         <div className="settings-group-title"><Icon name="clock" /> API call history</div>
@@ -506,12 +554,45 @@ export function DirectApiSection() {
           <div className="card" style={{ marginBottom: 0 }}>
             <div className="card-desc">No API calls recorded yet.</div>
           </div>
-        ) : (
+        ) : (() => {
+          const q = historySearch.trim().toLowerCase();
+          const sorted = [...callLog]
+            .filter((e) =>
+              !q ||
+              (e.videoTitle ?? "").toLowerCase().includes(q) ||
+              (e.videoUrl ?? "").toLowerCase().includes(q),
+            )
+            .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+          const groups: { label: string; items: GeminiCallEntry[] }[] = [];
+          for (const e of sorted) {
+            const label = dateGroupLabel(e.at);
+            const last = groups[groups.length - 1];
+            if (!last || last.label !== label) groups.push({ label, items: [e] });
+            else last.items.push(e);
+          }
+          return (
           <>
-            <div className="history-list" style={{ marginBottom: 12 }}>
-              {callLog.map((entry) => {
-                const isOpen = openId === entry.id;
-                return (
+            <input
+              type="text"
+              value={historySearch}
+              onChange={(e) => setHistorySearch(e.target.value)}
+              placeholder="Search by video title or URL…"
+              style={{ fontSize: 13, marginBottom: 12, width: "100%" }}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {sorted.length === 0 ? (
+              <div className="card" style={{ marginBottom: 12 }}>
+                <div className="card-desc">No calls match your search.</div>
+              </div>
+            ) : (
+              groups.map((group) => (
+                <div key={group.label} style={{ marginBottom: 18 }}>
+                  <div className="history-date-header">{group.label}</div>
+                  <div className="history-list">
+                    {group.items.map((entry) => {
+                      const isOpen = openId === entry.id;
+                      return (
                   <div key={entry.id} className="history-card">
                     <div
                       className="history-row"
@@ -583,15 +664,21 @@ export function DirectApiSection() {
                     </div>
                   </div>
                 );
-              })}
-            </div>
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
             <button className="btn btn-danger btn-icon-text" onClick={() => setConfirmClearLog(true)}>
               <Icon name="trash" />
               Clear history
             </button>
           </>
-        )}
+          );
+        })()}
       </div>
+      </>
+      )}
 
       {confirmClearStats && (
         <ConfirmDialog

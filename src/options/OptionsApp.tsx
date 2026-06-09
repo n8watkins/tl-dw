@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SetupSection } from "./sections/SetupSection";
 import { ProfilesSection } from "./sections/ProfilesSection";
 import { HistorySection } from "./sections/HistorySection";
@@ -23,8 +23,31 @@ const NAV: { id: NavItem; label: string; icon: string }[] = [
 
 const ICON_URL = chrome.runtime.getURL("icons/tl-dw-48.png");
 
+const NAV_IDS = NAV.map((n) => n.id);
+function hashToNav(): NavItem | null {
+  const id = window.location.hash.replace(/^#/, "") as NavItem;
+  return NAV_IDS.includes(id) ? id : null;
+}
+
 export function OptionsApp() {
-  const [active, setActive] = useState<NavItem>("setup");
+  // The active section is mirrored in the URL hash (e.g. #directapi) so it's
+  // deep-linkable (the Gemini pill on the watch page lands here) and reflected
+  // in the address bar.
+  const [active, setActive] = useState<NavItem>(() => hashToNav() ?? "setup");
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const next = hashToNav();
+      if (next) setActive(next);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  function navigate(id: NavItem) {
+    setActive(id);
+    if (window.location.hash !== `#${id}`) window.location.hash = id;
+  }
 
   return (
     <div className="layout">
@@ -41,7 +64,7 @@ export function OptionsApp() {
             <button
               key={item.id}
               className={`nav-item ${active === item.id ? "active" : ""}`}
-              onClick={() => setActive(item.id)}
+              onClick={() => navigate(item.id)}
             >
               <span className="nav-icon">{item.icon}</span>
               {item.label}

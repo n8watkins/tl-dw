@@ -342,8 +342,9 @@ export type GetGeminiUsageMessage = { type: "GET_GEMINI_USAGE" };
 /** Popup asking to reset the direct-API usage counter. */
 export type ClearGeminiUsageMessage = { type: "CLEAR_GEMINI_USAGE" };
 
-/** Popup/content asking the worker to open the extension's options page. */
-export type OpenOptionsMessage = { type: "OPEN_OPTIONS" };
+/** Popup/content asking the worker to open the extension's options page.
+ *  Optional `section` deep-links to a sidebar section via the page's URL hash. */
+export type OpenOptionsMessage = { type: "OPEN_OPTIONS"; section?: string };
 
 /** Popup asking the content script whether the current channel is blocked. */
 export type GetChannelStatusMessage = { type: "GET_CHANNEL_STATUS" };
