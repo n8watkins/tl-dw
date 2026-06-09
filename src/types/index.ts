@@ -397,7 +397,10 @@ export type SponsorPanelSegment = {
 export type SponsorWindowApi = {
   getSegments: () => SponsorPanelSegment[];
   isEnabled: () => boolean;
-  undo: (index: number) => void;
+  /** Seek to the segment's start and keep it (don't auto-skip) — "jump & watch". */
+  jumpTo: (index: number) => void;
+  /** Seek to the segment's end now — manual skip. */
+  skipNow: (index: number) => void;
 };
 
 /** Content script asking the worker to fetch this video's SponsorBlock segments. */

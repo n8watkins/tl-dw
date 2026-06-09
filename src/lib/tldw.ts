@@ -6,7 +6,17 @@ import type { TldwSummary } from "../types";
  * (headless API path).
  */
 export function parseTldwBlock(text: string): TldwSummary | null {
-  const blockMatch = text.match(/---TLDW---([\s\S]*?)---END TLDW---/);
+  // The headless API path reads raw text where the markers are literal
+  // "---TLDW---". But when scraped from a chat UI, the response is rendered
+  // Markdown — and Markdown turns "---" into an em-dash (—) or an <hr>, so the
+  // visible text is "—TLDW—" or just "TLDW". Match any dash variant (or none),
+  // with optional whitespace, so both paths parse. A final fallback handles the
+  // case where the dashes were stripped entirely.
+  const dash = "[-\\u2012-\\u2015\\u2212]{0,3}";
+  const blockMatch =
+    text.match(
+      new RegExp(`${dash}\\s*TLDW\\s*${dash}([\\s\\S]*?)${dash}\\s*END\\s+TLDW\\s*${dash}`),
+    ) ?? text.match(/\bTLDW\b([\s\S]*?)\bEND\s+TLDW\b/);
   if (!blockMatch) return null;
 
   const fields: Record<string, string> = {};

@@ -82,24 +82,34 @@ function notifyPanel(): void {
   window.dispatchEvent(new CustomEvent("tldw-sponsor-update"));
 }
 
-/** Undo a skip: jump back to the segment so the user can watch it, and don't
- *  auto-skip it again this load. Driven by the Undo button in the panel. */
-function undoSegment(index: number): void {
+/** Jump to a segment's start and keep it (don't auto-skip) — drives the
+ *  clickable timestamp and the Undo button in the panel. */
+function jumpTo(index: number): void {
   const seg = segments[index];
-  if (!seg) return;
+  if (!seg || !video) return;
   disabled.add(seg);
   skipped.delete(seg);
-  if (video) {
-    programmaticSeek = true;
-    video.currentTime = Math.max(0, seg.start - 0.3);
-  }
+  programmaticSeek = true;
+  video.currentTime = Math.max(0, seg.start - 0.3);
+  notifyPanel();
+}
+
+/** Skip a segment now (seek to its end) — drives the panel's Skip button. */
+function skipNow(index: number): void {
+  const seg = segments[index];
+  if (!seg || !video) return;
+  skipped.add(seg);
+  disabled.delete(seg);
+  programmaticSeek = true;
+  video.currentTime = seg.end;
   notifyPanel();
 }
 
 (window as unknown as { __tldwSponsor?: SponsorWindowApi }).__tldwSponsor = {
   getSegments: () => (enabled ? segmentState() : []),
   isEnabled: () => enabled,
-  undo: undoSegment,
+  jumpTo,
+  skipNow,
 };
 
 function onTimeUpdate(): void {

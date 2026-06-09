@@ -881,18 +881,20 @@ function secToClock(s: number): string {
 }
 
 /**
- * The SponsorBlock row shown inside the panel: each sponsor segment's timestamp
- * range, with a persistent per-segment Undo once it's been auto-skipped.
+ * The SponsorBlock row shown at the top of the panel: each sponsor segment's
+ * timestamp range (click to jump there and watch it), plus a per-segment action
+ * — Skip it now, or Undo if it's already been skipped.
  */
 function buildSponsorSection(t: ReturnType<typeof theme>): HTMLElement | null {
-  const segs = sponsorApi()?.getSegments() ?? [];
-  if (segs.length === 0) return null;
+  const api = sponsorApi();
+  const segs = api?.getSegments() ?? [];
+  if (!api || segs.length === 0) return null;
 
   const wrap = document.createElement("div");
   wrap.id = SPONSOR_SECTION_ID;
   Object.assign(wrap.style, {
     display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px",
-    marginTop: "8px", paddingTop: "8px", borderTop: `1px solid ${t.border}`,
+    marginBottom: "8px", paddingBottom: "8px", borderBottom: `1px solid ${t.border}`,
     fontSize: "12px", color: t.sub,
   });
 
@@ -901,48 +903,53 @@ function buildSponsorSection(t: ReturnType<typeof theme>): HTMLElement | null {
   Object.assign(label.style, { fontWeight: "700", flexShrink: "0" });
   wrap.append(label);
 
+  const mkBtn = (text: string, color: string, onClick: () => void): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.textContent = text;
+    Object.assign(b.style, {
+      background: "transparent", border: "none", color,
+      cursor: "pointer", fontWeight: "700", fontSize: "12px", padding: "0",
+    });
+    b.addEventListener("click", (e) => { e.stopPropagation(); onClick(); });
+    return b;
+  };
+
   for (const seg of segs) {
     const chip = document.createElement("span");
     Object.assign(chip.style, {
-      display: "inline-flex", alignItems: "center", gap: "6px",
+      display: "inline-flex", alignItems: "center", gap: "7px",
       background: t.border, borderRadius: "999px", padding: "2px 9px",
       whiteSpace: "nowrap", color: t.text,
     });
-
-    const range = document.createElement("span");
     const active = seg.skipped && !seg.disabled;
-    range.textContent = `${active ? "✓ " : ""}${secToClock(seg.start)}–${secToClock(seg.end)}`;
-    if (active) range.style.color = t.sub;
-    chip.append(range);
 
-    if (active) {
-      const undo = document.createElement("button");
-      undo.textContent = "Undo";
-      Object.assign(undo.style, {
-        background: "transparent", border: "none", color: "#1a73e8",
-        cursor: "pointer", fontWeight: "700", fontSize: "12px", padding: "0",
-      });
-      undo.addEventListener("click", (e) => {
-        e.stopPropagation();
-        sponsorApi()?.undo(seg.index);
-      });
-      chip.append(undo);
-    }
+    // Clickable timestamp — jump there and watch it (won't auto-skip after).
+    const time = mkBtn(
+      `${active ? "✓ " : ""}${secToClock(seg.start)}–${secToClock(seg.end)}`,
+      active ? t.sub : t.text,
+      () => api.jumpTo(seg.index),
+    );
+    time.title = "Jump to this segment and watch it";
+    chip.append(time);
+
+    // Action: Undo if already skipped, otherwise Skip it now.
+    const action = active
+      ? mkBtn("Undo", "#1a73e8", () => api.jumpTo(seg.index))
+      : mkBtn("Skip", "#dc2626", () => api.skipNow(seg.index));
+    chip.append(action);
+
     wrap.append(chip);
   }
   return wrap;
 }
 
-/** Insert/refresh the SponsorBlock section as the panel's second child. */
+/** Insert/refresh the SponsorBlock section at the very top of the panel. */
 function refreshSponsorPanel(): void {
   const panel = summaryPanel;
   if (!panel) return;
   panel.querySelector(`#${SPONSOR_SECTION_ID}`)?.remove();
   const section = buildSponsorSection(theme());
-  if (!section) return;
-  const head = panel.querySelector<HTMLElement>(":scope > div");
-  if (head && head.nextSibling) panel.insertBefore(section, head.nextSibling);
-  else panel.append(section);
+  if (section) panel.prepend(section);
 }
 
 // sponsorblock.ts fires this whenever segments are fetched, skipped, or undone.
@@ -986,28 +993,6 @@ function buildGeminiLink(t: ReturnType<typeof theme>, label = "⚡ Gemini"): HTM
   return b;
 }
 
-/**
- * Compact "Your rating:" + Engaged/Skimmed/Skipped row for the loading panel, so
- * the user can vote while the summary is still in flight. Any prior vote loads
- * in pre-selected a tick later; the arriving summary panel then owns the rating.
- */
-function buildLoadingRatingRow(t: ReturnType<typeof theme>, vid: string | null): HTMLElement {
-  const wrap = document.createElement("div");
-  Object.assign(wrap.style, {
-    borderTop: `1px solid ${t.border}`, marginTop: "10px", paddingTop: "9px",
-    display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap",
-  });
-  const label = document.createElement("span");
-  label.textContent = "Your rating:";
-  Object.assign(label.style, { fontSize: "13px", color: t.sub, fontWeight: "700", flexShrink: "0" });
-  wrap.append(label);
-  const mount = (initial: "watch" | "skim" | "skip" | undefined) =>
-    wrap.append(buildRatingButtonsRow(t, initial, vid));
-  if (vid) void loadPriorUserRating(vid).then(mount).catch(() => mount(undefined));
-  else mount(undefined);
-  return wrap;
-}
-
 /** Show an instant skeleton panel while the API call is in flight. */
 function showLoadingPanel(): void {
   const host = panelHost();
@@ -1028,23 +1013,13 @@ function showLoadingPanel(): void {
   analyzing.textContent = "Analyzing…";
   Object.assign(analyzing.style, { fontSize: "12px", color: t.sub, animation: "tldw-shimmer 1.4s infinite" });
 
-  // Keep the ⚡ Gemini link visible during loading (it's part of what's running).
+  // Minimal loading state — just the header with a live "Analyzing…" cue and the
+  // ⚡ Gemini link. No shimmer skeleton, no rating row (voting is its own
+  // injection now); the summary simply replaces this when it lands.
   const head = buildPanelHead(t, [analyzing], currentChannelInfo, true, false, true, [buildGeminiLink(t)]);
-  Object.assign(head.style, { marginBottom: "10px" });
 
-  const shimmerLine = (width: string) => {
-    const d = document.createElement("div");
-    Object.assign(d.style, {
-      background: t.border, borderRadius: "4px", height: "13px",
-      width, marginBottom: "8px", animation: "tldw-shimmer 1.4s infinite",
-    });
-    return d;
-  };
+  panel.append(head);
 
-  // Show what we're voting on while the summary loads — the rating row is live.
-  panel.append(head, shimmerLine("90%"), shimmerLine("65%"), buildLoadingRatingRow(t, currentVideoId()));
-
-  removeStandaloneRatingBar();
   summaryPanel = panel;
   summaryPanelKind = "loading";
   host.prepend(panel);
@@ -1400,37 +1375,12 @@ function buildSummaryPanel(
   channelRow.replaceChildren(...dimEls);
   const showChannelRow = dimEls.length > 1; // more than just the header
 
-  // Track the latest selection so a post-persist cue refresh keeps the marker.
-  let selectedUserRating: "watch" | "skim" | "skip" | null = initialUserRating ?? null;
-
-  // After a rating durably persists, pull the recomputed channel averages and
-  // refresh the "You" cue so it reflects the new vote (the count + average now
-  // include this video). Mutates the captured stats in place so renderCue sees
-  // the fresh value.
-  const onChannelStatsRefresh = (fresh: ChannelComparison) => {
-    if (channelStats) {
-      channelStats.avgUserRating = fresh.avgUserRating;
-      channelStats.count = fresh.count;
-      channelStats.userBreakdown = fresh.userBreakdown;
-    }
-    refreshMyCue(selectedUserRating);
-  };
-
-  // --- user personal rating row (My dimension collect/show gate) ---
-  const ratingRow = toggles.askForMyRating
-    ? buildUserRatingRow(
-        t,
-        initialUserRating,
-        videoId,
-        currentChannelInfo?.name,
-        (rating) => { selectedUserRating = rating; refreshMyCue(rating); },
-        onChannelStatsRefresh,
-      )
-    : null;
+  // Voting is its own injection now (the standalone rating bar below the panel),
+  // not embedded here — so the summary panel carries only the read-only
+  // AI / Community / You comparison cues, never the rating buttons.
 
   panel.append(
     head, body,
-    ...(ratingRow ? [ratingRow] : []),
     ...(showChannelRow ? [channelRow] : []),
   );
   return panel;
@@ -1563,49 +1513,7 @@ function buildRatingButtonsRow(
   return row;
 }
 
-/** Engaged / Skimmed / Skipped personal rating row shown below the summary text. */
-function buildUserRatingRow(
-  t: ReturnType<typeof theme>,
-  initial: "watch" | "skim" | "skip" | undefined,
-  videoId: string | null | undefined,
-  channelName?: string,
-  onRatingChange?: (rating: "watch" | "skim" | "skip" | null) => void,
-  onChannelStatsRefresh?: (fresh: ChannelComparison) => void,
-): HTMLElement {
-  const wrapper = document.createElement("div");
-  Object.assign(wrapper.style, {
-    borderTop: `1px solid ${t.border}`, marginTop: "8px", paddingTop: "7px",
-  });
-
-  // Rating buttons row, prefixed with a "Your rating:" label.
-  const row = buildRatingButtonsRow(t, initial, videoId, onRatingChange, onChannelStatsRefresh);
-  const youLabel = document.createElement("span");
-  youLabel.textContent = "Your rating:";
-  Object.assign(youLabel.style, { fontSize: "13px", color: t.sub, flexShrink: "0" });
-  row.prepend(youLabel);
-
-  // channelName retained for signature parity with callers; the per-channel cue
-  // is now rendered in the panel's channel-comparison row.
-  void channelName;
-
-  wrapper.append(row);
-
-  // API usage indicator (loaded async)
-  const apiUsageEl = document.createElement("div");
-  Object.assign(apiUsageEl.style, { fontSize: "13px", color: t.sub, marginTop: "5px", textAlign: "right" });
-  void chrome.storage.local.get("geminiUsage").then((r) => {
-    const usage = r["geminiUsage"] as { todayCalls?: number } | undefined;
-    const todayCalls = usage?.todayCalls ?? 0;
-    if (todayCalls > 0) {
-      apiUsageEl.textContent = `API: ${todayCalls} calls today`;
-    }
-  });
-  wrapper.append(apiUsageEl);
-
-  return wrapper;
-}
-
-// --- standalone personal-rating bar (shown when no summary panel exists) -----
+// --- standalone personal-rating bar (the dedicated voting injection) ---------
 
 const TLDW_RATING_BAR_ID = "tldw-rating-bar";
 let ratingBar: HTMLElement | null = null;
@@ -1647,12 +1555,8 @@ async function loadPriorUserRating(
  * rated" channel cue.
  */
 async function maybeShowStandaloneRatingBar(): Promise<void> {
-  // Mutual exclusion: the summary (and its in-flight loading skeleton) owns the
-  // rating, so the bar must stay hidden then. The idle placeholder has no rating
-  // row, so the bar shows alongside it.
-  const ownedByPanel = () => summaryPanelKind === "summary" || summaryPanelKind === "loading";
-  if (ownedByPanel()) { removeStandaloneRatingBar(); return; }
-
+  // Voting is its own injection now — the rating bar shows alongside the
+  // summary / loading / idle panel, never mutually exclusive with it.
   const vid = currentVideoId();
   if (!vid) { removeStandaloneRatingBar(); return; }
 
@@ -1663,9 +1567,6 @@ async function maybeShowStandaloneRatingBar(): Promise<void> {
   const toggles = await loadRatingToggles();
   if (!toggles.askForMyRating) { removeStandaloneRatingBar(); return; }
 
-  // Re-check exclusion after the async read — a summary may have arrived.
-  if (ownedByPanel()) { removeStandaloneRatingBar(); return; }
-
   const host = panelHost();
   if (!host) return;
 
@@ -1674,8 +1575,7 @@ async function maybeShowStandaloneRatingBar(): Promise<void> {
     computeChannelComparison(currentChannelInfo?.name),
   ]);
 
-  // Final exclusion + staleness checks after all async work.
-  if (ownedByPanel()) { removeStandaloneRatingBar(); return; }
+  // Staleness check after all async work (the user may have navigated away).
   if (currentVideoId() !== vid) return;
   const h = panelHost();
   if (!h) return;
@@ -1749,14 +1649,14 @@ function showSummaryPanel(
     const h = panelHost();
     if (!h) return;
     removeSummaryPanel();
-    // Summary panel owns the rating now — drop the standalone bar.
-    removeStandaloneRatingBar();
     const panel = buildSummaryPanel(tldw, channelStats, userRating, vid, toggles, audienceScore);
     summaryPanel = panel;
     summaryPanelKind = "summary";
     h.prepend(summaryPanel);
     log("summary panel injected");
     refreshSponsorPanel();
+    // Voting is its own injection — make sure the rating bar is present too.
+    void maybeShowStandaloneRatingBar();
   });
 }
 
