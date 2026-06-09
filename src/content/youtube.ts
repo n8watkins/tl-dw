@@ -28,6 +28,7 @@ import {
   scoreToVerdict,
   userAvgToLabel,
 } from "../lib/constants";
+import type { SponsorWindowApi } from "../types";
 
 // --- intercepted transcript cache ----------------------------------------
 
@@ -824,7 +825,6 @@ function buildPanelHead(
 
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
-  spacer.dataset.tldwSpacer = "1"; // anchor for late sponsor-pill insertion
 
   const closeBtn = document.createElement("button");
   Object.assign(closeBtn.style, {
@@ -860,45 +860,93 @@ function buildPanelHead(
     ...autoToggles,
     closeBtn,
   );
-  // SponsorBlock status lives inside the panel (left side). Inserted now if the
-  // count is already known; refreshSponsorPill re-inserts it if SponsorBlock
-  // finishes fetching after the panel renders.
-  insertSponsorPill(head);
   return head;
 }
 
-// --- SponsorBlock status pill (data supplied by sponsorblock.ts via window) ---
+// --- SponsorBlock section (data + undo supplied by sponsorblock.ts via window) ---
 
-const SPONSOR_PILL_ID = "tldw-sponsor-pill";
+const SPONSOR_SECTION_ID = "tldw-sponsor-section";
 
-/** Sponsor-segment count for the current video, published by sponsorblock.ts. */
-function sponsorSegmentCount(): number {
-  return Number((window as { __tldwSponsorCount?: number }).__tldwSponsorCount) || 0;
+function sponsorApi(): SponsorWindowApi | null {
+  return (window as unknown as { __tldwSponsor?: SponsorWindowApi }).__tldwSponsor ?? null;
 }
 
-/** Insert (or refresh) the SponsorBlock pill into a panel head, before the spacer. */
-function insertSponsorPill(head: HTMLElement): void {
-  head.querySelector(`#${SPONSOR_PILL_ID}`)?.remove();
-  const count = sponsorSegmentCount();
-  if (count <= 0) return;
-  const spacer = head.querySelector<HTMLElement>("[data-tldw-spacer]");
-  if (!spacer) return;
-  const t = theme();
-  const el = pill(`⏭ ${count}`, t.border, t.sub);
-  el.id = SPONSOR_PILL_ID;
-  el.style.cursor = "default";
-  el.title = `SponsorBlock: ${count} sponsor segment${count === 1 ? "" : "s"} on this video — auto-skip on`;
-  head.insertBefore(el, spacer);
+/** Seconds → m:ss (or h:mm:ss for long videos). */
+function secToClock(s: number): string {
+  const sec = Math.max(0, Math.round(s));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const ss = String(sec % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }
 
-/** Re-insert the sponsor pill into the live panel when the count changes. */
-function refreshSponsorPill(): void {
-  const head = summaryPanel?.querySelector<HTMLElement>(":scope > div");
-  if (head) insertSponsorPill(head);
+/**
+ * The SponsorBlock row shown inside the panel: each sponsor segment's timestamp
+ * range, with a persistent per-segment Undo once it's been auto-skipped.
+ */
+function buildSponsorSection(t: ReturnType<typeof theme>): HTMLElement | null {
+  const segs = sponsorApi()?.getSegments() ?? [];
+  if (segs.length === 0) return null;
+
+  const wrap = document.createElement("div");
+  wrap.id = SPONSOR_SECTION_ID;
+  Object.assign(wrap.style, {
+    display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px",
+    marginTop: "8px", paddingTop: "8px", borderTop: `1px solid ${t.border}`,
+    fontSize: "12px", color: t.sub,
+  });
+
+  const label = document.createElement("span");
+  label.textContent = "⏭ SponsorBlock";
+  Object.assign(label.style, { fontWeight: "700", flexShrink: "0" });
+  wrap.append(label);
+
+  for (const seg of segs) {
+    const chip = document.createElement("span");
+    Object.assign(chip.style, {
+      display: "inline-flex", alignItems: "center", gap: "6px",
+      background: t.border, borderRadius: "999px", padding: "2px 9px",
+      whiteSpace: "nowrap", color: t.text,
+    });
+
+    const range = document.createElement("span");
+    const active = seg.skipped && !seg.disabled;
+    range.textContent = `${active ? "✓ " : ""}${secToClock(seg.start)}–${secToClock(seg.end)}`;
+    if (active) range.style.color = t.sub;
+    chip.append(range);
+
+    if (active) {
+      const undo = document.createElement("button");
+      undo.textContent = "Undo";
+      Object.assign(undo.style, {
+        background: "transparent", border: "none", color: "#1a73e8",
+        cursor: "pointer", fontWeight: "700", fontSize: "12px", padding: "0",
+      });
+      undo.addEventListener("click", (e) => {
+        e.stopPropagation();
+        sponsorApi()?.undo(seg.index);
+      });
+      chip.append(undo);
+    }
+    wrap.append(chip);
+  }
+  return wrap;
 }
 
-// sponsorblock.ts dispatches this once it has fetched (or cleared) segments.
-window.addEventListener("tldw-sponsor-update", refreshSponsorPill);
+/** Insert/refresh the SponsorBlock section as the panel's second child. */
+function refreshSponsorPanel(): void {
+  const panel = summaryPanel;
+  if (!panel) return;
+  panel.querySelector(`#${SPONSOR_SECTION_ID}`)?.remove();
+  const section = buildSponsorSection(theme());
+  if (!section) return;
+  const head = panel.querySelector<HTMLElement>(":scope > div");
+  if (head && head.nextSibling) panel.insertBefore(section, head.nextSibling);
+  else panel.append(section);
+}
+
+// sponsorblock.ts fires this whenever segments are fetched, skipped, or undone.
+window.addEventListener("tldw-sponsor-update", refreshSponsorPanel);
 
 /** Block button — hides the panel permanently for this channel on this and future visits. */
 function buildBlockButton(t: ReturnType<typeof theme>, info: ChannelInfo): HTMLButtonElement {
@@ -1001,6 +1049,7 @@ function showLoadingPanel(): void {
   summaryPanelKind = "loading";
   host.prepend(panel);
   log("loading panel shown");
+  refreshSponsorPanel();
 
   // Don't let the skeleton spin forever (e.g. a tab-mode scrape that never
   // produced a parseable answer). After a grace period, surface a retry panel.
@@ -1060,6 +1109,7 @@ function showSummaryErrorPanel(): void {
   summaryPanelKind = "idle";
   host.prepend(panel);
   log("summary error panel shown (loading timed out)");
+  refreshSponsorPanel();
 }
 
 type ChannelComparison = {
@@ -1706,6 +1756,7 @@ function showSummaryPanel(
     summaryPanelKind = "summary";
     h.prepend(summaryPanel);
     log("summary panel injected");
+    refreshSponsorPanel();
   });
 }
 
@@ -2037,6 +2088,7 @@ function showIdlePanel(onGetSummary: () => void): void {
   summaryPanelKind = "idle";
   host.prepend(panel);
   log("idle panel shown");
+  refreshSponsorPanel();
 }
 
 // --- comments panel (injected into ytd-comments-header-renderer) ----------

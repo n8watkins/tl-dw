@@ -379,6 +379,27 @@ export type ChannelStatusResponse = {
 /** One sponsor segment from SponsorBlock: a [start, end] time range in seconds. */
 export type SponsorSegment = { start: number; end: number; category: string };
 
+/** A sponsor segment as published to the TL;DW panel (with skip/undo state). */
+export type SponsorPanelSegment = {
+  index: number;
+  start: number;
+  end: number;
+  category: string;
+  skipped: boolean;
+  disabled: boolean;
+};
+
+/**
+ * Bridge the SponsorBlock content script (sponsorblock.ts) exposes on `window`
+ * so the panel renderer (youtube.ts) — same content-script world — can show the
+ * segment timestamps and drive Undo. Changes fire a `tldw-sponsor-update` event.
+ */
+export type SponsorWindowApi = {
+  getSegments: () => SponsorPanelSegment[];
+  isEnabled: () => boolean;
+  undo: (index: number) => void;
+};
+
 /** Content script asking the worker to fetch this video's SponsorBlock segments. */
 export type GetSponsorSegmentsMessage = { type: "GET_SPONSOR_SEGMENTS"; videoId: string };
 

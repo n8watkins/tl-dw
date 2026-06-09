@@ -2,7 +2,8 @@
  * SponsorBlock auto-skip. On every YouTube watch-page navigation it asks the
  * background worker for this video's sponsor segments (the free, key-less
  * SponsorBlock community API), then watches the player and seeks past each
- * sponsored segment as playback reaches it. A toast offers one-click undo.
+ * sponsored segment as playback reaches it. The TL;DW panel (youtube.ts) shows
+ * the segment timestamps and a per-segment Undo, fed by the window bridge below.
  *
  * Design notes (see LESSONS_LEARNED.md):
  *  - Runs as its own content script so the skip engine is independent of the
@@ -13,7 +14,12 @@
  *    is never fought.
  */
 
-import type { SponsorSegment, SponsorSegmentsResponse } from "../types";
+import type {
+  SponsorSegment,
+  SponsorSegmentsResponse,
+  SponsorPanelSegment,
+  SponsorWindowApi,
+} from "../types";
 
 const log = (...args: unknown[]) => console.log("[TL;DW SB]", ...args);
 
@@ -56,68 +62,45 @@ function findVideo(): HTMLVideoElement | null {
   return document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
 }
 
-function fmt(seconds: number): string {
-  const s = Math.max(0, Math.round(seconds));
-  const m = Math.floor(s / 60);
-  return `${m}:${String(s % 60).padStart(2, "0")}`;
+// --- bridge to the TL;DW panel (youtube.ts) -------------------------------
+// Same content-script world, so we expose a small API on window and fire a
+// `tldw-sponsor-update` event on every change. The panel renders the segment
+// timestamps and the Undo control inside its own injection (no floating box).
+
+function segmentState(): SponsorPanelSegment[] {
+  return segments.map((s, i) => ({
+    index: i,
+    start: s.start,
+    end: s.end,
+    category: s.category,
+    skipped: skipped.has(s),
+    disabled: disabled.has(s),
+  }));
 }
 
-let toastEl: HTMLElement | null = null;
-let toastTimer: number | undefined;
-
-// Publish the current sponsor-segment count to the TL;DW panel (rendered by
-// youtube.ts, which shares this page's content-script world). The panel shows a
-// "⏭ N" pill inside its own injection rather than a separate floating box.
-function publishCount(count: number): void {
-  (window as { __tldwSponsorCount?: number }).__tldwSponsorCount = count;
+function notifyPanel(): void {
   window.dispatchEvent(new CustomEvent("tldw-sponsor-update"));
 }
 
-function showSkipToast(seg: SponsorSegment): void {
-  toastEl?.remove();
-  const el = document.createElement("div");
-  el.style.cssText = [
-    "position:fixed",
-    "left:16px",
-    "bottom:84px",
-    "z-index:2147483647",
-    "background:rgba(20,20,20,0.94)",
-    "color:#fff",
-    "font:13px/1.3 Roboto,system-ui,sans-serif",
-    "padding:10px 12px",
-    "border-radius:10px",
-    "box-shadow:0 6px 24px rgba(0,0,0,0.4)",
-    "display:flex",
-    "align-items:center",
-    "gap:10px",
-  ].join(";");
-
-  const label = document.createElement("span");
-  label.textContent = `⏭ Skipped sponsor (${fmt(seg.end - seg.start)})`;
-
-  const undo = document.createElement("button");
-  undo.textContent = "Undo";
-  undo.style.cssText =
-    "background:transparent;border:1px solid #555;color:#8ab4f8;border-radius:6px;padding:3px 10px;cursor:pointer;font-weight:700;";
-  undo.addEventListener("click", () => {
-    disabled.add(seg); // don't re-skip after the user pulls it back
-    if (video) {
-      programmaticSeek = true;
-      video.currentTime = Math.max(0, seg.start - 0.5);
-    }
-    el.remove();
-    toastEl = null;
-  });
-
-  el.append(label, undo);
-  document.body.appendChild(el);
-  toastEl = el;
-  window.clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => {
-    el.remove();
-    if (toastEl === el) toastEl = null;
-  }, 6000);
+/** Undo a skip: jump back to the segment so the user can watch it, and don't
+ *  auto-skip it again this load. Driven by the Undo button in the panel. */
+function undoSegment(index: number): void {
+  const seg = segments[index];
+  if (!seg) return;
+  disabled.add(seg);
+  skipped.delete(seg);
+  if (video) {
+    programmaticSeek = true;
+    video.currentTime = Math.max(0, seg.start - 0.3);
+  }
+  notifyPanel();
 }
+
+(window as unknown as { __tldwSponsor?: SponsorWindowApi }).__tldwSponsor = {
+  getSegments: () => (enabled ? segmentState() : []),
+  isEnabled: () => enabled,
+  undo: undoSegment,
+};
 
 function onTimeUpdate(): void {
   if (!enabled || !video || segments.length === 0) return;
@@ -130,7 +113,7 @@ function onTimeUpdate(): void {
       skipped.add(seg);
       programmaticSeek = true;
       video.currentTime = seg.end;
-      showSkipToast(seg);
+      notifyPanel(); // panel now shows this segment as skipped, with an Undo
       break;
     }
   }
@@ -146,9 +129,14 @@ function onSeeked(): void {
   }
   if (!video) return;
   const t = video.currentTime;
+  let changed = false;
   for (const seg of segments) {
-    if (t >= seg.start && t < seg.end) disabled.add(seg);
+    if (t >= seg.start && t < seg.end && !disabled.has(seg)) {
+      disabled.add(seg);
+      changed = true;
+    }
   }
+  if (changed) notifyPanel();
 }
 
 function attach(): void {
@@ -175,22 +163,18 @@ async function handleNav(): Promise<void> {
   skipped.clear();
   disabled.clear();
   lastTime = 0;
-  toastEl?.remove();
-  toastEl = null;
-  publishCount(0);
+  notifyPanel();
 
   enabled = await loadEnabled();
-  if (!enabled) return;
+  if (!enabled) { notifyPanel(); return; }
 
   const fetched = await fetchSegments(vid);
   // Guard against a navigation that happened during the async fetch.
   if (currentVid !== vid) return;
   segments = fetched;
   log(`${segments.length} sponsor segment(s) for ${vid}`);
-  if (segments.length > 0) {
-    attach();
-    publishCount(segments.length);
-  }
+  if (segments.length > 0) attach();
+  notifyPanel();
 }
 
 // Same three-layer SPA strategy youtube.ts uses: initial load + YouTube's own
@@ -204,8 +188,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes["settings"]) return;
   const next = changes["settings"].newValue as { skipSponsors?: boolean } | undefined;
   enabled = next?.skipSponsors !== false;
-  // Reflect the toggle in the panel pill: hide the count when off, restore it on.
-  publishCount(enabled ? segments.length : 0);
+  notifyPanel(); // reflect the toggle in the panel (segments hidden when off)
 });
 
 export {};
