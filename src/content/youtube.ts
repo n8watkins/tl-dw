@@ -765,18 +765,21 @@ function buildAutoToggle(
   const btn = document.createElement("button");
   Object.assign(btn.style, {
     fontSize: "13px", fontWeight: "700", letterSpacing: "0.04em",
-    padding: "0 12px", borderRadius: "999px", border: "none",
+    padding: "0 12px", borderRadius: "999px", border: "2px solid transparent",
     cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
-    transition: "background 0.15s, color 0.15s",
+    background: t.border,
+    transition: "border-color 0.15s, color 0.15s",
     ...pillGeom,
   });
 
   let isOn = initialOn;
+  // ON is shown by a red OUTLINE on the same gray pill (not a loud solid red).
   const applyState = (on: boolean) => {
     isOn = on;
     btn.textContent = on ? onLabel : offLabel;
-    btn.style.background = on ? STOP_COLOR : t.border;
-    btn.style.color = on ? "#fff" : t.sub;
+    btn.style.background = t.border;
+    btn.style.borderColor = on ? STOP_COLOR : "transparent";
+    btn.style.color = on ? STOP_COLOR : t.sub;
     btn.title = on
       ? `Auto-run ${field} is ON for ${info.name} — click to stop`
       : `Turn on auto-run ${field} for ${info.name}`;
@@ -785,13 +788,11 @@ function buildAutoToggle(
   applyState(initialOn);
 
   btn.addEventListener("mouseenter", () => {
-    // OFF → preview the feature color ("click to enable"); ON → darken red ("click to stop").
-    btn.style.background = isOn ? darken(STOP_COLOR) : enableColor;
-    btn.style.color = "#fff";
-    btn.style.opacity = "1";
+    // OFF → preview the feature color outline; ON → darken the red outline.
+    btn.style.borderColor = isOn ? darken(STOP_COLOR) : enableColor;
+    btn.style.color = isOn ? STOP_COLOR : enableColor;
   });
   btn.addEventListener("mouseleave", () => {
-    btn.style.opacity = "1";
     applyState(isOn);
   });
 
@@ -1250,59 +1251,48 @@ function buildSummaryPanel(
     headerControls.push(pill(tldw.verdict, verdictColor(tldw.verdict), "#fff"));
   }
 
-  // Right-cluster controls (built below, placed on the right of the header):
-  // 🗑 Clear cached summary · ⚡ Gemini.
-  const rightControls: HTMLElement[] = [];
-
-  let srcBtn: HTMLElement | null = null;
-  if (tldw.source) {
-    srcBtn = document.createElement("button");
-    srcBtn.textContent = `⚡ ${tldw.source}`;
-    Object.assign(srcBtn.style, {
-      fontSize: "13px", color: t.sub, background: "transparent", border: "none",
-      cursor: "pointer", padding: "0", whiteSpace: "nowrap",
+  // Prominent action pills on the LEFT (after the verdict): New tab · Clear
+  // cache · Cached/source badge. Gray pills with a colored outline on hover —
+  // bigger and easier to hit than the old tiny text links.
+  const actionPill = (
+    label: string,
+    title: string,
+    hoverColor: string,
+    onClick: (b: HTMLButtonElement) => void,
+  ): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.title = title;
+    Object.assign(b.style, {
+      fontSize: "13px", fontWeight: "700", padding: "0 12px", borderRadius: "999px",
+      border: "2px solid transparent", background: t.border, color: t.sub,
+      cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
+      transition: "border-color 0.15s, color 0.15s", ...pillGeom,
     });
-    srcBtn.title = "This summary came from the Gemini API — instant, no tab. Click for Direct API settings.";
-    srcBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" });
-    });
-  }
+    b.addEventListener("mouseenter", () => { b.style.borderColor = hoverColor; b.style.color = hoverColor; });
+    b.addEventListener("mouseleave", () => { b.style.borderColor = "transparent"; b.style.color = t.sub; });
+    b.addEventListener("click", (e) => { e.stopPropagation(); onClick(b); });
+    return b;
+  };
 
-  // "↗ New tab": force a fresh run that opens the AI destination in a tab, even
+  // ↗ New tab — force a fresh run that opens the AI destination in a tab, even
   // when a cached summary is already showing.
-  const newTabBtn = document.createElement("button");
-  newTabBtn.textContent = "↗ New tab";
-  newTabBtn.title = "Re-run TL;DW in a new browser tab (opens your AI destination)";
-  Object.assign(newTabBtn.style, {
-    fontSize: "13px", color: t.sub, background: "transparent", border: "none",
-    cursor: "pointer", padding: "0", whiteSpace: "nowrap",
-  });
-  newTabBtn.addEventListener("mouseenter", () => { newTabBtn.style.color = t.text; });
-  newTabBtn.addEventListener("mouseleave", () => { newTabBtn.style.color = t.sub; });
-  newTabBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    newTabBtn.textContent = "↗ Opening…";
-    void chrome.runtime.sendMessage({ type: "ASK", source: "popup" });
-  });
+  const newTabBtn = actionPill(
+    "↗ New tab",
+    "Re-run TL;DW in a new browser tab (opens your AI destination)",
+    t.text,
+    (b) => {
+      b.textContent = "↗ Opening…";
+      void chrome.runtime.sendMessage({ type: "ASK", source: "popup" });
+    },
+  );
 
-  // Per-video "Clear cached summary": drops THIS video's entry from
-  // tldwSummaryCache, removes the panel, and reverts to the idle/pre-summary
-  // state (re-running maybeStartDirectApiRun with no cache entry shows the idle
-  // "Get Summary" panel, or auto-runs if the channel opted in). The standalone
-  // rating bar from Feature 1 reappears since the summary panel is gone.
-  {
-    const clearBtn = document.createElement("button");
-    clearBtn.textContent = "🗑 Clear cached summary";
-    clearBtn.title = "Remove this video's cached summary and start fresh";
-    Object.assign(clearBtn.style, {
-      fontSize: "13px", color: t.sub, background: "transparent", border: "none",
-      cursor: "pointer", padding: "0", whiteSpace: "nowrap",
-    });
-    clearBtn.addEventListener("mouseenter", () => { clearBtn.style.color = "#dc2626"; });
-    clearBtn.addEventListener("mouseleave", () => { clearBtn.style.color = t.sub; });
-    clearBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
+  // 🧹 Clear cache — drop THIS video's cached summary and start fresh.
+  const clearBtn = actionPill(
+    "🧹 Clear cache",
+    "Remove this video's cached summary and start fresh",
+    "#dc2626",
+    () => {
       const vid = videoId ?? currentVideoId();
       void chrome.storage.local.get("tldwSummaryCache").then((r) => {
         const cache = (r["tldwSummaryCache"] as Record<string, unknown>) ?? {};
@@ -1312,17 +1302,32 @@ function buildSummaryPanel(
         }
       }).finally(() => {
         removeSummaryPanel();
-        // Re-run the Direct-API flow: with the cache entry gone it lands on the
-        // idle panel (or auto-run). The standalone bar is re-injected after.
         void maybeStartDirectApiRun().finally(() => { void maybeShowStandaloneRatingBar(); });
       });
-    });
-    // Order: 🗑 Clear · ↗ New tab · ⚡ Gemini (then Skip channel · Auto · ✕).
-    rightControls.push(clearBtn, newTabBtn);
-    if (srcBtn) rightControls.push(srcBtn);
+    },
+  );
+
+  // Source / Cached badge — honest about origin, pointing where it makes sense.
+  let sourceBadge: HTMLElement | null = null;
+  if (tldw.source === "cached") {
+    sourceBadge = actionPill(
+      "💾 Cached",
+      "Served from your saved cache (a stored earlier result — not a fresh call). Click to manage cached summaries.",
+      t.text,
+      () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "settings" }),
+    );
+  } else if (tldw.source) {
+    sourceBadge = actionPill(
+      `⚡ ${tldw.source}`,
+      "This summary came straight from the Gemini API — instant, no tab. Click for Direct API settings.",
+      t.text,
+      () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" }),
+    );
   }
 
-  const head = buildPanelHead(t, headerControls, currentChannelInfo, true, true, true, rightControls);
+  headerControls.push(newTabBtn, clearBtn, ...(sourceBadge ? [sourceBadge] : []));
+
+  const head = buildPanelHead(t, headerControls, currentChannelInfo, true, true, true, []);
   Object.assign(head.style, { marginBottom: "8px" });
 
   // --- body: summary always visible; clicking the panel toggles details ---
@@ -1485,13 +1490,16 @@ function buildRatingButtonsRow(
 
   // Once a rating is chosen, the other two pills fade out and slide left, so the
   // row collapses to just your verdict. Deselecting fades them back in.
+  // State is shown by a colored OUTLINE on a constant gray pill (not a loud
+  // solid fill): selected → colored border + colored text; unselected → gray.
   const applyAll = (active: "watch" | "skim" | "skip" | null) => {
     options.forEach(({ value, color }, i) => {
       const b = btns[i]!;
       const isActive = active === value;
       const hidden = active !== null && !isActive;
-      b.style.background = isActive ? color : t.border;
-      b.style.color = isActive ? "#fff" : t.sub;
+      b.style.background = t.border;
+      b.style.borderColor = isActive ? color : "transparent";
+      b.style.color = isActive ? color : t.sub;
       b.style.opacity = hidden ? "0" : "1";
       b.style.maxWidth = hidden ? "0px" : "180px";
       b.style.transform = hidden ? "translateX(-10px)" : "translateX(0)";
@@ -1510,31 +1518,23 @@ function buildRatingButtonsRow(
     Object.assign(btn.style, {
       fontSize: "13px", fontWeight: "700", letterSpacing: "0.03em",
       padding: "0 12px", marginRight: "6px", borderRadius: "999px",
-      border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
+      border: "2px solid transparent", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
       maxWidth: "180px", overflow: "hidden",
       transition:
-        "background 0.12s, color 0.12s, opacity 0.25s ease, max-width 0.3s ease, transform 0.25s ease, padding 0.2s ease, margin 0.2s ease",
-      background: selected === value ? color : t.border,
-      color: selected === value ? "#fff" : t.sub,
+        "border-color 0.12s, color 0.12s, opacity 0.25s ease, max-width 0.3s ease, transform 0.25s ease, padding 0.2s ease, margin 0.2s ease",
+      background: t.border,
+      color: selected === value ? color : t.sub,
       ...pillGeom,
     });
     btn.addEventListener("mouseenter", () => {
-      if (selected === value) {
-        // Already selected: hovering signals "click again to remove" — darken
-        // the filled pill so the cue is clear even though it stays its color.
-        btn.style.background = darken(color);
-        btn.style.color = "#fff";
-        btn.style.opacity = "1";
-      } else {
-        btn.style.background = color;
-        btn.style.color = "#fff";
-        btn.style.opacity = "0.75";
-      }
+      // Hover previews the verdict color via the outline (and darkens it on the
+      // already-selected pill to cue "click again to remove").
+      btn.style.borderColor = selected === value ? darken(color) : color;
+      btn.style.color = color;
     });
     btn.addEventListener("mouseleave", () => {
-      btn.style.opacity = "1";
-      btn.style.background = selected === value ? color : t.border;
-      btn.style.color = selected === value ? "#fff" : t.sub;
+      btn.style.borderColor = selected === value ? color : "transparent";
+      btn.style.color = selected === value ? color : t.sub;
     });
     btn.addEventListener("click", (e) => {
       e.stopPropagation();

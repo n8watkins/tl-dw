@@ -16,14 +16,28 @@ export function SettingsSection() {
   const [settings, setLocal] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [cacheCount, setCacheCount] = useState(0);
+
+  function refreshCacheCount() {
+    void chrome.storage.local.get("tldwSummaryCache").then((r) => {
+      setCacheCount(Object.keys((r["tldwSummaryCache"] as Record<string, unknown>) ?? {}).length);
+    });
+  }
+
+  async function clearSummaryCache() {
+    await chrome.storage.local.remove("tldwSummaryCache");
+    refreshCacheCount();
+  }
 
   useEffect(() => {
     void getSettings().then(setLocal);
+    refreshCacheCount();
 
     const handleChange = (changes: Record<string, chrome.storage.StorageChange>) => {
       if (changes[STORAGE_KEYS.settings]?.newValue) {
         setLocal({ ...DEFAULT_SETTINGS, ...(changes[STORAGE_KEYS.settings].newValue as Settings) });
       }
+      if (changes["tldwSummaryCache"]) refreshCacheCount();
     };
     chrome.storage.onChanged.addListener(handleChange);
     return () => chrome.storage.onChanged.removeListener(handleChange);
@@ -139,6 +153,33 @@ export function SettingsSection() {
               />
               <span className="toggle-track" />
             </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group-title"><Icon name="clock" /> Summary cache</div>
+        <div className="card" style={{ marginBottom: 0 }}>
+          <div className="card-desc">
+            TL;DW stores each video's summary so reloading the page serves it instantly
+            instead of re-running (and re-opening a tab). This is where the on-page
+            <strong> 💾 Cached</strong> badge points.
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>
+              {cacheCount} cached summar{cacheCount === 1 ? "y" : "ies"}
+            </span>
+            <button
+              className="btn btn-danger btn-icon-text"
+              onClick={() => void clearSummaryCache()}
+              disabled={cacheCount === 0}
+            >
+              <Icon name="trash" />
+              Clear all cached summaries
+            </button>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
+            Your per-channel ratings and history aren't affected — only the stored summaries.
           </div>
         </div>
       </div>
