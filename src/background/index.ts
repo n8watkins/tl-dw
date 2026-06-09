@@ -11,6 +11,7 @@ import {
   getCachedSummary,
   getGeminiUsage,
   getHistory,
+  getOpenSearches,
   getProfiles,
   getSettings,
   patchCachedSummary,
@@ -261,6 +262,7 @@ async function runSummary(
   userCuriosity?: string,
   senderTabId?: number,
   source: SummarySource = "auto",
+  forceFocusTab = false,
 ): Promise<void> {
   // A right-clicked video link (a thumbnail) wins over the active tab, so a
   // suggested video gets summarized rather than the page you're sitting on.
@@ -506,7 +508,7 @@ async function runSummary(
       : baseUrl;
   const injectTab = await chrome.tabs.create({
     url: targetUrl,
-    active: settings.focusGeminiTab,
+    active: forceFocusTab || settings.focusGeminiTab,
   });
   if (injectTab.id !== undefined) {
     await setPendingPrompt(injectTab.id, { prompt, sourceTabId: activeTab?.id });
@@ -643,6 +645,37 @@ chrome.runtime.onMessage.addListener(
     if (message.type === "CLEAR_GEMINI_USAGE") {
       void clearGeminiUsage().then(() => sendResponse({ ok: true }));
       return true;
+    }
+    if (message.type === "OPEN_OR_FOCUS_DESTINATION") {
+      const ytTabId = sender.tab?.id;
+      const ytUrl = sender.tab?.url;
+      void (async () => {
+        // Reuse the destination tab we already scraped for this video if it's
+        // still open — focus it instead of spawning a duplicate.
+        const searches = await getOpenSearches(); // prunes closed tabs
+        const ytVideoId = ytUrl ? extractVideoId(ytUrl) : null;
+        const match =
+          searches.find((s) => ytTabId !== undefined && s.sourceTabId === ytTabId) ??
+          (ytVideoId
+            ? searches.find((s) => s.videoUrl && extractVideoId(s.videoUrl) === ytVideoId)
+            : undefined);
+        if (match) {
+          try {
+            const t = await chrome.tabs.get(match.tabId);
+            await chrome.tabs.update(match.tabId, { active: true });
+            if (t.windowId !== undefined) await chrome.windows.update(t.windowId, { focused: true });
+            sendResponse({ focused: true });
+            return;
+          } catch {
+            /* tab vanished between prune and focus — fall through to open */
+          }
+        }
+        // None open — run a fresh summary that opens the destination tab, and
+        // force-focus it (this is an explicit "take me there" click).
+        await runSummary(undefined, undefined, undefined, undefined, undefined, ytTabId, "popup", true);
+        sendResponse({ opened: true });
+      })();
+      return true; // async response
     }
     if (message.type === "OPEN_OPTIONS") {
       const section = message.section;

@@ -1294,16 +1294,14 @@ function buildSummaryPanel(
     return b;
   };
 
-  // ↗ New tab — force a fresh run that opens the AI destination in a tab, even
-  // when a cached summary is already showing.
+  // ↗ Open tab — jump to the AI destination tab. If we already scraped one for
+  // this video and it's still open, focus it; otherwise open (and focus) a fresh
+  // one. No "opening…" state — clicking just takes you there.
   const newTabBtn = actionPill(
-    "↗ New tab",
-    "Re-run TL;DW in a new browser tab (opens your AI destination)",
+    "↗ Open tab",
+    "Go to the AI destination tab (reuses the one we scraped if it's still open)",
     t.text,
-    (b) => {
-      b.textContent = "↗ Opening…";
-      void chrome.runtime.sendMessage({ type: "ASK", source: "popup" });
-    },
+    () => void chrome.runtime.sendMessage({ type: "OPEN_OR_FOCUS_DESTINATION" }),
   );
 
   // 🧹 Clear cache — drop THIS video's cached summary and start fresh.

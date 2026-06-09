@@ -348,6 +348,13 @@ export type ClearGeminiUsageMessage = { type: "CLEAR_GEMINI_USAGE" };
  *  Optional `section` deep-links to a sidebar section via the page's URL hash. */
 export type OpenOptionsMessage = { type: "OPEN_OPTIONS"; section?: string };
 
+/**
+ * Content panel's "Open tab" button: focus the destination tab we already
+ * scraped for this video if it's still open, otherwise open (and focus) a fresh
+ * one. Lets the user jump to the AI tab without spawning duplicates.
+ */
+export type OpenOrFocusDestinationMessage = { type: "OPEN_OR_FOCUS_DESTINATION" };
+
 /** Popup asking the content script whether the current channel is blocked. */
 export type GetChannelStatusMessage = { type: "GET_CHANNEL_STATUS" };
 
@@ -424,5 +431,6 @@ export type RuntimeMessage =
   | GetGeminiUsageMessage
   | ClearGeminiUsageMessage
   | OpenOptionsMessage
+  | OpenOrFocusDestinationMessage
   | RateVideoMessage
   | GetSponsorSegmentsMessage;
