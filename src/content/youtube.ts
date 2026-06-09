@@ -2204,7 +2204,11 @@ async function maybeStartDirectApiRun(): Promise<void> {
 
   const r = await chrome.storage.local.get(["settings", "tldwSummaryCache", AUTO_RUN_CHANNELS_KEY, BLOCKED_CHANNELS_KEY]);
   const s = r["settings"] as Record<string, unknown> | undefined;
-  if (!(s?.useDirectApi as boolean) || !(s?.geminiApiKey as string)) return;
+  // Whether summaries run headless via Gemini (no tab) vs the tab-based flow
+  // (open the destination, scrape its answer back, inject it here). The on-page
+  // widget shows EITHER way — only the click's backend differs. This is the
+  // decoupling of "show UI here" from "which backend is configured".
+  const hasDirectApi = !!(s?.useDirectApi as boolean) && !!(s?.geminiApiKey as string);
 
   // YouTube may not have rendered channel info yet at t=1s on a fresh page load; retry briefly.
   if (!currentChannelInfo) {
@@ -2278,13 +2282,16 @@ async function maybeStartDirectApiRun(): Promise<void> {
     return;
   }
 
-  // Auto-run summary: fire immediately (startApiCall will hit cache if fresh).
-  if (currentAutoRunSummary) {
+  // Auto-run summary: fire immediately, but ONLY when headless. In tab mode
+  // auto-running would silently open a destination tab on every visit, so there
+  // we always show the idle panel and let the user click.
+  if (currentAutoRunSummary && hasDirectApi) {
     await startApiCall();
     return;
   }
 
-  // Show idle panel with manual "Get Summary" + "Never" buttons.
+  // Show idle panel with the manual "TL;DW" + "Skip channel" buttons. Clicking
+  // runs the configured backend (headless Gemini, or the tab-scrape flow).
   showIdlePanel(() => { void startApiCall(); });
 }
 

@@ -65,6 +65,32 @@ function fmt(seconds: number): string {
 let toastEl: HTMLElement | null = null;
 let toastTimer: number | undefined;
 
+/** Brief load-time notice that segments were found (so you can see it's armed). */
+function showDetectedToast(count: number): void {
+  toastEl?.remove();
+  const el = document.createElement("div");
+  el.style.cssText = [
+    "position:fixed",
+    "left:16px",
+    "bottom:84px",
+    "z-index:2147483647",
+    "background:rgba(20,20,20,0.94)",
+    "color:#fff",
+    "font:13px/1.3 Roboto,system-ui,sans-serif",
+    "padding:10px 12px",
+    "border-radius:10px",
+    "box-shadow:0 6px 24px rgba(0,0,0,0.4)",
+  ].join(";");
+  el.textContent = `⏭ ${count} sponsor segment${count === 1 ? "" : "s"} on this video — auto-skip armed`;
+  document.body.appendChild(el);
+  toastEl = el;
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => {
+    el.remove();
+    if (toastEl === el) toastEl = null;
+  }, 4000);
+}
+
 function showSkipToast(seg: SponsorSegment): void {
   toastEl?.remove();
   const el = document.createElement("div");
@@ -178,7 +204,10 @@ async function handleNav(): Promise<void> {
   if (currentVid !== vid) return;
   segments = fetched;
   log(`${segments.length} sponsor segment(s) for ${vid}`);
-  if (segments.length > 0) attach();
+  if (segments.length > 0) {
+    attach();
+    showDetectedToast(segments.length);
+  }
 }
 
 // Same three-layer SPA strategy youtube.ts uses: initial load + YouTube's own
