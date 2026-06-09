@@ -470,6 +470,25 @@ async function readBlockedChannels(): Promise<BlockedChannelEntry[]> {
   return (r[BLOCKED_CHANNELS_KEY] as BlockedChannelEntry[]) ?? [];
 }
 
+/**
+ * Cache a summary that arrived via SET_SUMMARY (the tab-scrape path). The
+ * headless Direct-API path caches in the background worker, but tab-mode results
+ * were never persisted — so a page refresh kept re-opening the destination tab.
+ * Caching here makes a reload serve from cache instead.
+ */
+async function cacheScrapedSummary(vid: string, tldw: TldwSummary): Promise<void> {
+  const r = await chrome.storage.local.get("tldwSummaryCache");
+  const cache = (r["tldwSummaryCache"] as Record<string, Record<string, unknown>>) ?? {};
+  const existing = cache[vid] ?? {};
+  cache[vid] = {
+    ...existing,
+    tldw,
+    cachedAt: new Date().toISOString(),
+    channelName: currentChannelInfo?.name ?? existing.channelName,
+  };
+  await chrome.storage.local.set({ tldwSummaryCache: cache });
+}
+
 async function clearCachedSummariesForChannel(channelName: string): Promise<void> {
   const r = await chrome.storage.local.get("tldwSummaryCache");
   const cache = (r["tldwSummaryCache"] as Record<string, { channelName?: string }>) ?? {};
@@ -850,6 +869,9 @@ function buildPanelHead(
   }
 
   const blockBtn = (showBlockBtn && channelInfo) ? buildBlockButton(t, channelInfo) : null;
+  // Visually separate the destructive "Skip channel" from the ⚡ Gemini link
+  // beside it so they're not easy to mis-click.
+  if (blockBtn) blockBtn.style.marginLeft = "16px";
   closeBtn.style.marginLeft = "12px";
   // Right cluster order: extra right controls (e.g. Clear · Gemini) · Skip channel · Auto-summarize · ✕
   head.append(
@@ -1005,14 +1027,14 @@ function buildBlockButton(t: ReturnType<typeof theme>, info: ChannelInfo): HTMLB
 }
 
 /** "⚡ Gemini" header link that deep-links to the Direct API options section. */
-function buildGeminiLink(t: ReturnType<typeof theme>, label = "⚡ Gemini"): HTMLButtonElement {
+function buildGeminiLink(t: ReturnType<typeof theme>, label = "⚡ Instant (Gemini API)"): HTMLButtonElement {
   const b = document.createElement("button");
   b.textContent = label;
   Object.assign(b.style, {
     fontSize: "13px", color: t.sub, background: "transparent", border: "none",
     cursor: "pointer", padding: "0", whiteSpace: "nowrap",
   });
-  b.title = "Open Direct API settings";
+  b.title = "Get summaries instantly from the Gemini API — no tab opens, no waiting. Click to set it up (free).";
   b.addEventListener("click", (e) => {
     e.stopPropagation();
     void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" });
@@ -1240,12 +1262,29 @@ function buildSummaryPanel(
       fontSize: "13px", color: t.sub, background: "transparent", border: "none",
       cursor: "pointer", padding: "0", whiteSpace: "nowrap",
     });
-    srcBtn.title = "Open Direct API settings";
+    srcBtn.title = "This summary came from the Gemini API — instant, no tab. Click for Direct API settings.";
     srcBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" });
     });
   }
+
+  // "↗ New tab": force a fresh run that opens the AI destination in a tab, even
+  // when a cached summary is already showing.
+  const newTabBtn = document.createElement("button");
+  newTabBtn.textContent = "↗ New tab";
+  newTabBtn.title = "Re-run TL;DW in a new browser tab (opens your AI destination)";
+  Object.assign(newTabBtn.style, {
+    fontSize: "13px", color: t.sub, background: "transparent", border: "none",
+    cursor: "pointer", padding: "0", whiteSpace: "nowrap",
+  });
+  newTabBtn.addEventListener("mouseenter", () => { newTabBtn.style.color = t.text; });
+  newTabBtn.addEventListener("mouseleave", () => { newTabBtn.style.color = t.sub; });
+  newTabBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    newTabBtn.textContent = "↗ Opening…";
+    void chrome.runtime.sendMessage({ type: "ASK", source: "popup" });
+  });
 
   // Per-video "Clear cached summary": drops THIS video's entry from
   // tldwSummaryCache, removes the panel, and reverts to the idle/pre-summary
@@ -1278,8 +1317,8 @@ function buildSummaryPanel(
         void maybeStartDirectApiRun().finally(() => { void maybeShowStandaloneRatingBar(); });
       });
     });
-    // Order: 🗑 Clear · ⚡ Gemini (then Skip channel · Auto-summarize · ✕ from buildPanelHead).
-    rightControls.push(clearBtn);
+    // Order: 🗑 Clear · ↗ New tab · ⚡ Gemini (then Skip channel · Auto · ✕).
+    rightControls.push(clearBtn, newTabBtn);
     if (srcBtn) rightControls.push(srcBtn);
   }
 
@@ -1437,17 +1476,29 @@ function buildRatingButtonsRow(
   ];
 
   const row = document.createElement("div");
-  Object.assign(row.style, { display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" });
+  // gap 0 — spacing is per-button marginRight so collapsed (voted-away) pills
+  // leave no gap behind.
+  Object.assign(row.style, { display: "flex", alignItems: "center", gap: "0", flexWrap: "wrap" });
 
   let selected = initial ?? null;
   const btns: HTMLButtonElement[] = [];
 
+  // Once a rating is chosen, the other two pills fade out and slide left, so the
+  // row collapses to just your verdict. Deselecting fades them back in.
   const applyAll = (active: "watch" | "skim" | "skip" | null) => {
     options.forEach(({ value, color }, i) => {
       const b = btns[i]!;
-      b.style.background = active === value ? color : t.border;
-      b.style.color = active === value ? "#fff" : t.sub;
-      b.style.opacity = "1";
+      const isActive = active === value;
+      const hidden = active !== null && !isActive;
+      b.style.background = isActive ? color : t.border;
+      b.style.color = isActive ? "#fff" : t.sub;
+      b.style.opacity = hidden ? "0" : "1";
+      b.style.maxWidth = hidden ? "0px" : "180px";
+      b.style.transform = hidden ? "translateX(-10px)" : "translateX(0)";
+      b.style.paddingLeft = hidden ? "0px" : "12px";
+      b.style.paddingRight = hidden ? "0px" : "12px";
+      b.style.marginRight = hidden ? "0px" : "6px";
+      b.style.pointerEvents = hidden ? "none" : "auto";
     });
   };
 
@@ -1458,9 +1509,11 @@ function buildRatingButtonsRow(
       selected === value ? "Click to remove rating" : `Rate as ${USER_RATING_LABELS[value]}`;
     Object.assign(btn.style, {
       fontSize: "13px", fontWeight: "700", letterSpacing: "0.03em",
-      padding: "0 12px", borderRadius: "999px",
+      padding: "0 12px", marginRight: "6px", borderRadius: "999px",
       border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
-      transition: "background 0.12s, color 0.12s",
+      maxWidth: "180px", overflow: "hidden",
+      transition:
+        "background 0.12s, color 0.12s, opacity 0.25s ease, max-width 0.3s ease, transform 0.25s ease, padding 0.2s ease, margin 0.2s ease",
       background: selected === value ? color : t.border,
       color: selected === value ? "#fff" : t.sub,
       ...pillGeom,
@@ -1536,6 +1589,10 @@ function buildRatingButtonsRow(
     row.append(btn);
     btns.push(btn);
   });
+
+  // Reflect any prior rating immediately: if already voted, the other pills
+  // start collapsed so the bar opens showing just the verdict.
+  applyAll(selected);
 
   return row;
 }
@@ -2504,6 +2561,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const tldw = msg?.tldw;
     if (tldw?.verdict && tldw.summary) {
       const vid = currentVideoId();
+      // Persist tab-scrape results so a refresh serves from cache instead of
+      // re-opening a tab. Don't re-cache a result that itself came from cache.
+      if (vid && msg.source !== "cached") void cacheScrapedSummary(vid, tldw);
       // Carry any rating the user already cast (e.g. in the standalone bar
       // before summarizing) into the panel's rating row so it shows pre-selected
       // rather than looking like a second, fresh "rate this" prompt.
