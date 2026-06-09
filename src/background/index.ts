@@ -649,7 +649,9 @@ chrome.runtime.onMessage.addListener(
         // or its entry expired), create a lightweight rating-only entry so the
         // rating — and its channel — persist durably in the Channels view.
         const patched = await patchHistoryEntryRating(videoId, rating);
-        if (!patched) {
+        // When clearing (rating === null) we only strip the rating off an
+        // existing entry; we never fabricate a rating-only entry.
+        if (!patched && rating !== null) {
           const settings = await getSettings();
           await addRatingOnlyHistoryEntry({ video, rating, settings });
         }

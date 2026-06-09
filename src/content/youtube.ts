@@ -1249,7 +1249,7 @@ function buildRatingButtonsRow(
   t: ReturnType<typeof theme>,
   initial: "watch" | "skim" | "skip" | undefined,
   videoId: string | null | undefined,
-  onRatingChange?: (rating: "watch" | "skim" | "skip") => void,
+  onRatingChange?: (rating: "watch" | "skim" | "skip" | null) => void,
   onChannelStatsRefresh?: (fresh: ChannelComparison) => void,
 ): HTMLElement {
   // Display labels come from USER_RATING_LABELS; the enum values stay watch/skim/skip.
@@ -1277,6 +1277,8 @@ function buildRatingButtonsRow(
   options.forEach(({ value, label, color }) => {
     const btn = document.createElement("button");
     btn.textContent = label;
+    btn.title =
+      selected === value ? "Click to remove rating" : `Rate as ${USER_RATING_LABELS[value]}`;
     Object.assign(btn.style, {
       fontSize: "13px", fontWeight: "700", letterSpacing: "0.03em",
       padding: "0 12px", borderRadius: "999px",
@@ -1287,7 +1289,13 @@ function buildRatingButtonsRow(
       ...pillGeom,
     });
     btn.addEventListener("mouseenter", () => {
-      if (selected !== value) {
+      if (selected === value) {
+        // Already selected: hovering signals "click again to remove" — darken
+        // the filled pill so the cue is clear even though it stays its color.
+        btn.style.background = darken(color);
+        btn.style.color = "#fff";
+        btn.style.opacity = "1";
+      } else {
         btn.style.background = color;
         btn.style.color = "#fff";
         btn.style.opacity = "0.75";
@@ -1300,32 +1308,42 @@ function buildRatingButtonsRow(
     });
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      selected = value;
-      applyAll(value);
+      // Clicking the already-selected pill toggles the rating off (deselect).
+      const clearing = selected === value;
+      selected = clearing ? null : value;
+      applyAll(selected);
+      // Keep titles in sync with the new selection state.
+      options.forEach(({ value: v }, i) => {
+        btns[i]!.title =
+          selected === v ? "Click to remove rating" : `Rate as ${USER_RATING_LABELS[v]}`;
+      });
       const vid = videoId ?? currentVideoId();
-      // Show the new selection in the cue immediately (snappy); the channel
-      // average refresh happens after the rating durably persists below.
-      onRatingChange?.(value);
+      // Show the new selection (or its removal) in the cue immediately
+      // (snappy); the channel average refresh happens after the rating durably
+      // persists below.
+      onRatingChange?.(selected);
       if (vid) {
-        // Instant local cache write so a re-serve from cache shows this rating
-        // without waiting on the round-trip.
+        // Instant local cache write so a re-serve from cache reflects the
+        // rating (or its removal) without waiting on the round-trip.
         void chrome.storage.local.get("tldwSummaryCache").then((r) => {
           type SummaryCache = Record<string, { tldw: unknown; cachedAt: string; userRating?: string }>;
           const cache = (r["tldwSummaryCache"] as SummaryCache) ?? {};
           if (cache[vid]) {
-            cache[vid]!.userRating = value;
+            if (clearing) delete cache[vid]!.userRating;
+            else cache[vid]!.userRating = value;
             void chrome.storage.local.set({ tldwSummaryCache: cache });
           }
         });
-        // Durably persist the rating via the background: it patches the existing
-        // history entry, or creates a lightweight rating-only one if none exists
-        // (so the channel always shows up in the Channels view). Once it
-        // resolves, re-fetch the channel average so the cue reflects this vote.
+        // Durably persist the rating (or its removal) via the background: it
+        // patches the existing history entry, or creates a lightweight
+        // rating-only one if none exists (so the channel always shows up in the
+        // Channels view). A null rating clears the entry's rating instead. Once
+        // it resolves, re-fetch the channel average so the cue reflects the vote.
         void chrome.runtime
           .sendMessage({
             type: "RATE_VIDEO",
             videoId: vid,
-            rating: value,
+            rating: clearing ? null : value,
             video: {
               url: currentWatchUrl(),
               title: currentVideoTitle(),
@@ -1351,7 +1369,7 @@ function buildUserRatingRow(
   initial: "watch" | "skim" | "skip" | undefined,
   videoId: string | null | undefined,
   channelName?: string,
-  onRatingChange?: (rating: "watch" | "skim" | "skip") => void,
+  onRatingChange?: (rating: "watch" | "skim" | "skip" | null) => void,
   onChannelStatsRefresh?: (fresh: ChannelComparison) => void,
 ): HTMLElement {
   const wrapper = document.createElement("div");

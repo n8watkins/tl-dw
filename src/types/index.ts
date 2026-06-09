@@ -358,7 +358,12 @@ export type GetChannelStatusMessage = { type: "GET_CHANNEL_STATUS" };
 export type RateVideoMessage = {
   type: "RATE_VIDEO";
   videoId: string;
-  rating: "watch" | "skim" | "skip";
+  /**
+   * The chosen verdict, or `null` to CLEAR a previously-set rating (toggle off).
+   * When clearing, the background removes `userRating` from the matching history
+   * entry and does NOT create a rating-only entry.
+   */
+  rating: "watch" | "skim" | "skip" | null;
   video: { url: string; title?: string; channel?: string; avatarUrl?: string };
 };
 

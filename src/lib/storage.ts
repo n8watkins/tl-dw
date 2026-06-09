@@ -70,12 +70,19 @@ export async function setHistory(history: SearchHistoryEntry[]): Promise<void> {
  */
 export async function patchHistoryEntryRating(
   videoId: string,
-  rating: "watch" | "skim" | "skip",
+  rating: "watch" | "skim" | "skip" | null,
 ): Promise<boolean> {
   const history = await getHistory();
   const idx = history.findIndex((e) => extractVideoId(e.videoUrl) === videoId);
   if (idx === -1) return false;
-  history[idx] = { ...history[idx], userRating: rating };
+  if (rating === null) {
+    // Clearing: drop the userRating property off the matched entry.
+    const { userRating: _drop, ...rest } = history[idx]!;
+    void _drop;
+    history[idx] = rest;
+  } else {
+    history[idx] = { ...history[idx], userRating: rating };
+  }
   await setHistory(history);
   return true;
 }
