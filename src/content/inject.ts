@@ -591,9 +591,17 @@ async function waitForResponseAndSend(
     lastText ? `First 300:\n${lastText.slice(0, 300)}` : "(empty — response selector may be wrong)",
   );
   if (lastText.length > 80) {
+    // No structured block, but the AI clearly answered — surface its first
+    // substantive line as the summary and the rest as details, so the panel
+    // shows something useful instead of a dead spinner.
+    const firstLine =
+      lastText
+        .split("\n")
+        .map((l) => l.replace(/^\s*[\d.)\-*#•]+\s*/, "").trim())
+        .find((l) => l.length >= 40) ?? lastText.trim().slice(0, 200);
     const fallback = {
       verdict: "WATCH",
-      summary: "Couldn't parse a structured summary from " + config.name + " — showing its raw response below.",
+      summary: firstLine,
       rating: "",
       details: lastText.slice(0, 4000),
     };

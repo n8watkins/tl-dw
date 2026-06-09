@@ -25,21 +25,13 @@ export function createDefaultProfiles(): PromptProfile[] {
     base(
       "tldw",
       "TL;DW",
-      "The too long; didn't watch version. Core idea, key takeaways, watch/skim/skip.",
-      `Analyze this YouTube video and give me the "too long; didn't watch" version.
+      "The too long; didn't watch version: a verdict, a one-line summary, and key details.",
+      `You watched this YouTube video so I don't have to. Tell me whether it's worth my time and what it actually concludes — not just what topics it covers.
 
 Video: {{title}}
 Channel: {{channel}}
-URL: {{url}}
-Date: {{date}}
 
-Your job is to quickly tell me what this video is about, what matters, and whether it is worth my time. Write it like a smart, readable summary from someone who watched the video for me.
-
-Keep the response concise. Use short paragraphs with clear section headers. Avoid numbered lists unless they genuinely make the answer easier to scan.
-
-Start with the core idea of the video in plain English. Then explain the most useful takeaways, what seems skippable or repetitive, and whether I should watch, skim, or skip it. End with one clean final takeaway.
-
-If the transcript or metadata is incomplete, say what you can determine and what is uncertain. Do not invent details, quotes, timestamps, or claims.`,
+Respond with ONLY the structured block below — no introduction, no extra sections, no preamble. The SUMMARY is one sharp sentence stating the video's real conclusion or argument. DETAILS is 2-4 sentences on the key support, notable caveats, or what's skippable. Don't invent anything; if the transcript is thin, say what's uncertain.`,
     ),
     base(
       "research",

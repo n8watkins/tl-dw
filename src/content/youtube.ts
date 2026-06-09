@@ -905,7 +905,9 @@ function buildSponsorWidget(t: ReturnType<typeof theme>): HTMLElement | null {
   });
 
   const toggle = document.createElement("button");
-  toggle.textContent = sponsorCollapsed ? `⏭ ${segs.length}` : "⏭ Auto-skip:";
+  toggle.textContent = sponsorCollapsed
+    ? `⏭ SponsorBlock (${segs.length})`
+    : "⏭ SponsorBlock · auto-skip:";
   toggle.title = "SponsorBlock auto-skip is on — click to " + (sponsorCollapsed ? "expand" : "collapse");
   Object.assign(toggle.style, {
     background: "transparent", border: "none", color: t.sub,

@@ -84,16 +84,12 @@ export function appendTranscript(
 export function appendTldwBlock(prompt: string): string {
   return (
     prompt +
-    "\n\nFinally, end your response with this block formatted EXACTLY as shown.\n\n" +
-    "Rules for SUMMARY: state the video's actual conclusion or argument directly — not a description of what it covers. " +
-    "Write the takeaway itself. Bad: 'A video arguing that X is true.' Good: 'X is true because of Y and Z.' " +
-    "One sentence.\n\n" +
-    "Rules for DETAILS: 1-2 sentences of key supporting evidence, notable counterpoints, or important caveats.\n\n" +
+    "\n\nEnd your response with this block, formatted EXACTLY as shown — keep the " +
+    "field labels and the `---` lines literally:\n\n" +
     "---TLDW---\n" +
     "VERDICT: WATCH, SKIM, or SKIP\n" +
-    "SUMMARY: [core conclusion or argument — state it directly, not what the video covers]\n" +
-    "RATING: X/10\n" +
-    "DETAILS: [key supporting evidence or notable caveats]\n" +
+    "SUMMARY: [one sentence — the video's actual conclusion or argument, stated directly, not a description of what it covers]\n" +
+    "DETAILS: [2-4 sentences: the key support, notable caveats, or what's skippable]\n" +
     "---END TLDW---"
   );
 }

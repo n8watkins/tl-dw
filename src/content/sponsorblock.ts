@@ -121,7 +121,9 @@ function onTimeUpdate(): void {
   }
 
   for (const seg of segments) {
-    if (skipped.has(seg) || disabled.has(seg)) continue;
+    // Skip every time we play into it — even on a rewatch — UNLESS the user has
+    // taken manual control of it (clicked a timestamp / Undo / scrubbed in).
+    if (disabled.has(seg)) continue;
     // Only skip when we cross into the segment via normal playback (we were
     // before it a tick ago) — not when the user scrubbed into its middle.
     if (t >= seg.start && t < seg.end - 0.4 && lastTime < seg.end) {
