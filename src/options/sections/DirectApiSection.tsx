@@ -369,6 +369,28 @@ export function DirectApiSection() {
           </div>
         )}
 
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Keep full prompt &amp; response in the call log</div>
+            <div className="setting-sub">
+              Off by default to save space — the call log stores only metadata (video + time),
+              since the call count is tracked separately under Usage. Turn on if you want to
+              inspect the exact prompt sent and raw response for each call (useful for prompt
+              debugging). Doesn't affect existing entries.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.keepFullCallLog}
+                onChange={(e) => void update({ keepFullCallLog: e.target.checked })}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
       </div>
 
       {/* Integrated: AI + Community ratings (all require the API key) */}
@@ -728,7 +750,9 @@ export function DirectApiSection() {
                         {!entry.prompt && !entry.response && !entry.commentSentiment && (
                           <div className="history-detail">
                             <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
-                              No prompt/response stored for this entry.
+                              Metadata only — the full prompt &amp; response aren't stored for this
+                              call. Turn on “Keep full prompt &amp; response in the call log” in the
+                              Behavior tab to capture them for future calls.
                             </p>
                           </div>
                         )}

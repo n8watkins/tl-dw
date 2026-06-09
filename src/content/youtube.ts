@@ -25,6 +25,7 @@ const currentVideoId = (): string | null =>
 import {
   USER_RATING_LABELS,
   USER_RATING_SCALE,
+  pruneCache,
   scoreToVerdict,
   userAvgToLabel,
 } from "../lib/constants";
@@ -478,7 +479,7 @@ async function readBlockedChannels(): Promise<BlockedChannelEntry[]> {
  */
 async function cacheScrapedSummary(vid: string, tldw: TldwSummary): Promise<void> {
   const r = await chrome.storage.local.get("tldwSummaryCache");
-  const cache = (r["tldwSummaryCache"] as Record<string, Record<string, unknown>>) ?? {};
+  const cache = (r["tldwSummaryCache"] as Record<string, { cachedAt: string } & Record<string, unknown>>) ?? {};
   const existing = cache[vid] ?? {};
   cache[vid] = {
     ...existing,
@@ -486,6 +487,9 @@ async function cacheScrapedSummary(vid: string, tldw: TldwSummary): Promise<void
     cachedAt: new Date().toISOString(),
     channelName: currentChannelInfo?.name ?? existing.channelName,
   };
+  // Same TTL + count cap the background uses, so the tab-mode path doesn't grow
+  // the cache unbounded.
+  pruneCache(cache);
   await chrome.storage.local.set({ tldwSummaryCache: cache });
 }
 

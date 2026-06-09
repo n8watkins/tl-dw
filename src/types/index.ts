@@ -237,6 +237,12 @@ export type Settings = {
   trackCommunityAverage: boolean;
   /** Auto-skip in-video sponsored segments using the free SponsorBlock community data. */
   skipSponsors: boolean;
+  /**
+   * Keep the full prompt + raw response in the Direct API call log. Off by
+   * default — the log stores only metadata (video, time), since the call COUNT
+   * already lives in geminiUsage. Turn on for prompt debugging.
+   */
+  keepFullCallLog: boolean;
 };
 
 export type StorageState = {

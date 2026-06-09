@@ -23,6 +23,7 @@ import {
   GEMINI_USAGE_KEY,
   OPEN_SEARCHES_KEY,
   PENDING_KEY,
+  pruneCache,
   STORAGE_KEYS,
   SUMMARY_CACHE_KEY,
 } from "./constants";
@@ -279,9 +280,10 @@ async function _recordGeminiCall(
   commentSentiment?: string,
   audienceScore?: number,
 ): Promise<string> {
-  const [usage, logRaw] = await Promise.all([
+  const [usage, logRaw, settings] = await Promise.all([
     getGeminiUsage(),
     chrome.storage.local.get(GEMINI_CALL_LOG_KEY),
+    getSettings(),
   ]);
 
   const now = new Date();
@@ -298,14 +300,18 @@ async function _recordGeminiCall(
 
   const existingLog = (logRaw[GEMINI_CALL_LOG_KEY] as GeminiCallEntry[]) ?? [];
   const id = crypto.randomUUID();
+  // Default to metadata-only: the call COUNT already lives in geminiUsage, so we
+  // don't need to store the (heavy) full prompt + raw response unless the user
+  // opted in for prompt debugging.
+  const keepFull = settings.keepFullCallLog;
   const newEntry: GeminiCallEntry = {
     id,
     videoUrl: video?.url ?? "",
     videoTitle: video?.title,
     at: now.toISOString(),
-    prompt,
-    response,
-    commentSentiment,
+    prompt: keepFull ? prompt : undefined,
+    response: keepFull ? response : undefined,
+    commentSentiment: keepFull ? commentSentiment : undefined,
     audienceScore,
   };
   const updatedLog = [newEntry, ...existingLog].slice(0, CALL_LOG_LIMIT);
@@ -346,9 +352,14 @@ export async function patchGeminiCallEntry(
   id: string,
   patch: { commentSentiment?: string; audienceScore?: number },
 ): Promise<void> {
-  const logRaw = await chrome.storage.local.get(GEMINI_CALL_LOG_KEY);
+  const [logRaw, settings] = await Promise.all([
+    chrome.storage.local.get(GEMINI_CALL_LOG_KEY),
+    getSettings(),
+  ]);
   const log = (logRaw[GEMINI_CALL_LOG_KEY] as GeminiCallEntry[]) ?? [];
-  const updated = log.map((e) => (e.id === id ? { ...e, ...patch } : e));
+  // Metadata-only mode keeps the audience score (a number) but not the sentiment text.
+  const applied = settings.keepFullCallLog ? patch : { audienceScore: patch.audienceScore };
+  const updated = log.map((e) => (e.id === id ? { ...e, ...applied } : e));
   await chrome.storage.local.set({ [GEMINI_CALL_LOG_KEY]: updated });
 }
 
@@ -389,12 +400,8 @@ export async function setCachedSummary(videoId: string, entry: CachedSummary): P
   const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
   const cache = (r[SUMMARY_CACHE_KEY] as SummaryCache) ?? {};
   cache[videoId] = entry;
-  // Prune stale entries on every write to bound storage growth.
-  const now = Date.now();
-  for (const id of Object.keys(cache)) {
-    const e = cache[id]!;
-    if (now - new Date(e.cachedAt).getTime() > CACHE_TTL_MS) delete cache[id];
-  }
+  // Bound growth on every write: drop stale entries (TTL) and cap the count.
+  pruneCache(cache);
   await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
 }
 

@@ -75,6 +75,32 @@ export const SUMMARY_CACHE_KEY = "tldwSummaryCache";
 /** How long a cached summary is considered fresh. Video content doesn't change, so 7 days is generous. */
 export const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** Hard cap on cached summaries (in addition to the TTL) so a binge-watcher
+ *  can't accumulate unbounded entries toward the ~10 MB storage quota. */
+export const CACHE_MAX_ENTRIES = 300;
+
+/**
+ * Prune a `{ [id]: { cachedAt } }` cache in place: drop TTL-expired entries,
+ * then keep only the `CACHE_MAX_ENTRIES` most-recently-cached. Used by every
+ * cache writer (background and content script) so growth is bounded one way.
+ */
+export function pruneCache<T extends { cachedAt: string }>(
+  cache: Record<string, T>,
+  now: number = Date.now(),
+): Record<string, T> {
+  for (const id of Object.keys(cache)) {
+    if (now - new Date(cache[id]!.cachedAt).getTime() > CACHE_TTL_MS) delete cache[id];
+  }
+  const ids = Object.keys(cache);
+  if (ids.length > CACHE_MAX_ENTRIES) {
+    ids
+      .sort((a, b) => new Date(cache[b]!.cachedAt).getTime() - new Date(cache[a]!.cachedAt).getTime())
+      .slice(CACHE_MAX_ENTRIES)
+      .forEach((id) => delete cache[id]);
+  }
+  return cache;
+}
+
 /** chrome.storage.session key holding { [tabId]: prompt } for the handoff. */
 export const PENDING_KEY = "pendingPrompts";
 
@@ -130,6 +156,7 @@ export const DEFAULT_SETTINGS: Settings = {
   trackMyAverage: true,
   trackCommunityAverage: true,
   skipSponsors: true,
+  keepFullCallLog: false,
 };
 
 /**
