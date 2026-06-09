@@ -139,10 +139,27 @@ function decodeEntities(s: string): string {
 
 // --- opening the panel (to trigger YouTube's fetch) ----------------------
 
-function expandDescription(): void {
+/**
+ * Expand the video description so its "Show transcript" button becomes
+ * reachable. Returns whether we actually clicked a visible #expand control, so
+ * the caller can collapse it again afterward and leave the page as it found it.
+ */
+function expandDescription(): boolean {
+  const expand = document.querySelector<HTMLElement>(
+    "ytd-text-inline-expander #expand, tp-yt-paper-button#expand, #description #expand, #expand",
+  );
+  if (expand && expand.offsetParent !== null) {
+    expand.click();
+    return true;
+  }
+  return false;
+}
+
+/** Collapse the description again — undoes a prior expandDescription() click. */
+function collapseDescription(): void {
   document
     .querySelector<HTMLElement>(
-      "ytd-text-inline-expander #expand, tp-yt-paper-button#expand, #description #expand, #expand",
+      "ytd-text-inline-expander #collapse, tp-yt-paper-button#collapse, #description #collapse, #collapse",
     )
     ?.click();
 }
@@ -257,9 +274,9 @@ function closeTranscriptPanel(): void {
  * Returns whether *we* opened it, so the caller can close it again afterward
  * without disturbing a panel the user had already open.
  */
-async function openTranscriptPanel(): Promise<{ openedByUs: boolean }> {
-  if (transcriptPanelOpen()) return { openedByUs: false };
-  expandDescription();
+async function openTranscriptPanel(): Promise<{ openedByUs: boolean; expandedByUs: boolean }> {
+  if (transcriptPanelOpen()) return { openedByUs: false, expandedByUs: false };
+  const expandedByUs = expandDescription();
   let button: HTMLElement | null = null;
   const buttonDeadline = Date.now() + 4000;
   while (Date.now() < buttonDeadline) {
@@ -270,10 +287,10 @@ async function openTranscriptPanel(): Promise<{ openedByUs: boolean }> {
   if (button) {
     log("opening transcript panel");
     button.click();
-    return { openedByUs: true };
+    return { openedByUs: true, expandedByUs };
   }
   log("no 'Show transcript' button found");
-  return { openedByUs: false };
+  return { openedByUs: false, expandedByUs };
 }
 
 // Serialises concurrent calls so only one panel-open attempt runs at a time.
@@ -289,18 +306,25 @@ async function getTranscript(): Promise<string | null> {
   if (activeTranscriptFetch) return activeTranscriptFetch;
 
   activeTranscriptFetch = (async () => {
-    const { openedByUs } = await openTranscriptPanel();
+    const { openedByUs, expandedByUs } = await openTranscriptPanel();
+    // Leave the page as we found it: collapse the panel AND the description if
+    // *we* opened/expanded them. A panel/description the user already had open
+    // is left untouched.
+    const restore = () => {
+      if (openedByUs) closeTranscriptPanel();
+      if (expandedByUs) collapseDescription();
+    };
     const deadline = Date.now() + 10000;
     while (Date.now() < deadline) {
       await sleep(300);
       const hit = available();
       if (hit) {
-        if (openedByUs) closeTranscriptPanel();
+        restore();
         log("transcript captured:", hit.length, "chars");
         return hit;
       }
     }
-    if (openedByUs) closeTranscriptPanel();
+    restore();
     log("no transcript captured");
     return null;
   })();
@@ -594,6 +618,23 @@ function darken(hex: string): string {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 }
 
+/**
+ * Uniform geometry shared by every injected pill-shaped control (rating
+ * buttons, skip-channel, auto toggles, verdict/score pills, Get Summary, …).
+ * A fixed height + flex centering keeps them all the SAME height regardless of
+ * font-size, border, or text content; box-sizing folds any border/padding into
+ * that height so bordered and borderless pills line up exactly.
+ */
+const PILL_HEIGHT = "30px";
+const pillGeom = {
+  height: PILL_HEIGHT,
+  boxSizing: "border-box",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  lineHeight: "1",
+} as const;
+
 function pill(text: string, bg: string, color: string): HTMLElement {
   const el = document.createElement("span");
   el.textContent = text;
@@ -603,10 +644,11 @@ function pill(text: string, bg: string, color: string): HTMLElement {
     fontWeight: "700",
     fontSize: "11px",
     letterSpacing: "0.05em",
-    padding: "3px 9px",
+    padding: "0 11px",
     borderRadius: "999px",
     flexShrink: "0",
     whiteSpace: "nowrap",
+    ...pillGeom,
   });
   return el;
 }
@@ -647,9 +689,10 @@ function buildAutoToggle(
   btn.textContent = label;
   Object.assign(btn.style, {
     fontSize: "13px", fontWeight: "700", letterSpacing: "0.04em",
-    padding: "5px 12px", borderRadius: "999px", border: "none",
+    padding: "0 12px", borderRadius: "999px", border: "none",
     cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
     transition: "background 0.15s, color 0.15s",
+    ...pillGeom,
   });
 
   let isOn = initialOn;
@@ -707,6 +750,7 @@ function buildPanelHead(
   channelInfo: ChannelInfo | null,
   showBlockBtn = true,
   showAutoRunToggle = true,
+  showTitle = true,
 ): HTMLElement {
   const head = document.createElement("div");
   Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px" });
@@ -745,7 +789,7 @@ function buildPanelHead(
 
   const blockBtn = (showBlockBtn && channelInfo) ? buildBlockButton(t, channelInfo) : null;
   closeBtn.style.marginLeft = "12px";
-  head.append(icon, title, ...controls, spacer, ...autoToggles, ...(blockBtn ? [blockBtn] : []), closeBtn);
+  head.append(icon, ...(showTitle ? [title] : []), ...controls, spacer, ...autoToggles, ...(blockBtn ? [blockBtn] : []), closeBtn);
   return head;
 }
 
@@ -756,10 +800,11 @@ function buildBlockButton(t: ReturnType<typeof theme>, info: ChannelInfo): HTMLB
   btn.title = `Never show TL;DW panel for ${info.name}`;
   Object.assign(btn.style, {
     fontSize: "13px", fontWeight: "700", letterSpacing: "0.04em",
-    padding: "5px 12px", borderRadius: "999px", border: "none",
+    padding: "0 12px", borderRadius: "999px", border: "none",
     cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
     transition: "background 0.15s, color 0.15s",
     background: t.border, color: t.sub,
+    ...pillGeom,
   });
   btn.addEventListener("mouseenter", () => { btn.style.background = "#dc2626"; btn.style.color = "#fff"; });
   btn.addEventListener("mouseleave", () => { btn.style.background = t.border; btn.style.color = t.sub; });
@@ -1172,11 +1217,12 @@ function buildRatingButtonsRow(
     btn.textContent = label;
     Object.assign(btn.style, {
       fontSize: "13px", fontWeight: "700", letterSpacing: "0.03em",
-      padding: "5px 12px", borderRadius: "999px",
+      padding: "0 12px", borderRadius: "999px",
       border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
       transition: "background 0.12s, color 0.12s",
       background: selected === value ? color : t.border,
       color: selected === value ? "#fff" : t.sub,
+      ...pillGeom,
     });
     btn.addEventListener("mouseenter", () => {
       if (selected !== value) {
@@ -1708,14 +1754,15 @@ function showIdlePanel(onGetSummary: () => void): void {
   const capturedChannelInfo = currentChannelInfo;
 
   const summaryBtn = document.createElement("button");
-  summaryBtn.textContent = "Get Summary";
+  summaryBtn.textContent = "TL;DW";
   Object.assign(summaryBtn.style, {
-    fontSize: "13px", fontWeight: "600",
-    padding: "6px 16px", borderRadius: "999px",
+    fontSize: "13px", fontWeight: "700", letterSpacing: "0.03em",
+    padding: "0 16px", borderRadius: "999px",
     background: "#1a73e8", color: "#fff",
     border: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
+    ...pillGeom,
   });
-  summaryBtn.title = "Get AI summary of this video's transcript";
+  summaryBtn.title = "Get TL;DW summary of this video";
   summaryBtn.addEventListener("mouseenter", () => { summaryBtn.style.background = "#1557b0"; });
   summaryBtn.addEventListener("mouseleave", () => { summaryBtn.style.background = "#1a73e8"; });
   summaryBtn.addEventListener("click", (e) => {
@@ -1728,9 +1775,10 @@ function showIdlePanel(onGetSummary: () => void): void {
   skipBtn.textContent = "Skip channel";
   Object.assign(skipBtn.style, {
     fontSize: "12px", fontWeight: "600",
-    padding: "6px 14px", borderRadius: "999px",
+    padding: "0 14px", borderRadius: "999px",
     background: "transparent", color: t.sub,
     border: `1px solid ${t.border}`, cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
+    ...pillGeom,
   });
   skipBtn.title = "Skip TL;DW for this channel";
   skipBtn.addEventListener("mouseenter", () => { skipBtn.style.borderColor = "#dc2626"; skipBtn.style.color = "#dc2626"; });
@@ -1742,8 +1790,9 @@ function showIdlePanel(onGetSummary: () => void): void {
     showSkipOverlay(channelName, info, "summary", () => { /* panel stays open */ });
   });
 
-  // Build the header with Get Summary + Skip channel as inline controls
-  const head = buildPanelHead(t, [summaryBtn, skipBtn], capturedChannelInfo, false, false);
+  // Build the header with the TL;DW action + Skip channel as inline controls.
+  // No left-hand "TL;DW" label here — the TL;DW button itself is the affordance.
+  const head = buildPanelHead(t, [summaryBtn, skipBtn], capturedChannelInfo, false, false, false);
   panel.append(head);
 
   // Idle panel is shown alongside the standalone rating bar: the bar lets the
@@ -1805,9 +1854,10 @@ function showCommentsSentimentResult(sentiment: string, audienceScore?: number):
     const btn = document.createElement("button");
     btn.textContent = "⊘ Skip channel";
     Object.assign(btn.style, {
-      fontSize: "13px", fontWeight: "700", padding: "5px 12px", borderRadius: "999px",
+      fontSize: "13px", fontWeight: "700", padding: "0 12px", borderRadius: "999px",
       border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
       background: t.border, color: t.sub, transition: "background 0.15s, color 0.15s",
+      ...pillGeom,
     });
     btn.addEventListener("mouseenter", () => { btn.style.background = "#dc2626"; btn.style.color = "#fff"; });
     btn.addEventListener("mouseleave", () => { btn.style.background = t.border; btn.style.color = t.sub; });
@@ -1825,8 +1875,9 @@ function showCommentsSentimentResult(sentiment: string, audienceScore?: number):
     const scorePill = document.createElement("span");
     scorePill.textContent = verdict;
     Object.assign(scorePill.style, {
-      fontSize: "11px", fontWeight: "700", padding: "2px 8px",
+      fontSize: "11px", fontWeight: "700", padding: "0 9px",
       borderRadius: "999px", background: verdictColor(verdict), color: "#fff", whiteSpace: "nowrap",
+      ...pillGeom,
     });
     head.append(icon, title, scorePill, spacer, ...rightItems, closeBtn);
   } else {
@@ -1872,9 +1923,10 @@ function showCommentsIdlePanel(onGetComments: () => void): void {
   const getBtn = document.createElement("button");
   getBtn.textContent = "Get Comment Analysis";
   Object.assign(getBtn.style, {
-    fontSize: "13px", fontWeight: "600", padding: "6px 16px", borderRadius: "999px",
+    fontSize: "13px", fontWeight: "600", padding: "0 16px", borderRadius: "999px",
     background: "#0d9488", color: "#fff", border: "none", cursor: "pointer",
     whiteSpace: "nowrap", flexShrink: "0",
+    ...pillGeom,
   });
   getBtn.title = "Analyze viewer comments for this video";
   getBtn.addEventListener("click", (e) => {
@@ -1887,9 +1939,10 @@ function showCommentsIdlePanel(onGetComments: () => void): void {
   const skipCommentsBtn = document.createElement("button");
   skipCommentsBtn.textContent = "Skip channel";
   Object.assign(skipCommentsBtn.style, {
-    fontSize: "12px", fontWeight: "600", padding: "6px 14px", borderRadius: "999px",
+    fontSize: "12px", fontWeight: "600", padding: "0 14px", borderRadius: "999px",
     background: "transparent", color: t.sub, border: `1px solid ${t.border}`,
     cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
+    ...pillGeom,
   });
   skipCommentsBtn.title = "Skip TL;DW comment analysis for this channel";
   skipCommentsBtn.addEventListener("mouseenter", () => { skipCommentsBtn.style.borderColor = "#dc2626"; skipCommentsBtn.style.color = "#dc2626"; });
@@ -2226,7 +2279,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const msg = message as { tldw?: TldwSummary; source?: string; channelStats?: ChannelComparison };
     const tldw = msg?.tldw;
     if (tldw?.verdict && tldw.summary) {
-      showSummaryPanel({ ...tldw, source: msg.source }, msg.channelStats, undefined, currentVideoId());
+      const vid = currentVideoId();
+      // Carry any rating the user already cast (e.g. in the standalone bar
+      // before summarizing) into the panel's rating row so it shows pre-selected
+      // rather than looking like a second, fresh "rate this" prompt.
+      if (vid) {
+        void loadPriorUserRating(vid).then((prior) =>
+          showSummaryPanel({ ...tldw, source: msg.source }, msg.channelStats, prior, vid),
+        );
+      } else {
+        showSummaryPanel({ ...tldw, source: msg.source }, msg.channelStats, undefined, vid);
+      }
     }
     sendResponse({ ok: true });
     return false;
