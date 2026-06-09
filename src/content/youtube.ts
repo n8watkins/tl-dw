@@ -602,6 +602,9 @@ function currentVideoTitle(): string | undefined {
 // as the initial maybeStartDirectApiRun call.
 let currentChannelInfo: ChannelInfo | null = null;
 let currentAutoRunSummary = false;
+// Whether headless Direct API (free Gemini, no tab) is configured. Drives the
+// "Get instant results" CTA shown when it's NOT set up.
+let currentDirectApiEnabled = false;
 let currentAutoRunComments = false;
 
 // --- TL;DW summary panel -------------------------------------------------
@@ -1028,14 +1031,24 @@ function buildBlockButton(t: ReturnType<typeof theme>, info: ChannelInfo): HTMLB
 }
 
 /** "⚡ Gemini" header link that deep-links to the Direct API options section. */
-function buildGeminiLink(t: ReturnType<typeof theme>, label = "⚡ Instant (Gemini API)"): HTMLButtonElement {
+/**
+ * "Get instant results" CTA — shown while analyzing and on results when Direct
+ * API isn't set up, nudging the user to the free Gemini API (no tab, no wait).
+ * A gray pill with a feature-color outline on hover, consistent with the other
+ * header pills. Links to the Direct API setup.
+ */
+function buildGeminiLink(t: ReturnType<typeof theme>): HTMLButtonElement {
   const b = document.createElement("button");
-  b.textContent = label;
+  b.textContent = "⚡ Get instant results";
   Object.assign(b.style, {
-    fontSize: "13px", color: t.sub, background: "transparent", border: "none",
-    cursor: "pointer", padding: "0", whiteSpace: "nowrap",
+    fontSize: "13px", fontWeight: "700", padding: "0 12px", borderRadius: "999px",
+    border: "2px solid transparent", background: t.border, color: "#1a73e8",
+    cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
+    transition: "border-color 0.15s, color 0.15s", ...pillGeom,
   });
-  b.title = "Get summaries instantly from the Gemini API — no tab opens, no waiting. Click to set it up (free).";
+  b.title = "Get summaries instantly from the free Gemini API — no tab opens, no waiting. Click to set it up.";
+  b.addEventListener("mouseenter", () => { b.style.borderColor = "#1a73e8"; });
+  b.addEventListener("mouseleave", () => { b.style.borderColor = "transparent"; });
   b.addEventListener("click", (e) => {
     e.stopPropagation();
     void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" });
@@ -1063,10 +1076,14 @@ function showLoadingPanel(): void {
   analyzing.textContent = "Analyzing…";
   Object.assign(analyzing.style, { fontSize: "12px", color: t.sub, animation: "tldw-shimmer 1.4s infinite" });
 
-  // Minimal loading state — just the header with a live "Analyzing…" cue and the
-  // ⚡ Gemini link. No shimmer skeleton, no rating row (voting is its own
-  // injection now); the summary simply replaces this when it lands.
-  const head = buildPanelHead(t, [analyzing], currentChannelInfo, true, false, true, [buildGeminiLink(t)]);
+  // Minimal loading state — just the header with a live "Analyzing…" cue. No
+  // shimmer skeleton, no rating row (voting is its own injection now); the
+  // summary simply replaces this when it lands. The "Get instant results" CTA
+  // shows only when Direct API isn't set up (encouraging the headless path).
+  const head = buildPanelHead(
+    t, [analyzing], currentChannelInfo, true, false, true,
+    currentDirectApiEnabled ? [] : [buildGeminiLink(t)],
+  );
 
   panel.append(head);
 
@@ -1075,6 +1092,7 @@ function showLoadingPanel(): void {
   host.prepend(panel);
   log("loading panel shown");
   refreshSponsorPanel();
+  placeRatingBar();
 
   // Don't let the skeleton spin forever (e.g. a tab-mode scrape that never
   // produced a parseable answer). After a grace period, surface a retry panel.
@@ -1135,6 +1153,7 @@ function showSummaryErrorPanel(): void {
   host.prepend(panel);
   log("summary error panel shown (loading timed out)");
   refreshSponsorPanel();
+  placeRatingBar();
 }
 
 type ChannelComparison = {
@@ -1308,6 +1327,8 @@ function buildSummaryPanel(
   );
 
   // Source / Cached badge — honest about origin, pointing where it makes sense.
+  // When Direct API isn't set up, show the "Get instant results" CTA instead, to
+  // encourage the free headless path (no tab, no wait).
   let sourceBadge: HTMLElement | null = null;
   if (tldw.source === "cached") {
     sourceBadge = actionPill(
@@ -1323,6 +1344,8 @@ function buildSummaryPanel(
       t.text,
       () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" }),
     );
+  } else if (!currentDirectApiEnabled) {
+    sourceBadge = buildGeminiLink(t);
   }
 
   headerControls.push(newTabBtn, clearBtn, ...(sourceBadge ? [sourceBadge] : []));
@@ -1601,11 +1624,29 @@ function buildRatingButtonsRow(
 
 const TLDW_RATING_BAR_ID = "tldw-rating-bar";
 let ratingBar: HTMLElement | null = null;
+let ratingBarVid: string | null = null;
 
 function removeStandaloneRatingBar(): void {
   ratingBar?.remove();
   ratingBar = null;
+  ratingBarVid = null;
   document.getElementById(TLDW_RATING_BAR_ID)?.remove();
+}
+
+/**
+ * Keep the rating bar in a STABLE spot: always directly below the summary/idle/
+ * loading panel. The panel re-renders as it goes idle → loading → summary, but
+ * the bar is just *moved* (same DOM node, no rebuild), so it never flickers or
+ * jumps from top to bottom.
+ */
+function placeRatingBar(): void {
+  if (!ratingBar) return;
+  if (summaryPanel && summaryPanel.parentElement) {
+    if (ratingBar.previousElementSibling !== summaryPanel) summaryPanel.after(ratingBar);
+  } else {
+    const h = panelHost();
+    if (h && ratingBar.parentElement !== h) h.prepend(ratingBar);
+  }
 }
 
 /**
@@ -1647,6 +1688,10 @@ async function maybeShowStandaloneRatingBar(): Promise<void> {
   // No TL;DW rating UI on an in-progress live stream (nothing to rate yet); a
   // finished/recorded one (transcript present) behaves like a normal video.
   if (isUnsummarizableLive()) { removeStandaloneRatingBar(); return; }
+
+  // Already showing a bar for this video? Don't rebuild it (that's the flicker
+  // the user saw when the summary landed) — just keep it positioned and return.
+  if (ratingBar && ratingBarVid === vid) { placeRatingBar(); return; }
 
   const toggles = await loadRatingToggles();
   if (!toggles.askForMyRating) { removeStandaloneRatingBar(); return; }
@@ -1713,7 +1758,9 @@ async function maybeShowStandaloneRatingBar(): Promise<void> {
 
   removeStandaloneRatingBar();
   ratingBar = bar;
+  ratingBarVid = vid;
   h.prepend(bar);
+  placeRatingBar(); // settle directly below the panel if one's present
   log("standalone rating bar injected");
 }
 
@@ -1739,7 +1786,9 @@ function showSummaryPanel(
     h.prepend(summaryPanel);
     log("summary panel injected");
     refreshSponsorPanel();
-    // Voting is its own injection — make sure the rating bar is present too.
+    // Voting is its own injection — keep the existing bar just below this panel
+    // (no rebuild), and create it if it isn't up yet.
+    placeRatingBar();
     void maybeShowStandaloneRatingBar();
   });
 }
@@ -2073,6 +2122,7 @@ function showIdlePanel(onGetSummary: () => void): void {
   host.prepend(panel);
   log("idle panel shown");
   refreshSponsorPanel();
+  placeRatingBar();
 }
 
 // --- comments panel (injected into ytd-comments-header-renderer) ----------
@@ -2359,6 +2409,8 @@ async function maybeStartDirectApiRun(): Promise<void> {
   // key the TL;DW button and auto-summarize run the tab-scrape flow (open the
   // destination, read its answer back, inject it here) instead of a headless
   // Gemini call — "show UI here" is decoupled from "which backend is set".
+  const s = r["settings"] as Record<string, unknown> | undefined;
+  currentDirectApiEnabled = !!(s?.useDirectApi as boolean) && !!(s?.geminiApiKey as string);
 
   // YouTube may not have rendered channel info yet at t=1s on a fresh page load; retry briefly.
   if (!currentChannelInfo) {
