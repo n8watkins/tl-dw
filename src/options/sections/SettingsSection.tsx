@@ -119,6 +119,31 @@ export function SettingsSection() {
       </div>
 
       <div className="settings-group">
+        <div className="settings-group-title"><Icon name="sparkles" /> Playback</div>
+
+        <div className="setting-row">
+          <div className="setting-info">
+            <div className="setting-label">Auto-skip sponsored segments</div>
+            <div className="setting-sub">
+              Automatically skip in-video sponsor reads using the free, community-run{" "}
+              <a href="https://sponsor.ajay.app" target="_blank" rel="noreferrer">SponsorBlock</a>{" "}
+              data — no API key, doesn't touch your Gemini quota. A toast lets you undo any skip.
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.skipSponsors}
+                onChange={(e) => void update({ skipSponsors: e.target.checked })}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-group">
         <div className="settings-group-title"><Icon name="ghost" /> Privacy</div>
 
         <div className="setting-row">

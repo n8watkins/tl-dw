@@ -344,6 +344,20 @@ function hmsToSeconds(text: string | null | undefined): number {
   return parts.reduce((acc, n) => acc * 60 + n, 0);
 }
 
+/**
+ * Whether the current watch page is a LIVE stream. Live streams have no
+ * transcript to summarize, so we suppress the TL;DW summary UI on them. Two
+ * signals: the player reports an infinite duration, and YouTube shows its red
+ * "LIVE" badge in the control bar.
+ */
+function isLiveStream(): boolean {
+  const video = document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
+  if (video && video.duration === Infinity) return true;
+  const badge = document.querySelector<HTMLElement>(".ytp-live-badge");
+  if (badge && badge.offsetParent !== null) return true;
+  return false;
+}
+
 /** Read the current video's duration (seconds), channel name, and channel avatar URL. */
 function getVideoMeta(): { durationSeconds: number; channel: string; avatarUrl?: string } {
   const video = document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
@@ -1456,6 +1470,9 @@ async function maybeShowStandaloneRatingBar(): Promise<void> {
   const vid = currentVideoId();
   if (!vid) { removeStandaloneRatingBar(); return; }
 
+  // No TL;DW rating UI on live streams (nothing to rate yet).
+  if (isLiveStream()) { removeStandaloneRatingBar(); return; }
+
   const toggles = await loadRatingToggles();
   if (!toggles.askForMyRating) { removeStandaloneRatingBar(); return; }
 
@@ -2156,6 +2173,9 @@ const autoRunVideoIds = new Set<string>();
 async function maybeStartDirectApiRun(): Promise<void> {
   const vid = currentVideoId();
   if (!vid) return;
+
+  // Live streams have no transcript to summarize — don't offer the summary UI.
+  if (isLiveStream()) { removeSummaryPanel(); return; }
 
   // Set currentChannelInfo early so comments injection can use it even when we return early.
   currentChannelInfo = getChannelInfo();

@@ -55,6 +55,11 @@ export default defineManifest({
       js: ["src/content/youtube.ts"],
       run_at: "document_idle",
     },
+    {
+      matches: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      js: ["src/content/sponsorblock.ts"],
+      run_at: "document_idle",
+    },
   ],
   commands: {
     "ask-gemini": {
@@ -81,5 +86,6 @@ export default defineManifest({
     "https://claude.ai/*",
     "https://notebooklm.google.com/*",
     "https://generativelanguage.googleapis.com/*",
+    "https://sponsor.ajay.app/*",
   ],
 });

@@ -235,6 +235,8 @@ export type Settings = {
   trackMyAverage: boolean;
   /** Community dimension — track-average: show the per-channel audience score average + cue. Requires includeCommentSentiment. */
   trackCommunityAverage: boolean;
+  /** Auto-skip in-video sponsored segments using the free SponsorBlock community data. */
+  skipSponsors: boolean;
 };
 
 export type StorageState = {
@@ -374,6 +376,15 @@ export type ChannelStatusResponse = {
   channelName: string | null;
 };
 
+/** One sponsor segment from SponsorBlock: a [start, end] time range in seconds. */
+export type SponsorSegment = { start: number; end: number; category: string };
+
+/** Content script asking the worker to fetch this video's SponsorBlock segments. */
+export type GetSponsorSegmentsMessage = { type: "GET_SPONSOR_SEGMENTS"; videoId: string };
+
+/** Worker's reply with the (possibly empty) list of segments to skip. */
+export type SponsorSegmentsResponse = { segments: SponsorSegment[] };
+
 export type RuntimeMessage =
   | GetPendingMessage
   | AskMessage
@@ -386,4 +397,5 @@ export type RuntimeMessage =
   | GetGeminiUsageMessage
   | ClearGeminiUsageMessage
   | OpenOptionsMessage
-  | RateVideoMessage;
+  | RateVideoMessage
+  | GetSponsorSegmentsMessage;

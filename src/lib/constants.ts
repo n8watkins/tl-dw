@@ -129,6 +129,7 @@ export const DEFAULT_SETTINGS: Settings = {
   askForMyRating: true,
   trackMyAverage: true,
   trackCommunityAverage: true,
+  skipSponsors: true,
 };
 
 /**

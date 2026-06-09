@@ -604,6 +604,35 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: true });
       return false;
     }
+    if (message.type === "GET_SPONSOR_SEGMENTS") {
+      // Fetch sponsor segments from the free SponsorBlock community API. Done in
+      // the worker (not the content script) so host_permissions bypass CORS.
+      // SponsorBlock returns 404 when a video has no submitted segments — that's
+      // a normal "nothing to skip", not an error.
+      const videoId = message.videoId;
+      void (async () => {
+        try {
+          const url =
+            "https://sponsor.ajay.app/api/skipSegments?videoID=" +
+            encodeURIComponent(videoId) +
+            "&categories=" +
+            encodeURIComponent(JSON.stringify(["sponsor"]));
+          const res = await fetch(url);
+          if (!res.ok) {
+            sendResponse({ segments: [] });
+            return;
+          }
+          const data = (await res.json()) as Array<{ segment: [number, number]; category: string }>;
+          const segments = (Array.isArray(data) ? data : [])
+            .filter((d) => Array.isArray(d.segment) && d.segment.length === 2)
+            .map((d) => ({ start: d.segment[0], end: d.segment[1], category: d.category }));
+          sendResponse({ segments });
+        } catch {
+          sendResponse({ segments: [] });
+        }
+      })();
+      return true; // async response
+    }
     if (message.type === "GET_GEMINI_USAGE") {
       void getGeminiUsage().then((usage: GeminiUsage) => sendResponse(usage));
       return true;
