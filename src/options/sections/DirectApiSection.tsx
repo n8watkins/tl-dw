@@ -14,13 +14,20 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 import { TierBadge } from "../components/TierBadge";
 
-type DirectApiTab = "key" | "usage" | "history";
+type DirectApiTab = "setup" | "behavior" | "usage" | "history";
 
 const DIRECT_API_TABS: { id: DirectApiTab; label: string }[] = [
-  { id: "key", label: "Key & Behavior" },
+  { id: "setup", label: "Setup" },
+  { id: "behavior", label: "Behavior" },
   { id: "usage", label: "Usage" },
   { id: "history", label: "History" },
 ];
+
+/** Local yyyy-mm-dd key for an entry, to match a <input type="date"> value. */
+function localDayKey(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 /** Date-bucket label for grouping call-log entries (Today / Yesterday / date). */
 function dateGroupLabel(iso: string): string {
@@ -50,8 +57,9 @@ export function DirectApiSection() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmClearStats, setConfirmClearStats] = useState(false);
   const [confirmClearLog, setConfirmClearLog] = useState(false);
-  const [tab, setTab] = useState<DirectApiTab>("key");
+  const [tab, setTab] = useState<DirectApiTab>("setup");
   const [historySearch, setHistorySearch] = useState("");
+  const [historyDay, setHistoryDay] = useState(""); // yyyy-mm-dd, "" = all days
 
   useEffect(() => {
     void Promise.all([getSettings(), getGeminiUsage(), getGeminiCallLog(), getProfiles()]).then(
@@ -183,8 +191,48 @@ export function DirectApiSection() {
         ))}
       </div>
 
-      {tab === "key" && (
+      {tab === "setup" && (
       <>
+      {/* Walkthrough: get a free key, step by step */}
+      <div className="settings-group">
+        <div className="settings-group-title"><Icon name="sparkles" /> Set up Direct API (free)</div>
+        <div className="setting-sub" style={{ marginBottom: 14 }}>
+          Direct API calls Google's Gemini directly, so summaries appear right on the YouTube
+          page with <strong>no tab opening</strong> — fully headless. The free tier is plenty for
+          daily use and needs no credit card. Three minutes, start to finish.
+        </div>
+        <ol className="setup-walkthrough">
+          <li>
+            <strong>Open Google AI Studio.</strong> Go to{" "}
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
+              aistudio.google.com/apikey
+            </a>{" "}
+            and sign in with any Google account.
+          </li>
+          <li>
+            <strong>Create an API key.</strong> Click <em>Create API key</em> → pick or create a
+            project. No billing upgrade — stay on the free tier.
+          </li>
+          <li>
+            <strong>Copy the key</strong> (a long string starting with <code>AIza…</code>).
+          </li>
+          <li>
+            <strong>Paste it below</strong> and click <em>Save key</em>. It's stored only in your
+            browser and sent only to Google — never to us.
+          </li>
+          <li>
+            <strong>Turn on “Enabled by default”</strong> in the Behavior tab. That's it —
+            summaries now appear inline on every video.
+          </li>
+        </ol>
+        <div className="setting-sub" style={{ marginTop: 12 }}>
+          Free tier: ~500 requests/day with Gemini 3.1 Flash Lite ·{" "}
+          <a href="https://ai.google.dev/pricing" target="_blank" rel="noreferrer">
+            Pricing details ↗
+          </a>
+        </div>
+      </div>
+
       {/* API key */}
       <div className="settings-group">
         <div className="settings-group-title"><Icon name="send" /> API key</div>
@@ -252,7 +300,11 @@ export function DirectApiSection() {
           )}
         </div>
       </div>
+      </>
+      )}
 
+      {tab === "behavior" && (
+      <>
       {/* Behavior toggles */}
       <div className="settings-group">
         <div className="settings-group-title"><Icon name="sliders" /> Behavior</div>
@@ -557,11 +609,16 @@ export function DirectApiSection() {
         ) : (() => {
           const q = historySearch.trim().toLowerCase();
           const sorted = [...callLog]
-            .filter((e) =>
-              !q ||
-              (e.videoTitle ?? "").toLowerCase().includes(q) ||
-              (e.videoUrl ?? "").toLowerCase().includes(q),
-            )
+            .filter((e) => {
+              if (historyDay && localDayKey(e.at) !== historyDay) return false;
+              if (
+                q &&
+                !(e.videoTitle ?? "").toLowerCase().includes(q) &&
+                !(e.videoUrl ?? "").toLowerCase().includes(q)
+              )
+                return false;
+              return true;
+            })
             .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
           const groups: { label: string; items: GeminiCallEntry[] }[] = [];
           for (const e of sorted) {
@@ -572,21 +629,36 @@ export function DirectApiSection() {
           }
           return (
           <>
-            <input
-              type="text"
-              value={historySearch}
-              onChange={(e) => setHistorySearch(e.target.value)}
-              placeholder="Search by video title or URL…"
-              style={{ fontSize: 13, marginBottom: 12, width: "100%" }}
-              autoComplete="off"
-              spellCheck={false}
-            />
+            <div className="history-filters">
+              <input
+                type="text"
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+                placeholder="Search by video title or URL…"
+                style={{ fontSize: 13, flex: 1, minWidth: 160 }}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <input
+                type="date"
+                value={historyDay}
+                onChange={(e) => setHistoryDay(e.target.value)}
+                style={{ fontSize: 13 }}
+                title="Filter to a specific day"
+              />
+              {historyDay && (
+                <button className="btn btn-ghost" onClick={() => setHistoryDay("")}>
+                  Clear day
+                </button>
+              )}
+            </div>
             {sorted.length === 0 ? (
               <div className="card" style={{ marginBottom: 12 }}>
-                <div className="card-desc">No calls match your search.</div>
+                <div className="card-desc">No calls match your filters.</div>
               </div>
             ) : (
-              groups.map((group) => (
+              <div className="history-scroll">
+              {groups.map((group) => (
                 <div key={group.label} style={{ marginBottom: 18 }}>
                   <div className="history-date-header">{group.label}</div>
                   <div className="history-list">
@@ -667,7 +739,8 @@ export function DirectApiSection() {
                     })}
                   </div>
                 </div>
-              ))
+              ))}
+              </div>
             )}
             <button className="btn btn-danger btn-icon-text" onClick={() => setConfirmClearLog(true)}>
               <Icon name="trash" />

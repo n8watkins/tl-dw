@@ -684,6 +684,78 @@ textarea { min-height: 176px; font-family: "JetBrains Mono", "Fira Code", ui-mon
   border-bottom-color: var(--accent, #1a73e8);
 }
 
+/* "Two ways to summarize" comparison cards on the Setup page */
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mode-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.mode-card-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent, #1a73e8);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.mode-card-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: auto;
+}
+
+/* Numbered Direct API setup walkthrough */
+.setup-walkthrough {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.setup-walkthrough li { padding-left: 4px; }
+.setup-walkthrough code {
+  background: var(--surface2);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+}
+
+/* API history filters (text search + day picker) */
+.history-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+/* Cap the history list to the viewport so it scrolls internally instead of
+   growing the whole page; the search/filters and Clear button stay in view. */
+.history-scroll {
+  max-height: calc(100vh - 300px);
+  min-height: 180px;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-bottom: 12px;
+}
+
 /* Date bucket header in the API call history list */
 .history-date-header {
   font-size: 12px;
