@@ -65,30 +65,41 @@ function fmt(seconds: number): string {
 let toastEl: HTMLElement | null = null;
 let toastTimer: number | undefined;
 
-/** Brief load-time notice that segments were found (so you can see it's armed). */
-function showDetectedToast(count: number): void {
-  toastEl?.remove();
+// Persistent corner indicator: stays for the whole video so there's always a
+// visible "SponsorBlock is here and armed" marker (vs. the transient skip
+// toast). Cleared on navigation. Click to dismiss for the current video.
+let indicatorEl: HTMLElement | null = null;
+
+function removeIndicator(): void {
+  indicatorEl?.remove();
+  indicatorEl = null;
+}
+
+function showIndicator(count: number): void {
+  removeIndicator();
   const el = document.createElement("div");
   el.style.cssText = [
     "position:fixed",
     "left:16px",
     "bottom:84px",
-    "z-index:2147483647",
-    "background:rgba(20,20,20,0.94)",
+    "z-index:2147483646",
+    "background:rgba(20,20,20,0.82)",
     "color:#fff",
-    "font:13px/1.3 Roboto,system-ui,sans-serif",
-    "padding:10px 12px",
-    "border-radius:10px",
-    "box-shadow:0 6px 24px rgba(0,0,0,0.4)",
+    "font:12px/1.2 Roboto,system-ui,sans-serif",
+    "padding:7px 11px",
+    "border-radius:999px",
+    "box-shadow:0 4px 16px rgba(0,0,0,0.35)",
+    "cursor:pointer",
+    "opacity:0.85",
+    "user-select:none",
   ].join(";");
-  el.textContent = `⏭ ${count} sponsor segment${count === 1 ? "" : "s"} on this video — auto-skip armed`;
+  el.title = "SponsorBlock found sponsor segments on this video — click to hide";
+  el.textContent = `⏭ SponsorBlock · ${count} segment${count === 1 ? "" : "s"} · auto-skip on`;
+  el.addEventListener("mouseenter", () => (el.style.opacity = "1"));
+  el.addEventListener("mouseleave", () => (el.style.opacity = "0.85"));
+  el.addEventListener("click", removeIndicator);
   document.body.appendChild(el);
-  toastEl = el;
-  window.clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => {
-    el.remove();
-    if (toastEl === el) toastEl = null;
-  }, 4000);
+  indicatorEl = el;
 }
 
 function showSkipToast(seg: SponsorSegment): void {
@@ -97,7 +108,7 @@ function showSkipToast(seg: SponsorSegment): void {
   el.style.cssText = [
     "position:fixed",
     "left:16px",
-    "bottom:84px",
+    "bottom:128px", // sits above the persistent indicator chip
     "z-index:2147483647",
     "background:rgba(20,20,20,0.94)",
     "color:#fff",
@@ -195,6 +206,7 @@ async function handleNav(): Promise<void> {
   lastTime = 0;
   toastEl?.remove();
   toastEl = null;
+  removeIndicator();
 
   enabled = await loadEnabled();
   if (!enabled) return;
@@ -206,7 +218,7 @@ async function handleNav(): Promise<void> {
   log(`${segments.length} sponsor segment(s) for ${vid}`);
   if (segments.length > 0) {
     attach();
-    showDetectedToast(segments.length);
+    showIndicator(segments.length);
   }
 }
 
@@ -221,6 +233,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes["settings"]) return;
   const next = changes["settings"].newValue as { skipSponsors?: boolean } | undefined;
   enabled = next?.skipSponsors !== false;
+  if (!enabled) {
+    removeIndicator();
+  } else if (segments.length > 0 && !indicatorEl) {
+    showIndicator(segments.length);
+  }
 });
 
 export {};

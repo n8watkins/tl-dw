@@ -598,7 +598,26 @@ let summaryPanel: HTMLElement | null = null;
 //  - null: no panel → bar shown.
 let summaryPanelKind: "summary" | "loading" | "idle" | null = null;
 
+// The current "run a summary" action, captured so the loading-timeout error
+// panel can offer a one-click Retry. Set whenever the idle/loading flow runs.
+let currentSummarizeAction: (() => Promise<void>) | null = null;
+// Fires if a loading panel sits unfilled too long (a tab-scrape that never
+// returned, a dead API call). Cleared whenever the panel is replaced/removed.
+let loadingTimeoutTimer: number | undefined;
+// How long to wait for a result before showing the retry panel. Tab-mode
+// scrapes (open destination, wait for generation, scrape) can be slow, so this
+// is generous; a real result that arrives later still replaces the panel.
+const LOADING_TIMEOUT_MS = 90_000;
+
+function clearLoadingTimeout(): void {
+  if (loadingTimeoutTimer !== undefined) {
+    window.clearTimeout(loadingTimeoutTimer);
+    loadingTimeoutTimer = undefined;
+  }
+}
+
 function removeSummaryPanel(): void {
+  clearLoadingTimeout();
   summaryPanel?.remove();
   summaryPanel = null;
   summaryPanelKind = null;
@@ -944,6 +963,65 @@ function showLoadingPanel(): void {
   summaryPanelKind = "loading";
   host.prepend(panel);
   log("loading panel shown");
+
+  // Don't let the skeleton spin forever (e.g. a tab-mode scrape that never
+  // produced a parseable answer). After a grace period, surface a retry panel.
+  clearLoadingTimeout();
+  const loadingVid = currentVideoId();
+  loadingTimeoutTimer = window.setTimeout(() => {
+    if (summaryPanelKind === "loading" && currentVideoId() === loadingVid) {
+      showSummaryErrorPanel();
+    }
+  }, LOADING_TIMEOUT_MS);
+}
+
+/**
+ * Shown when a loading panel times out — the API call or the tab-mode scrape
+ * never returned a usable summary. Offers a one-click retry and explains the
+ * tab-mode caveat so the user isn't left staring at a dead skeleton.
+ */
+function showSummaryErrorPanel(): void {
+  const host = panelHost();
+  if (!host) return;
+  removeSummaryPanel();
+
+  const t = theme();
+  const panel = document.createElement("div");
+  panel.id = "tldw-summary";
+  Object.assign(panel.style, {
+    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
+    padding: "10px 14px", marginTop: "12px", marginBottom: "16px",
+    font: "14px/1.4 Roboto, system-ui, sans-serif",
+  });
+
+  const retryBtn = document.createElement("button");
+  retryBtn.textContent = "↻ Try again";
+  Object.assign(retryBtn.style, {
+    fontSize: "13px", fontWeight: "700", letterSpacing: "0.03em",
+    padding: "0 14px", borderRadius: "999px",
+    background: "#1a73e8", color: "#fff",
+    border: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
+    ...pillGeom,
+  });
+  retryBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (currentSummarizeAction) void currentSummarizeAction();
+  });
+
+  const head = buildPanelHead(t, [], currentChannelInfo, false, false, true, [retryBtn]);
+  Object.assign(head.style, { marginBottom: "8px" });
+
+  const msg = document.createElement("div");
+  msg.textContent =
+    "Couldn't get the summary back in time. If you're using the tab flow (no API key), " +
+    "the destination tab may still be working or may need a sign-in — check it, then retry.";
+  Object.assign(msg.style, { fontSize: "13px", lineHeight: "1.5", color: t.sub });
+
+  panel.append(head, msg);
+  summaryPanel = panel;
+  summaryPanelKind = "idle";
+  host.prepend(panel);
+  log("summary error panel shown (loading timed out)");
 }
 
 type ChannelComparison = {
@@ -2203,12 +2281,10 @@ async function maybeStartDirectApiRun(): Promise<void> {
   currentChannelInfo = getChannelInfo();
 
   const r = await chrome.storage.local.get(["settings", "tldwSummaryCache", AUTO_RUN_CHANNELS_KEY, BLOCKED_CHANNELS_KEY]);
-  const s = r["settings"] as Record<string, unknown> | undefined;
-  // Whether summaries run headless via Gemini (no tab) vs the tab-based flow
-  // (open the destination, scrape its answer back, inject it here). The on-page
-  // widget shows EITHER way — only the click's backend differs. This is the
-  // decoupling of "show UI here" from "which backend is configured".
-  const hasDirectApi = !!(s?.useDirectApi as boolean) && !!(s?.geminiApiKey as string);
+  // The on-page widget shows whether or not Direct API is configured. With no
+  // key the TL;DW button and auto-summarize run the tab-scrape flow (open the
+  // destination, read its answer back, inject it here) instead of a headless
+  // Gemini call — "show UI here" is decoupled from "which backend is set".
 
   // YouTube may not have rendered channel info yet at t=1s on a fresh page load; retry briefly.
   if (!currentChannelInfo) {
@@ -2264,11 +2340,13 @@ async function maybeStartDirectApiRun(): Promise<void> {
     }
     showLoadingPanel();
     void getTranscript();
-    log("direct API call started");
+    log("summary run started");
     try {
       await chrome.runtime.sendMessage({ type: "ASK" });
     } catch { /* best effort */ }
   };
+  // Expose for the loading-timeout retry panel.
+  currentSummarizeAction = startApiCall;
 
   const cache = r["tldwSummaryCache"] as Record<string, CacheEntry> | undefined;
   const cached = cache?.[vid];
@@ -2282,10 +2360,10 @@ async function maybeStartDirectApiRun(): Promise<void> {
     return;
   }
 
-  // Auto-run summary: fire immediately, but ONLY when headless. In tab mode
-  // auto-running would silently open a destination tab on every visit, so there
-  // we always show the idle panel and let the user click.
-  if (currentAutoRunSummary && hasDirectApi) {
+  // Auto-run summary: fire immediately. In tab mode this auto-opens the
+  // destination tab (the user opted into auto-summarize for this channel);
+  // headless mode runs the Gemini call with no tab.
+  if (currentAutoRunSummary) {
     await startApiCall();
     return;
   }
