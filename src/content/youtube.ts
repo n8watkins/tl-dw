@@ -345,17 +345,37 @@ function hmsToSeconds(text: string | null | undefined): number {
 }
 
 /**
- * Whether the current watch page is a LIVE stream. Live streams have no
- * transcript to summarize, so we suppress the TL;DW summary UI on them. Two
- * signals: the player reports an infinite duration, and YouTube shows its red
- * "LIVE" badge in the control bar.
+ * Whether the broadcast is happening RIGHT NOW (as opposed to a finished live
+ * stream, which becomes an ordinary VOD with a transcript). The player's red
+ * "LIVE" badge is only shown while the stream is ongoing and disappears once it
+ * ends; non-DVR live also reports an infinite media duration.
  */
-function isLiveStream(): boolean {
-  const video = document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
-  if (video && video.duration === Infinity) return true;
+function isActivelyLive(): boolean {
   const badge = document.querySelector<HTMLElement>(".ytp-live-badge");
   if (badge && badge.offsetParent !== null) return true;
+  const video = document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
+  if (video && video.duration === Infinity) return true;
   return false;
+}
+
+/**
+ * Cheap, synchronous check for whether a transcript exists for this video —
+ * either our fetch-interceptor already captured one, or YouTube is offering its
+ * "Show transcript" affordance. Recorded live streams have transcripts; an
+ * in-progress broadcast does not. We never pull the full transcript just to
+ * answer this.
+ */
+function transcriptLikelyAvailable(): boolean {
+  return !!(cachedForCurrentVideo() || findShowTranscriptButton());
+}
+
+/**
+ * Suppress the summary UI only when the stream is live AND we can't find a
+ * transcript — so a finished/recorded live stream (transcript present) is still
+ * summarizable, while a genuinely in-progress broadcast is not.
+ */
+function isUnsummarizableLive(): boolean {
+  return isActivelyLive() && !transcriptLikelyAvailable();
 }
 
 /** Read the current video's duration (seconds), channel name, and channel avatar URL. */
@@ -1470,8 +1490,9 @@ async function maybeShowStandaloneRatingBar(): Promise<void> {
   const vid = currentVideoId();
   if (!vid) { removeStandaloneRatingBar(); return; }
 
-  // No TL;DW rating UI on live streams (nothing to rate yet).
-  if (isLiveStream()) { removeStandaloneRatingBar(); return; }
+  // No TL;DW rating UI on an in-progress live stream (nothing to rate yet); a
+  // finished/recorded one (transcript present) behaves like a normal video.
+  if (isUnsummarizableLive()) { removeStandaloneRatingBar(); return; }
 
   const toggles = await loadRatingToggles();
   if (!toggles.askForMyRating) { removeStandaloneRatingBar(); return; }
@@ -2174,8 +2195,9 @@ async function maybeStartDirectApiRun(): Promise<void> {
   const vid = currentVideoId();
   if (!vid) return;
 
-  // Live streams have no transcript to summarize — don't offer the summary UI.
-  if (isLiveStream()) { removeSummaryPanel(); return; }
+  // In-progress live streams have no transcript to summarize — don't offer the
+  // summary UI. A finished/recorded live stream has a transcript, so it's fine.
+  if (isUnsummarizableLive()) { removeSummaryPanel(); return; }
 
   // Set currentChannelInfo early so comments injection can use it even when we return early.
   currentChannelInfo = getChannelInfo();
