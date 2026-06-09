@@ -41,7 +41,6 @@ export async function addHistoryEntry(args: {
   prompt: string;
   settings: Settings;
   destinationId?: string;
-  apiResponse?: string;
   aiRating?: number;
   audienceScore?: number;
   channelAvatarUrl?: string;
@@ -57,7 +56,10 @@ export async function addHistoryEntry(args: {
     profileName: args.profile.name,
     destinationId: args.destinationId,
     prompt: args.prompt,
-    apiResponse: args.apiResponse,
+    // De-duplicated: the raw response is NOT stored here. The single home for
+    // full prompt + response is the Direct API call log (gated by the
+    // keepFullCallLog setting); history keeps the prompt (needed for "ask
+    // again") plus compact metadata only.
     aiRating: args.aiRating,
     audienceScore: args.audienceScore,
     userRating: args.userRating,

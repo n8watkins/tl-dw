@@ -444,7 +444,6 @@ async function runSummary(
           await addHistoryEntry({
             video, profile, prompt: logPrompt, settings,
             destinationId: destination.id,
-            apiResponse: responseText,
             aiRating,
             channelAvatarUrl: video.avatarUrl,
           });

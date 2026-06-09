@@ -22,7 +22,11 @@ export type SearchHistoryEntry = {
   /** Destination the search was sent to, so "ask again" reopens the right one. */
   destinationId?: string;
   prompt: string;
-  /** Raw text response from the Gemini API — only set for direct-API calls. */
+  /**
+   * Legacy: raw Gemini response. No longer written — the single home for full
+   * prompt + response is now the Direct API call log (de-duplicated). Kept on
+   * the type so older stored entries still render in the History view.
+   */
   apiResponse?: string;
   /** AI quality score (1-10) parsed from the TL;DW rating field. */
   aiRating?: number;
