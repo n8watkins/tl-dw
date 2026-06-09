@@ -1,7 +1,7 @@
 import { buildDestinationPrompt, prependWorthWatchingGate } from "../lib/promptBuilder";
 import { parseTldwBlock } from "../lib/tldw";
-import { getDestination, isYouTubeVideoUrl, STORAGE_KEYS } from "../lib/constants";
-import { addHistoryEntry, computeChannelStats } from "../lib/history";
+import { getDestination, isYouTubeVideoUrl, pruneCache, STORAGE_KEYS, SUMMARY_CACHE_KEY } from "../lib/constants";
+import { addHistoryEntry, computeChannelStats, expireOldEntries, trimToLimit } from "../lib/history";
 import type { ChannelStats } from "../lib/history";
 import {
   addOpenSearch,
@@ -23,6 +23,7 @@ import {
   recordGeminiCallReturningId,
   resolveProfile,
   setCachedSummary,
+  setHistory,
   setPendingPrompt,
   takePendingPrompt,
 } from "../lib/storage";
@@ -77,8 +78,41 @@ async function rebuildContextMenu(): Promise<void> {
   }
 }
 
+/**
+ * Bound storage even when the user goes quiet. History expiry and cache pruning
+ * normally run on write, so a user who stops summarizing would keep stale data
+ * indefinitely. This sweep runs on browser startup (and install) to apply the
+ * 30-day auto-delete and the cache TTL/cap regardless of activity.
+ */
+async function startupStorageSweep(): Promise<void> {
+  try {
+    const settings = await getSettings();
+    const history = await getHistory();
+    if (history.length > 0) {
+      const next = trimToLimit(expireOldEntries(history, settings), settings.historyLimit);
+      if (next.length !== history.length) await setHistory(next);
+    }
+    const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
+    const cache = (r[SUMMARY_CACHE_KEY] as Record<string, { cachedAt: string }>) ?? {};
+    const before = Object.keys(cache).length;
+    if (before > 0) {
+      pruneCache(cache);
+      if (Object.keys(cache).length !== before) {
+        await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
+      }
+    }
+  } catch {
+    /* never let a maintenance sweep throw on startup */
+  }
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   void ensureSeeded().then(() => rebuildContextMenu());
+  void startupStorageSweep();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  void startupStorageSweep();
 });
 
 // Keep the menu title in sync when the default destination changes in Settings.
