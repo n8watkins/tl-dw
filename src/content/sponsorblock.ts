@@ -65,41 +65,12 @@ function fmt(seconds: number): string {
 let toastEl: HTMLElement | null = null;
 let toastTimer: number | undefined;
 
-// Persistent corner indicator: stays for the whole video so there's always a
-// visible "SponsorBlock is here and armed" marker (vs. the transient skip
-// toast). Cleared on navigation. Click to dismiss for the current video.
-let indicatorEl: HTMLElement | null = null;
-
-function removeIndicator(): void {
-  indicatorEl?.remove();
-  indicatorEl = null;
-}
-
-function showIndicator(count: number): void {
-  removeIndicator();
-  const el = document.createElement("div");
-  el.style.cssText = [
-    "position:fixed",
-    "left:16px",
-    "bottom:84px",
-    "z-index:2147483646",
-    "background:rgba(20,20,20,0.82)",
-    "color:#fff",
-    "font:12px/1.2 Roboto,system-ui,sans-serif",
-    "padding:7px 11px",
-    "border-radius:999px",
-    "box-shadow:0 4px 16px rgba(0,0,0,0.35)",
-    "cursor:pointer",
-    "opacity:0.85",
-    "user-select:none",
-  ].join(";");
-  el.title = "SponsorBlock found sponsor segments on this video — click to hide";
-  el.textContent = `⏭ SponsorBlock · ${count} segment${count === 1 ? "" : "s"} · auto-skip on`;
-  el.addEventListener("mouseenter", () => (el.style.opacity = "1"));
-  el.addEventListener("mouseleave", () => (el.style.opacity = "0.85"));
-  el.addEventListener("click", removeIndicator);
-  document.body.appendChild(el);
-  indicatorEl = el;
+// Publish the current sponsor-segment count to the TL;DW panel (rendered by
+// youtube.ts, which shares this page's content-script world). The panel shows a
+// "⏭ N" pill inside its own injection rather than a separate floating box.
+function publishCount(count: number): void {
+  (window as { __tldwSponsorCount?: number }).__tldwSponsorCount = count;
+  window.dispatchEvent(new CustomEvent("tldw-sponsor-update"));
 }
 
 function showSkipToast(seg: SponsorSegment): void {
@@ -108,7 +79,7 @@ function showSkipToast(seg: SponsorSegment): void {
   el.style.cssText = [
     "position:fixed",
     "left:16px",
-    "bottom:128px", // sits above the persistent indicator chip
+    "bottom:84px",
     "z-index:2147483647",
     "background:rgba(20,20,20,0.94)",
     "color:#fff",
@@ -206,7 +177,7 @@ async function handleNav(): Promise<void> {
   lastTime = 0;
   toastEl?.remove();
   toastEl = null;
-  removeIndicator();
+  publishCount(0);
 
   enabled = await loadEnabled();
   if (!enabled) return;
@@ -218,7 +189,7 @@ async function handleNav(): Promise<void> {
   log(`${segments.length} sponsor segment(s) for ${vid}`);
   if (segments.length > 0) {
     attach();
-    showIndicator(segments.length);
+    publishCount(segments.length);
   }
 }
 
@@ -233,11 +204,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes["settings"]) return;
   const next = changes["settings"].newValue as { skipSponsors?: boolean } | undefined;
   enabled = next?.skipSponsors !== false;
-  if (!enabled) {
-    removeIndicator();
-  } else if (segments.length > 0 && !indicatorEl) {
-    showIndicator(segments.length);
-  }
+  // Reflect the toggle in the panel pill: hide the count when off, restore it on.
+  publishCount(enabled ? segments.length : 0);
 });
 
 export {};

@@ -556,10 +556,17 @@ async function waitForResponseAndSend(
   // Give the DOM a moment to settle after the stop button disappears.
   await sleep(600);
 
-  const text = readLastResponse(config.responseSelectors);
-  if (!text) return;
-
-  const tldw = parseTldwBlock(text);
+  // Poll for the parseable ---TLDW--- block rather than reading once: the final
+  // block can still be streaming in when the stop button vanishes, and stop-
+  // button detection isn't perfect, so a single read can catch a partial answer.
+  let tldw = null;
+  const readDeadline = Math.min(deadline, Date.now() + 25_000);
+  while (Date.now() < readDeadline) {
+    const text = readLastResponse(config.responseSelectors);
+    tldw = text ? parseTldwBlock(text) : null;
+    if (tldw) break;
+    await sleep(700);
+  }
   if (!tldw) return;
 
   try {

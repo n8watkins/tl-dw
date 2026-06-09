@@ -309,12 +309,13 @@ async function runSummary(
   const apiKey = settings.geminiApiKey?.trim();
   const willUseDirectApi = !!(apiKey && settings.useDirectApi && isPromptDest && !opensTab);
 
-  // Fetch the transcript whenever the destination can't watch the video itself,
-  // OR when going headless — the Gemini REST API can't watch YouTube URLs, so
-  // it needs the transcript even though destination.canWatch is true for Gemini.
+  // Fetch the transcript for any prompt/source destination. Originally we
+  // skipped it for "canWatch" Gemini and let the web app watch the URL — but the
+  // Gemini web app watches YouTube unreliably (especially in a background tab),
+  // so the structured TL;DW block often never comes back. Including the
+  // transcript makes the tab flow as reliable as the headless path.
   let transcript: string | null = null;
   if (
-    (!destination.canWatch || willUseDirectApi) &&
     destination.payload !== "link" &&
     !isThumbnail &&
     activeTab?.id !== undefined
@@ -361,9 +362,11 @@ async function runSummary(
     }
   }
 
-  // For headless calls the REST API can't watch YouTube, so treat the
-  // destination as non-watching so the transcript is appended to the prompt.
-  const promptDest = willUseDirectApi ? { ...destination, canWatch: false } : destination;
+  // Whenever we actually have a transcript, append it to the prompt (treat the
+  // destination as non-watching) rather than relying on the AI to open the URL.
+  // This covers both the headless REST path and the tab flow (incl. Gemini).
+  const promptDest =
+    willUseDirectApi || transcript ? { ...destination, canWatch: false } : destination;
   let prompt = buildDestinationPrompt(profile, video, promptDest, transcript, userCuriosity);
   if (gateMinutes > 0) {
     prompt = prependWorthWatchingGate(prompt, gateMinutes);

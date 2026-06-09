@@ -824,6 +824,7 @@ function buildPanelHead(
 
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
+  spacer.dataset.tldwSpacer = "1"; // anchor for late sponsor-pill insertion
 
   const closeBtn = document.createElement("button");
   Object.assign(closeBtn.style, {
@@ -859,8 +860,45 @@ function buildPanelHead(
     ...autoToggles,
     closeBtn,
   );
+  // SponsorBlock status lives inside the panel (left side). Inserted now if the
+  // count is already known; refreshSponsorPill re-inserts it if SponsorBlock
+  // finishes fetching after the panel renders.
+  insertSponsorPill(head);
   return head;
 }
+
+// --- SponsorBlock status pill (data supplied by sponsorblock.ts via window) ---
+
+const SPONSOR_PILL_ID = "tldw-sponsor-pill";
+
+/** Sponsor-segment count for the current video, published by sponsorblock.ts. */
+function sponsorSegmentCount(): number {
+  return Number((window as { __tldwSponsorCount?: number }).__tldwSponsorCount) || 0;
+}
+
+/** Insert (or refresh) the SponsorBlock pill into a panel head, before the spacer. */
+function insertSponsorPill(head: HTMLElement): void {
+  head.querySelector(`#${SPONSOR_PILL_ID}`)?.remove();
+  const count = sponsorSegmentCount();
+  if (count <= 0) return;
+  const spacer = head.querySelector<HTMLElement>("[data-tldw-spacer]");
+  if (!spacer) return;
+  const t = theme();
+  const el = pill(`⏭ ${count}`, t.border, t.sub);
+  el.id = SPONSOR_PILL_ID;
+  el.style.cursor = "default";
+  el.title = `SponsorBlock: ${count} sponsor segment${count === 1 ? "" : "s"} on this video — auto-skip on`;
+  head.insertBefore(el, spacer);
+}
+
+/** Re-insert the sponsor pill into the live panel when the count changes. */
+function refreshSponsorPill(): void {
+  const head = summaryPanel?.querySelector<HTMLElement>(":scope > div");
+  if (head) insertSponsorPill(head);
+}
+
+// sponsorblock.ts dispatches this once it has fetched (or cleared) segments.
+window.addEventListener("tldw-sponsor-update", refreshSponsorPill);
 
 /** Block button — hides the panel permanently for this channel on this and future visits. */
 function buildBlockButton(t: ReturnType<typeof theme>, info: ChannelInfo): HTMLButtonElement {
