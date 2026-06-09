@@ -813,7 +813,8 @@ function buildPanelHead(
   rightControls: HTMLElement[] = [],
 ): HTMLElement {
   const head = document.createElement("div");
-  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px" });
+  // flexWrap so the inline SponsorBlock widget can wrap below if the row is tight.
+  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px", flexWrap: "wrap" });
 
   const icon = document.createElement("img");
   icon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
@@ -825,6 +826,7 @@ function buildPanelHead(
 
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
+  spacer.dataset.tldwSpacer = "1"; // anchor for inserting the SponsorBlock widget
 
   const closeBtn = document.createElement("button");
   Object.assign(closeBtn.style, {
@@ -860,12 +862,16 @@ function buildPanelHead(
     ...autoToggles,
     closeBtn,
   );
+  // The SponsorBlock widget is inserted in line with the header (left of the
+  // spacer) by refreshSponsorPanel, which each panel calls right after it mounts.
   return head;
 }
 
-// --- SponsorBlock section (data + undo supplied by sponsorblock.ts via window) ---
+// --- SponsorBlock widget (data + actions supplied by sponsorblock.ts via window) ---
 
-const SPONSOR_SECTION_ID = "tldw-sponsor-section";
+const SPONSOR_SECTION_ID = "tldw-sponsor-widget";
+// Collapsed view preference (persists across panel rebuilds within a session).
+let sponsorCollapsed = false;
 
 function sponsorApi(): SponsorWindowApi | null {
   return (window as unknown as { __tldwSponsor?: SponsorWindowApi }).__tldwSponsor ?? null;
@@ -881,33 +887,45 @@ function secToClock(s: number): string {
 }
 
 /**
- * The SponsorBlock row shown at the top of the panel: each sponsor segment's
- * timestamp range (click to jump there and watch it), plus a per-segment action
- * — Skip it now, or Undo if it's already been skipped.
+ * Inline SponsorBlock widget for the panel header. Shows that auto-skip is on,
+ * and for each sponsor a pair of YouTube-style clickable timestamps (start /
+ * end) you can jump to. An Undo appears briefly right after an auto-skip (and
+ * disappears once you've watched past the ad). Click "⏭" to collapse/expand.
  */
-function buildSponsorSection(t: ReturnType<typeof theme>): HTMLElement | null {
+function buildSponsorWidget(t: ReturnType<typeof theme>): HTMLElement | null {
   const api = sponsorApi();
   const segs = api?.getSegments() ?? [];
   if (!api || segs.length === 0) return null;
 
-  const wrap = document.createElement("div");
+  const wrap = document.createElement("span");
   wrap.id = SPONSOR_SECTION_ID;
   Object.assign(wrap.style, {
-    display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px",
-    marginBottom: "8px", paddingBottom: "8px", borderBottom: `1px solid ${t.border}`,
-    fontSize: "12px", color: t.sub,
+    display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: "6px",
+    fontSize: "12px", color: t.sub, flexShrink: "0",
   });
 
-  const label = document.createElement("span");
-  label.textContent = "⏭ SponsorBlock";
-  Object.assign(label.style, { fontWeight: "700", flexShrink: "0" });
-  wrap.append(label);
+  const toggle = document.createElement("button");
+  toggle.textContent = sponsorCollapsed ? `⏭ ${segs.length}` : "⏭ Auto-skip:";
+  toggle.title = "SponsorBlock auto-skip is on — click to " + (sponsorCollapsed ? "expand" : "collapse");
+  Object.assign(toggle.style, {
+    background: "transparent", border: "none", color: t.sub,
+    cursor: "pointer", fontWeight: "700", fontSize: "12px", padding: "0", flexShrink: "0",
+  });
+  toggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    sponsorCollapsed = !sponsorCollapsed;
+    refreshSponsorPanel();
+  });
+  wrap.append(toggle);
+  if (sponsorCollapsed) return wrap;
 
-  const mkBtn = (text: string, color: string, onClick: () => void): HTMLButtonElement => {
+  // A single YouTube-style (blue) clickable timestamp.
+  const stamp = (label: string, onClick: () => void): HTMLButtonElement => {
     const b = document.createElement("button");
-    b.textContent = text;
+    b.textContent = label;
+    b.title = `Jump to ${label}`;
     Object.assign(b.style, {
-      background: "transparent", border: "none", color,
+      background: "transparent", border: "none", color: "#3ea6ff",
       cursor: "pointer", fontWeight: "700", fontSize: "12px", padding: "0",
     });
     b.addEventListener("click", (e) => { e.stopPropagation(); onClick(); });
@@ -915,41 +933,48 @@ function buildSponsorSection(t: ReturnType<typeof theme>): HTMLElement | null {
   };
 
   for (const seg of segs) {
-    const chip = document.createElement("span");
-    Object.assign(chip.style, {
-      display: "inline-flex", alignItems: "center", gap: "7px",
-      background: t.border, borderRadius: "999px", padding: "2px 9px",
-      whiteSpace: "nowrap", color: t.text,
+    const group = document.createElement("span");
+    Object.assign(group.style, {
+      display: "inline-flex", alignItems: "center", gap: "4px",
+      background: t.border, borderRadius: "999px", padding: "2px 9px", whiteSpace: "nowrap",
     });
-    const active = seg.skipped && !seg.disabled;
 
-    // Clickable timestamp — jump there and watch it (won't auto-skip after).
-    const time = mkBtn(
-      `${active ? "✓ " : ""}${secToClock(seg.start)}–${secToClock(seg.end)}`,
-      active ? t.sub : t.text,
-      () => api.jumpTo(seg.index),
+    const dash = document.createElement("span");
+    dash.textContent = "–";
+    dash.style.color = t.sub;
+
+    group.append(
+      stamp(secToClock(seg.start), () => api.jumpTo(seg.index, "start")),
+      dash,
+      stamp(secToClock(seg.end), () => api.jumpTo(seg.index, "end")),
     );
-    time.title = "Jump to this segment and watch it";
-    chip.append(time);
 
-    // Action: Undo if already skipped, otherwise Skip it now.
-    const action = active
-      ? mkBtn("Undo", "#1a73e8", () => api.jumpTo(seg.index))
-      : mkBtn("Skip", "#dc2626", () => api.skipNow(seg.index));
-    chip.append(action);
-
-    wrap.append(chip);
+    // Undo shows only in the window right after an auto-skip.
+    if (seg.undoable) {
+      const undo = document.createElement("button");
+      undo.textContent = "↩ Undo";
+      Object.assign(undo.style, {
+        background: "transparent", border: "none", color: "#1a73e8",
+        cursor: "pointer", fontWeight: "700", fontSize: "12px", padding: "0", marginLeft: "2px",
+      });
+      undo.addEventListener("click", (e) => { e.stopPropagation(); api.jumpTo(seg.index, "start"); });
+      group.append(undo);
+    }
+    wrap.append(group);
   }
   return wrap;
 }
 
-/** Insert/refresh the SponsorBlock section at the very top of the panel. */
+/** Re-insert the SponsorBlock widget into the live panel header on any change. */
 function refreshSponsorPanel(): void {
-  const panel = summaryPanel;
-  if (!panel) return;
-  panel.querySelector(`#${SPONSOR_SECTION_ID}`)?.remove();
-  const section = buildSponsorSection(theme());
-  if (section) panel.prepend(section);
+  const head = summaryPanel?.querySelector<HTMLElement>(":scope > div");
+  if (!head) return;
+  head.querySelector(`#${SPONSOR_SECTION_ID}`)?.remove();
+  const widget = buildSponsorWidget(theme());
+  if (!widget) return;
+  const spacer = head.querySelector<HTMLElement>("[data-tldw-spacer]");
+  if (spacer) head.insertBefore(widget, spacer);
+  else head.append(widget);
 }
 
 // sponsorblock.ts fires this whenever segments are fetched, skipped, or undone.

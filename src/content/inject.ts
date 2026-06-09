@@ -285,6 +285,7 @@ function isVisible(el: Element): boolean {
 }
 
 const nlog = (...args: unknown[]) => console.log("[TL;DW NotebookLM]", ...args);
+const log = (...args: unknown[]) => console.log("[TL;DW inject]", ...args);
 
 function editorLabel(el: HTMLElement): string {
   return [
@@ -538,14 +539,17 @@ async function waitForResponseAndSend(
   config: SiteConfig,
   sourceTabId: number,
 ): Promise<void> {
+  log(`watching ${config.name} for the response (sourceTab ${sourceTabId})`);
   const deadline = Date.now() + 180_000;
 
   // Wait up to 15s for the stop button to appear (generation started).
   const startDeadline = Date.now() + 15_000;
+  let sawStop = false;
   while (Date.now() < startDeadline) {
-    if (hasStopButton(config.stopSelectors)) break;
+    if (hasStopButton(config.stopSelectors)) { sawStop = true; break; }
     await sleep(500);
   }
+  log(sawStop ? "generation started (stop button seen)" : "no stop button seen in 15s — reading anyway");
 
   // Wait for the stop button to disappear (generation done).
   while (Date.now() < deadline) {
@@ -560,19 +564,44 @@ async function waitForResponseAndSend(
   // block can still be streaming in when the stop button vanishes, and stop-
   // button detection isn't perfect, so a single read can catch a partial answer.
   let tldw = null;
+  let lastText = "";
   const readDeadline = Math.min(deadline, Date.now() + 25_000);
   while (Date.now() < readDeadline) {
-    const text = readLastResponse(config.responseSelectors);
-    tldw = text ? parseTldwBlock(text) : null;
+    lastText = readLastResponse(config.responseSelectors);
+    tldw = lastText ? parseTldwBlock(lastText) : null;
     if (tldw) break;
     await sleep(700);
   }
-  if (!tldw) return;
 
-  try {
-    await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw, sourceTabId });
-  } catch {
-    /* background may be asleep — best effort */
+  if (tldw) {
+    log(`parsed TL;DW block (verdict ${tldw.verdict}) — sending to YouTube tab`);
+    try {
+      await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw, sourceTabId });
+    } catch {
+      /* background may be asleep — best effort */
+    }
+    return;
+  }
+
+  // Couldn't find a structured block. Log what we DID read so the failure is
+  // diagnosable, then fall back to showing the raw response so the user gets
+  // *something* instead of a dead spinner.
+  log(
+    `no TL;DW block found. response selector matched ${lastText.length} chars.`,
+    lastText ? `First 300:\n${lastText.slice(0, 300)}` : "(empty — response selector may be wrong)",
+  );
+  if (lastText.length > 80) {
+    const fallback = {
+      verdict: "WATCH",
+      summary: "Couldn't parse a structured summary from " + config.name + " — showing its raw response below.",
+      rating: "",
+      details: lastText.slice(0, 4000),
+    };
+    try {
+      await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw: fallback, sourceTabId });
+    } catch {
+      /* best effort */
+    }
   }
 }
 
@@ -740,7 +769,11 @@ async function run(): Promise<void> {
   } | null;
 
   const prompt = res?.prompt;
-  if (!prompt) return;
+  if (!prompt) { log(`${config.name}: no pending prompt for this tab`); return; }
+  log(`${config.name}: pending prompt found (${prompt.length} chars, sourceTab ${res?.sourceTabId ?? "none"}, autoSubmit ${res?.autoSubmit !== false})`);
+  if (res?.sourceTabId === undefined) {
+    log("WARNING: no sourceTabId — the summary can't be sent back to the YouTube tab");
+  }
 
   if (res?.temporaryChats) {
     await activateTemporaryMode(location.hostname);

@@ -387,6 +387,8 @@ export type SponsorPanelSegment = {
   category: string;
   skipped: boolean;
   disabled: boolean;
+  /** True briefly after an auto-skip — the Undo affordance shows only then. */
+  undoable: boolean;
 };
 
 /**
@@ -397,10 +399,11 @@ export type SponsorPanelSegment = {
 export type SponsorWindowApi = {
   getSegments: () => SponsorPanelSegment[];
   isEnabled: () => boolean;
-  /** Seek to the segment's start and keep it (don't auto-skip) — "jump & watch". */
-  jumpTo: (index: number) => void;
-  /** Seek to the segment's end now — manual skip. */
-  skipNow: (index: number) => void;
+  /**
+   * Seek to a segment's start or end and take manual control of it (no
+   * auto-skip after). Drives the clickable timestamps and the Undo button.
+   */
+  jumpTo: (index: number, edge: "start" | "end") => void;
 };
 
 /** Content script asking the worker to fetch this video's SponsorBlock segments. */

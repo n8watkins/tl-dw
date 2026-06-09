@@ -23,11 +23,16 @@ import type {
 
 const log = (...args: unknown[]) => console.log("[TL;DW SB]", ...args);
 
+// Seconds of playback after an auto-skip during which the panel offers Undo;
+// once you've watched this far past the segment, "the ad is gone" and Undo hides.
+const UNDO_GRACE = 6;
+
 let currentVid = "";
 let enabled = true;
 let segments: SponsorSegment[] = [];
 const skipped = new Set<SponsorSegment>(); // already auto-skipped this load
 const disabled = new Set<SponsorSegment>(); // user scrubbed in / undid — leave alone
+const undoableUntil = new Map<SponsorSegment, number>(); // seg -> video time the Undo expires
 let video: HTMLVideoElement | null = null;
 let lastTime = 0;
 let programmaticSeek = false;
@@ -75,6 +80,7 @@ function segmentState(): SponsorPanelSegment[] {
     category: s.category,
     skipped: skipped.has(s),
     disabled: disabled.has(s),
+    undoable: undoableUntil.has(s),
   }));
 }
 
@@ -82,26 +88,16 @@ function notifyPanel(): void {
   window.dispatchEvent(new CustomEvent("tldw-sponsor-update"));
 }
 
-/** Jump to a segment's start and keep it (don't auto-skip) — drives the
- *  clickable timestamp and the Undo button in the panel. */
-function jumpTo(index: number): void {
+/** Seek to a segment's start/end and take manual control (don't auto-skip it
+ *  again). Drives the clickable timestamps and the Undo button in the panel. */
+function jumpTo(index: number, edge: "start" | "end"): void {
   const seg = segments[index];
   if (!seg || !video) return;
   disabled.add(seg);
   skipped.delete(seg);
+  undoableUntil.delete(seg);
   programmaticSeek = true;
-  video.currentTime = Math.max(0, seg.start - 0.3);
-  notifyPanel();
-}
-
-/** Skip a segment now (seek to its end) — drives the panel's Skip button. */
-function skipNow(index: number): void {
-  const seg = segments[index];
-  if (!seg || !video) return;
-  skipped.add(seg);
-  disabled.delete(seg);
-  programmaticSeek = true;
-  video.currentTime = seg.end;
+  video.currentTime = edge === "end" ? seg.end : Math.max(0, seg.start);
   notifyPanel();
 }
 
@@ -109,21 +105,31 @@ function skipNow(index: number): void {
   getSegments: () => (enabled ? segmentState() : []),
   isEnabled: () => enabled,
   jumpTo,
-  skipNow,
 };
 
 function onTimeUpdate(): void {
   if (!enabled || !video || segments.length === 0) return;
   const t = video.currentTime;
+
+  // Retire Undo windows we've now played past ("the ad is gone").
+  if (undoableUntil.size > 0) {
+    let expired = false;
+    for (const [seg, until] of undoableUntil) {
+      if (t >= until) { undoableUntil.delete(seg); expired = true; }
+    }
+    if (expired) notifyPanel();
+  }
+
   for (const seg of segments) {
     if (skipped.has(seg) || disabled.has(seg)) continue;
     // Only skip when we cross into the segment via normal playback (we were
     // before it a tick ago) — not when the user scrubbed into its middle.
     if (t >= seg.start && t < seg.end - 0.4 && lastTime < seg.end) {
       skipped.add(seg);
+      undoableUntil.set(seg, seg.end + UNDO_GRACE); // Undo available briefly
       programmaticSeek = true;
       video.currentTime = seg.end;
-      notifyPanel(); // panel now shows this segment as skipped, with an Undo
+      notifyPanel();
       break;
     }
   }
@@ -143,6 +149,7 @@ function onSeeked(): void {
   for (const seg of segments) {
     if (t >= seg.start && t < seg.end && !disabled.has(seg)) {
       disabled.add(seg);
+      undoableUntil.delete(seg);
       changed = true;
     }
   }
@@ -172,6 +179,7 @@ async function handleNav(): Promise<void> {
   segments = [];
   skipped.clear();
   disabled.clear();
+  undoableUntil.clear();
   lastTime = 0;
   notifyPanel();
 
