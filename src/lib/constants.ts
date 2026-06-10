@@ -119,12 +119,6 @@ export const AUTO_RUN_CHANNELS_KEY = "autoRunChannels";
 /** chrome.storage.local key holding the list of blocked channels (BlockedChannel[]). */
 export const BLOCKED_CHANNELS_KEY = "tldwBlockedChannels";
 
-/** chrome.storage.local key holding channels blocked from comment analysis (BlockedChannel[]). */
-export const BLOCKED_COMMENTS_KEY = "tldwBlockedCommentsChannels";
-
-/** chrome.storage.local key for comment-only sentiment cache (Record<videoId, CommentCacheEntry>). */
-export const COMMENT_CACHE_KEY = "tldwCommentCache";
-
 /** chrome.storage.local key holding per-call Direct API history entries. */
 export const GEMINI_CALL_LOG_KEY = "geminiCallLog";
 
@@ -147,14 +141,10 @@ export const DEFAULT_SETTINGS: Settings = {
   geminiApiKey: "",
   geminiApiKeyName: "",
   useDirectApi: false,
-  includeCommentSentiment: false,
-  commentPromptTemplate:
-    "These are the top viewer comments on this YouTube video. In 2-3 sentences, summarize the overall audience sentiment. If multiple commenters mention specific timestamps or moments, include those. End your response with exactly one line in this format: \"Audience score: X/10\"\n\nComments:\n{{comments}}",
   showAiRecommendation: true,
   trackAiAverage: true,
   askForMyRating: true,
   trackMyAverage: true,
-  trackCommunityAverage: true,
   skipSponsors: true,
   keepFullCallLog: false,
 };

@@ -170,8 +170,8 @@ export function DirectApiSection() {
           <TierBadge tier="integrated" label="Integrated" />
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
             Everything on this page is part of the Integrated tier — it needs the Direct API
-            (Gemini) key. The on-page summary panel, AI verdict, and community sentiment all
-            come from the model's structured output.
+            (Gemini) key. The on-page summary panel and AI verdict come from the model's
+            structured output.
           </span>
         </div>
       </div>
@@ -316,7 +316,7 @@ export function DirectApiSection() {
               display: "inline-block", background: "var(--border)",
               borderRadius: "999px", padding: "2px 10px", fontWeight: 600, fontSize: 11,
             }}>
-              {1 + (settings.includeCommentSentiment ? 1 : 0)} Gemini request{1 + (settings.includeCommentSentiment ? 1 : 0) > 1 ? "s" : ""} per video
+              1 Gemini request per video
             </span>
             {" "}&nbsp;Channel comparison is computed locally — no extra request.
           </div>
@@ -393,16 +393,16 @@ export function DirectApiSection() {
 
       </div>
 
-      {/* Integrated: AI + Community ratings (all require the API key) */}
+      {/* Integrated: AI rating (requires the API key) */}
       <div className="settings-group">
         <div className="settings-group-title">
           <Icon name="sparkles" /> Integrated
           <TierBadge tier="integrated" label="Needs API key" style={{ marginLeft: 8 }} />
         </div>
         <div className="setting-sub" style={{ marginBottom: 12 }}>
-          AI verdict and community sentiment are derived from the model's structured output,
-          so they only exist when the Direct API is configured. The per-channel averages are
-          computed locally from those results.
+          The AI verdict is derived from the model's structured output, so it only exists when
+          the Direct API is configured. The per-channel AI average is computed locally from
+          those results.
         </div>
 
         {/* AI rating: collect/show (A) */}
@@ -453,77 +453,6 @@ export function DirectApiSection() {
           </div>
         </div>
 
-        {/* Community: collect/show (A) */}
-        <div className="setting-row">
-          <div className="setting-info">
-            <div className="setting-label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              Include comment sentiment
-              <span style={{
-                fontSize: 10, fontWeight: 700, background: "#f59e0b22", color: "#b45309",
-                borderRadius: 999, padding: "1px 7px", letterSpacing: "0.03em",
-              }}>+1 request</span>
-            </div>
-            <div className="setting-sub">
-              After the main summary, run a second Gemini call to analyze the top viewer
-              comments and add a 💬 Community row to the widget with audience sentiment
-              and a score out of 10.
-            </div>
-          </div>
-          <div className="setting-control">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={settings.includeCommentSentiment}
-                onChange={(e) =>
-                  void update(
-                    e.target.checked
-                      ? { includeCommentSentiment: true }
-                      : { includeCommentSentiment: false, trackCommunityAverage: false },
-                  )
-                }
-                disabled={!hasKey}
-              />
-              <span className="toggle-track" />
-            </label>
-          </div>
-        </div>
-
-        {/* Community: track average (B, requires includeCommentSentiment) */}
-        <div className="setting-row" style={{ opacity: settings.includeCommentSentiment ? 1 : 0.5 }}>
-          <div className="setting-info">
-            <div className="setting-label">Track community average</div>
-            <div className="setting-sub">
-              Average the audience score per channel and show a this-video-vs-channel cue.
-            </div>
-          </div>
-          <div className="setting-control">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={settings.trackCommunityAverage}
-                onChange={(e) => void update({ trackCommunityAverage: e.target.checked })}
-                disabled={!hasKey || !settings.includeCommentSentiment}
-              />
-              <span className="toggle-track" />
-            </label>
-          </div>
-        </div>
-
-        {settings.includeCommentSentiment && (
-          <div className="setting-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}>
-            <div className="setting-label">Comment prompt template</div>
-            <div className="setting-sub" style={{ marginBottom: 6 }}>
-              Use <code>{"{{comments}}"}</code> where the scraped comments should be inserted.
-            </div>
-            <textarea
-              value={settings.commentPromptTemplate}
-              onChange={(e) => void update({ commentPromptTemplate: e.target.value })}
-              rows={7}
-              style={{ fontFamily: "monospace", fontSize: 12, resize: "vertical" }}
-              spellCheck={false}
-            />
-          </div>
-        )}
       </div>
       </>
       )}
@@ -731,23 +660,7 @@ export function DirectApiSection() {
                             <pre className="prompt-preview">{entry.response}</pre>
                           </div>
                         )}
-                        {entry.commentSentiment && (
-                          <div className="history-detail" style={{ marginTop: 12 }}>
-                            <p className="field-label" style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
-                              💬 Community sentiment
-                              {entry.audienceScore !== undefined && (
-                                <span style={{
-                                  fontSize: 11, fontWeight: 700, padding: "2px 8px",
-                                  borderRadius: 999, background: "var(--border)", color: "var(--text)",
-                                }}>
-                                  Audience: {entry.audienceScore}/10
-                                </span>
-                              )}
-                            </p>
-                            <pre className="prompt-preview">{entry.commentSentiment}</pre>
-                          </div>
-                        )}
-                        {!entry.prompt && !entry.response && !entry.commentSentiment && (
+                        {!entry.prompt && !entry.response && (
                           <div className="history-detail">
                             <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
                               Metadata only — the full prompt &amp; response aren't stored for this

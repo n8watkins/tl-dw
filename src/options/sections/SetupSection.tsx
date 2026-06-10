@@ -94,8 +94,8 @@ export function SetupSection() {
           </div>
           <div className="mode-card-tag">Free Gemini key · fully inline</div>
           <div className="card-desc">
-            Calls Google's Gemini API directly, so the summary, AI verdict, and community
-            sentiment appear right on the video — <strong>no tab ever opens</strong>. The free
+            Calls Google's Gemini API directly, so the summary and AI verdict appear right on
+            the video — <strong>no tab ever opens</strong>. The free
             tier covers ~500 videos a day with no credit card. This powers the on-page widget,
             ratings, and auto-summarize.
           </div>

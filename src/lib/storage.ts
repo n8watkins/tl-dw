@@ -14,7 +14,6 @@ import type {
 import {
   AUTO_RUN_CHANNELS_KEY,
   BLOCKED_CHANNELS_KEY,
-  BLOCKED_COMMENTS_KEY,
   CACHE_TTL_MS,
   DEFAULT_SETTINGS,
   DELIVERY_STATUS_KEY,
@@ -129,21 +128,6 @@ export async function addRatingOnlyHistoryEntry(args: {
     next = next.slice(0, args.settings.historyLimit);
   }
   await setHistory(next);
-}
-
-/**
- * Patch the audience score onto the newest history entry for `videoId`, so the
- * per-channel community average includes the current video. No-op if no entry.
- */
-export async function patchHistoryEntryAudienceScore(
-  videoId: string,
-  score: number,
-): Promise<void> {
-  const history = await getHistory();
-  const idx = history.findIndex((e) => extractVideoId(e.videoUrl) === videoId);
-  if (idx === -1) return;
-  history[idx] = { ...history[idx], audienceScore: score };
-  await setHistory(history);
 }
 
 export async function getState(): Promise<StorageState> {
@@ -271,14 +255,12 @@ export async function getGeminiUsage(): Promise<GeminiUsage> {
 
 /**
  * Core implementation: writes a Gemini call log entry + updates usage stats.
- * Returns the new entry's id so callers can patch it later (e.g. with comment sentiment).
+ * Returns the new entry's id.
  */
 async function _recordGeminiCall(
   video?: { url: string; title?: string },
   prompt?: string,
   response?: string,
-  commentSentiment?: string,
-  audienceScore?: number,
 ): Promise<string> {
   const [usage, logRaw, settings] = await Promise.all([
     getGeminiUsage(),
@@ -311,8 +293,6 @@ async function _recordGeminiCall(
     at: now.toISOString(),
     prompt: keepFull ? prompt : undefined,
     response: keepFull ? response : undefined,
-    commentSentiment: keepFull ? commentSentiment : undefined,
-    audienceScore,
   };
   const updatedLog = [newEntry, ...existingLog].slice(0, CALL_LOG_LIMIT);
 
@@ -330,37 +310,6 @@ export async function recordGeminiCall(
   response?: string,
 ): Promise<void> {
   await _recordGeminiCall(video, prompt, response);
-}
-
-/**
- * Like `recordGeminiCall` but returns the new entry id so the caller can patch
- * it later (e.g. after a parallel comment sentiment call completes).
- */
-export async function recordGeminiCallReturningId(
-  video?: { url: string; title?: string },
-  prompt?: string,
-  response?: string,
-): Promise<string> {
-  return _recordGeminiCall(video, prompt, response);
-}
-
-/**
- * Patch an existing call log entry with comment sentiment data after the fact.
- * No-op if no entry with `id` is found.
- */
-export async function patchGeminiCallEntry(
-  id: string,
-  patch: { commentSentiment?: string; audienceScore?: number },
-): Promise<void> {
-  const [logRaw, settings] = await Promise.all([
-    chrome.storage.local.get(GEMINI_CALL_LOG_KEY),
-    getSettings(),
-  ]);
-  const log = (logRaw[GEMINI_CALL_LOG_KEY] as GeminiCallEntry[]) ?? [];
-  // Metadata-only mode keeps the audience score (a number) but not the sentiment text.
-  const applied = settings.keepFullCallLog ? patch : { audienceScore: patch.audienceScore };
-  const updated = log.map((e) => (e.id === id ? { ...e, ...applied } : e));
-  await chrome.storage.local.set({ [GEMINI_CALL_LOG_KEY]: updated });
 }
 
 /** Clears stats (totalCalls, todayCalls, lastCalledAt) but keeps allTimeCalls. */
@@ -405,29 +354,13 @@ export async function setCachedSummary(videoId: string, entry: CachedSummary): P
   await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
 }
 
-export async function patchCachedSummary(
-  videoId: string,
-  patch: Partial<Pick<CachedSummary, "commentSentiment" | "audienceScore" | "userRating">>,
-): Promise<void> {
-  const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
-  const cache = (r[SUMMARY_CACHE_KEY] as SummaryCache) ?? {};
-  if (cache[videoId]) {
-    cache[videoId] = { ...cache[videoId]!, ...patch };
-    await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
-  }
-}
-
 // --- Auto-run channel list ---------------------------------------------------
 
 export async function getAutoRunChannels(): Promise<AutoRunChannel[]> {
   const r = await chrome.storage.local.get(AUTO_RUN_CHANNELS_KEY);
   const raw = (r[AUTO_RUN_CHANNELS_KEY] as Partial<AutoRunChannel>[]) ?? [];
-  // Normalize legacy entries (added before autoRunSummary/autoRunComments fields existed).
-  return raw.map((c) => ({
-    autoRunSummary: true,
-    autoRunComments: false,
-    ...c,
-  } as AutoRunChannel));
+  // Normalize legacy entries (added before the autoRunSummary field existed).
+  return raw.map((c) => ({ autoRunSummary: true, ...c } as AutoRunChannel));
 }
 
 export async function setAutoRunChannels(channels: AutoRunChannel[]): Promise<void> {
@@ -469,20 +402,6 @@ export async function addBlockedChannel(channel: BlockedChannel): Promise<void> 
 export async function removeBlockedChannel(channelId: string): Promise<void> {
   const existing = await getBlockedChannels();
   await setBlockedChannels(existing.filter((c) => c.id !== channelId && c.name !== channelId));
-}
-
-// --- Blocked comments channel list ------------------------------------------
-
-export async function getBlockedCommentsChannels(): Promise<BlockedChannel[]> {
-  const r = await chrome.storage.local.get(BLOCKED_COMMENTS_KEY);
-  return (r[BLOCKED_COMMENTS_KEY] as BlockedChannel[]) ?? [];
-}
-
-export async function removeBlockedCommentsChannel(channelId: string): Promise<void> {
-  const existing = await getBlockedCommentsChannels();
-  await chrome.storage.local.set({
-    [BLOCKED_COMMENTS_KEY]: existing.filter((c) => c.id !== channelId && c.name !== channelId),
-  });
 }
 
 /** Open searches whose tabs are still open; prunes any that have closed. */

@@ -30,8 +30,6 @@ export type SearchHistoryEntry = {
   apiResponse?: string;
   /** AI quality score (1-10) parsed from the TL;DW rating field. */
   aiRating?: number;
-  /** Audience sentiment score (1-10) from the comment analysis call. */
-  audienceScore?: number;
   /**
    * The user's personal verdict on this video. Internal enum is kept as
    * watch/skim/skip (displayed as Engaged/Skimmed/Skipped); numeric map for
@@ -120,8 +118,6 @@ export type AutoRunChannel = {
   addedAt: string;
   /** Auto-fire the AI summary when opening a video from this channel. Defaults true for legacy entries. */
   autoRunSummary: boolean;
-  /** Auto-fire the comment analysis when opening a video from this channel. */
-  autoRunComments: boolean;
 };
 
 /** Cached summary result keyed by video ID in chrome.storage.local. */
@@ -129,10 +125,6 @@ export type CachedSummary = {
   tldw: TldwSummary;
   /** ISO timestamp when this entry was written. */
   cachedAt: string;
-  /** Community sentiment text, filled in after the comment analysis call. */
-  commentSentiment?: string;
-  /** Audience score (1–10) from the comment analysis call. */
-  audienceScore?: number;
   /** The user's personal verdict on whether the video was worth watching. */
   userRating?: "watch" | "skim" | "skip";
   /** Channel display name — used to clear cached entries when a channel is blocked. */
@@ -150,10 +142,6 @@ export type GeminiCallEntry = {
   prompt?: string;
   /** Raw text response from the API. */
   response?: string;
-  /** Community sentiment summary from the comment analysis call. */
-  commentSentiment?: string;
-  /** Numeric audience score (1-10) parsed from the comment analysis response. */
-  audienceScore?: number;
 };
 
 /** Age thresholds the history auto-expiry offers (see HISTORY_EXPIRY_OPTIONS). */
@@ -225,10 +213,6 @@ export type Settings = {
   useDirectApi: boolean;
   /** Profile to use for Direct API auto-runs; falls back to the default profile if unset. */
   directApiProfileId?: string;
-  /** Run a second Gemini call to analyze top viewer comments and show community sentiment. */
-  includeCommentSentiment: boolean;
-  /** Prompt template for the comment sentiment call. Use {{comments}} as the placeholder. */
-  commentPromptTemplate: string;
   /** AI dimension — collect/show: render the AI verdict + numeric score pills in the panel. */
   showAiRecommendation: boolean;
   /** AI dimension — track-average: show the per-channel AI rating average + cue. Requires showAiRecommendation. */
@@ -237,8 +221,6 @@ export type Settings = {
   askForMyRating: boolean;
   /** My dimension — track-average: show the per-channel My rating average + cue. Requires askForMyRating. */
   trackMyAverage: boolean;
-  /** Community dimension — track-average: show the per-channel audience score average + cue. Requires includeCommentSentiment. */
-  trackCommunityAverage: boolean;
   /** Auto-skip in-video sponsored segments using the free SponsorBlock community data. */
   skipSponsors: boolean;
   /**
@@ -335,19 +317,6 @@ export type AiSummaryMessage = {
   sourceTabId: number;
 };
 
-/** Sent from background to content script: request the top comments from the page. */
-export type GetCommentsMessage = { type: "GET_COMMENTS" };
-
-/** Sent from background to content script: deliver the comment sentiment result. */
-export type SetCommentSentimentMessage = {
-  type: "SET_COMMENT_SENTIMENT";
-  sentiment: string;
-  audienceScore?: number;
-};
-
-/** Sent from the content script to request a standalone comment-sentiment analysis. */
-export type AskCommentsMessage = { type: "ASK_COMMENTS" };
-
 /** Popup requesting the direct-API usage stats; responds with GeminiUsage. */
 export type GetGeminiUsageMessage = { type: "GET_GEMINI_USAGE" };
 
@@ -389,7 +358,6 @@ export type RateVideoMessage = {
 /** Response to GET_CHANNEL_STATUS. */
 export type ChannelStatusResponse = {
   isBlocked: boolean;
-  isCommentsBlocked: boolean;
   channelName: string | null;
 };
 
@@ -432,12 +400,9 @@ export type SponsorSegmentsResponse = { segments: SponsorSegment[] };
 export type RuntimeMessage =
   | GetPendingMessage
   | AskMessage
-  | AskCommentsMessage
   | RebuildMenuMessage
   | InjectResultMessage
   | AiSummaryMessage
-  | GetCommentsMessage
-  | SetCommentSentimentMessage
   | GetGeminiUsageMessage
   | ClearGeminiUsageMessage
   | OpenOptionsMessage

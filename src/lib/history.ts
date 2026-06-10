@@ -42,7 +42,6 @@ export async function addHistoryEntry(args: {
   settings: Settings;
   destinationId?: string;
   aiRating?: number;
-  audienceScore?: number;
   channelAvatarUrl?: string;
   userRating?: "watch" | "skim" | "skip";
 }): Promise<void> {
@@ -61,7 +60,6 @@ export async function addHistoryEntry(args: {
     // keepFullCallLog setting); history keeps the prompt (needed for "ask
     // again") plus compact metadata only.
     aiRating: args.aiRating,
-    audienceScore: args.audienceScore,
     userRating: args.userRating,
     createdAt: new Date().toISOString(),
   };
@@ -76,7 +74,6 @@ export type ChannelStats = {
   avatarUrl?: string;
   count: number;
   avgAiRating: number | null;
-  avgAudienceScore: number | null;
   /** Average of the personal verdict mapped through USER_RATING_SCALE; null when none rated. */
   avgUserRating: number | null;
   /** Tally of personal verdicts for this channel. */
@@ -98,7 +95,6 @@ export function computeChannelStats(history: SearchHistoryEntry[]): ChannelStats
     .map(([channel, videos]) => {
       // history is newest-first; videos within a channel retain that ordering.
       const aiRatings = videos.map((v) => v.aiRating).filter((r): r is number => r !== undefined);
-      const audScores = videos.map((v) => v.audienceScore).filter((s): s is number => s !== undefined);
       const userRatings = videos
         .map((v) => v.userRating)
         .filter((r): r is "watch" | "skim" | "skip" => r !== undefined);
@@ -114,7 +110,6 @@ export function computeChannelStats(history: SearchHistoryEntry[]): ChannelStats
         avatarUrl: videos[0]?.channelAvatarUrl,
         count: videos.length,
         avgAiRating: aiRatings.length ? aiRatings.reduce((a, b) => a + b, 0) / aiRatings.length : null,
-        avgAudienceScore: audScores.length ? audScores.reduce((a, b) => a + b, 0) / audScores.length : null,
         avgUserRating: userRatings.length
           ? userRatings.reduce((a, b) => a + USER_RATING_SCALE[b], 0) / userRatings.length
           : null,

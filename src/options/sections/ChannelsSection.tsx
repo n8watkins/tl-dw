@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import type { AutoRunChannel, BlockedChannel, SearchHistoryEntry } from "../../types";
-import { getHistory, getAutoRunChannels, setAutoRunChannels as persistAutoRunChannels, getBlockedChannels, removeBlockedChannel, getBlockedCommentsChannels, removeBlockedCommentsChannel, getSettings } from "../../lib/storage";
+import { getHistory, getAutoRunChannels, setAutoRunChannels as persistAutoRunChannels, getBlockedChannels, removeBlockedChannel, getSettings } from "../../lib/storage";
 import { computeChannelStats, type ChannelStats } from "../../lib/history";
 import { USER_RATING_LABELS, scoreToVerdict, userAvgToLabel } from "../../lib/constants";
 import { TierBadge } from "../components/TierBadge";
@@ -218,7 +218,6 @@ function BlockedCard({
 
 function VideoRow({ entry, trackMyAverage }: { entry: SearchHistoryEntry; trackMyAverage: boolean }) {
   const hasAi = entry.aiRating !== undefined;
-  const hasAudience = entry.audienceScore !== undefined;
   const hasUserRating = trackMyAverage && entry.userRating !== undefined;
 
   return (
@@ -270,23 +269,6 @@ function VideoRow({ entry, trackMyAverage }: { entry: SearchHistoryEntry; trackM
           }}
         >
           AI {scoreToVerdict(entry.aiRating!)}
-        </span>
-      )}
-
-      {/* Audience verdict pill */}
-      {hasAudience && (
-        <span
-          style={{
-            flexShrink: 0,
-            fontSize: 11,
-            fontWeight: 700,
-            padding: "2px 7px",
-            borderRadius: 999,
-            whiteSpace: "nowrap",
-            ...verdictPillStyle(scoreToVerdict(entry.audienceScore!)),
-          }}
-        >
-          Aud {scoreToVerdict(entry.audienceScore!)}
         </span>
       )}
 
@@ -420,21 +402,6 @@ function ChannelCard({
                 AI usually {scoreToVerdict(stats.avgAiRating)}
               </span>
             )}
-            {/* Audience verdict pill */}
-            {stats.avgAudienceScore !== null && (
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: "2px 8px",
-                  borderRadius: 999,
-                  whiteSpace: "nowrap",
-                  ...verdictPillStyle(scoreToVerdict(stats.avgAudienceScore)),
-                }}
-              >
-                Audience usually {scoreToVerdict(stats.avgAudienceScore)}
-              </span>
-            )}
             {/* My rating pill */}
             {trackMyAverage && stats.avgUserRating !== null && (
               <span
@@ -548,21 +515,19 @@ export function ChannelsSection() {
   const [channels, setChannels] = useState<ChannelStats[]>([]);
   const [autoRunChannels, setAutoRunChannels] = useState<AutoRunChannel[]>([]);
   const [blockedChannels, setBlockedChannels] = useState<BlockedChannel[]>([]);
-  const [blockedCommentsChannels, setBlockedCommentsChannels] = useState<BlockedChannel[]>([]);
   const [totalVideos, setTotalVideos] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("count");
   const [loading, setLoading] = useState(true);
   const [trackMyAverage, setTrackMyAverage] = useState(true);
 
   const reload = useCallback(async () => {
-    const [history, autoRun, blocked, blockedComments, settings] = await Promise.all([
-      getHistory(), getAutoRunChannels(), getBlockedChannels(), getBlockedCommentsChannels(), getSettings(),
+    const [history, autoRun, blocked, settings] = await Promise.all([
+      getHistory(), getAutoRunChannels(), getBlockedChannels(), getSettings(),
     ]);
     const stats = computeChannelStats(history);
     setChannels(stats);
     setAutoRunChannels(autoRun);
     setBlockedChannels(blocked);
-    setBlockedCommentsChannels(blockedComments);
     setTotalVideos(history.filter((e) => !!e.channel).length);
     setTrackMyAverage(settings.trackMyAverage);
     setLoading(false);
@@ -582,11 +547,6 @@ export function ChannelsSection() {
     setBlockedChannels((prev) => prev.filter((c) => c.id !== channelId && c.name !== channelId));
   }, []);
 
-  const handleUnblockComments = useCallback(async (channelId: string) => {
-    await removeBlockedCommentsChannel(channelId);
-    setBlockedCommentsChannels((prev) => prev.filter((c) => c.id !== channelId && c.name !== channelId));
-  }, []);
-
   const handleToggleAutoRun = useCallback(async (stats: ChannelStats, enable: boolean) => {
     const current = await getAutoRunChannels();
     const existing = current.find((c) => c.name === stats.channel);
@@ -600,16 +560,10 @@ export function ChannelsSection() {
             avatarUrl: stats.avatarUrl ?? "",
             addedAt: new Date().toISOString(),
             autoRunSummary: true,
-            autoRunComments: false,
           };
       updated = [entry, ...current.filter((c) => c.name !== stats.channel)];
     } else {
-      if (existing?.autoRunComments) {
-        // Keep entry but turn off summary only
-        updated = current.map((c) => c.name === stats.channel ? { ...c, autoRunSummary: false } : c);
-      } else {
-        updated = current.filter((c) => c.name !== stats.channel);
-      }
+      updated = current.filter((c) => c.name !== stats.channel);
     }
     await persistAutoRunChannels(updated);
     setAutoRunChannels(updated);
@@ -673,28 +627,6 @@ export function ChannelsSection() {
                 key={ch.id}
                 channel={ch}
                 onUnblock={(id) => void handleUnblock(id)}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Blocked comment analysis channels section */}
-      {!loading && blockedCommentsChannels.length > 0 && (
-        <>
-          <div className="section-header" style={{ marginTop: 8 }}>
-            <h1 className="section-title">Blocked — Comment Analysis</h1>
-            <p className="section-desc">
-              TL;DW will never show a comment analysis panel for videos from these channels.
-              Click Unblock to restore it.
-            </p>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 32 }}>
-            {blockedCommentsChannels.map((ch) => (
-              <BlockedCard
-                key={ch.id}
-                channel={ch}
-                onUnblock={(id) => void handleUnblockComments(id)}
               />
             ))}
           </div>

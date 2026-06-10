@@ -403,65 +403,14 @@ function getVideoMeta(): { durationSeconds: number; channel: string; avatarUrl?:
   return { durationSeconds, channel, avatarUrl };
 }
 
-// --- comment scraping ----------------------------------------------------
-
-/**
- * Scrolls the comments section into view, waits up to 2 s for comment
- * elements to render, and returns up to 20 comments as a formatted string.
- * Returns null if no comments are found within the timeout.
- */
-async function getTopComments(): Promise<string | null> {
-  const commentsEl = document.querySelector<HTMLElement>("ytd-comments#comments");
-  if (!commentsEl) return null;
-
-  // Scroll into view to trigger YouTube's lazy comment load.
-  commentsEl.scrollIntoView({ behavior: "instant", block: "start" });
-
-  // Poll for comment thread renderers up to 5 s.
-  const deadline = Date.now() + 5000;
-  let threads: NodeListOf<Element> | null = null;
-  while (Date.now() < deadline) {
-    threads = document.querySelectorAll("ytd-comment-thread-renderer");
-    if (threads.length > 0) break;
-    await sleep(100);
-  }
-
-  // Scroll back to top so the user isn't disoriented.
-  window.scrollTo({ top: 0, behavior: "instant" });
-
-  if (!threads || threads.length === 0) return null;
-
-  const comments: string[] = [];
-  const limit = Math.min(threads.length, 20);
-  for (let i = 0; i < limit; i++) {
-    const thread = threads[i];
-    const textEl =
-      thread.querySelector<HTMLElement>("#content-text") ??
-      thread.querySelector<HTMLElement>("yt-attributed-string") ??
-      thread.querySelector<HTMLElement>(".ytd-comment-renderer");
-    const text = textEl?.textContent?.trim().replace(/\s+/g, " ");
-    if (!text) continue;
-
-    const likeEl =
-      thread.querySelector<HTMLElement>("#vote-count-middle") ??
-      thread.querySelector<HTMLElement>("span[aria-label]");
-    const likes = likeEl?.textContent?.trim();
-    comments.push(likes ? `${text} [${likes} likes]` : text);
-  }
-
-  return comments.length > 0 ? comments.join("\n") : null;
-}
-
 // --- auto-run / blocked channel helpers (direct storage; no lib imports in content script) --
 
 const AUTO_RUN_CHANNELS_KEY = "autoRunChannels";
 const BLOCKED_CHANNELS_KEY = "tldwBlockedChannels";
-const BLOCKED_COMMENTS_KEY = "tldwBlockedCommentsChannels";
-const TLDW_COMMENTS_PANEL_ID = "tldw-comments-panel";
 
 type AutoRunChannelEntry = {
   id: string; name: string; avatarUrl: string; addedAt: string;
-  autoRunSummary: boolean; autoRunComments: boolean;
+  autoRunSummary: boolean;
 };
 
 type BlockedChannelEntry = { id: string; name: string; avatarUrl: string; addedAt: string };
@@ -511,42 +460,29 @@ async function addBlockedChannelEntry(info: ChannelInfo): Promise<void> {
   await clearCachedSummariesForChannel(info.name);
 }
 
-async function addBlockedCommentsChannelEntry(info: ChannelInfo): Promise<void> {
-  const r = await chrome.storage.local.get(BLOCKED_COMMENTS_KEY);
-  const existing = (r[BLOCKED_COMMENTS_KEY] as BlockedChannelEntry[]) ?? [];
-  const filtered = existing.filter((c) => c.id !== info.id && c.name !== info.name);
-  const entry: BlockedChannelEntry = { ...info, addedAt: new Date().toISOString() };
-  await chrome.storage.local.set({ [BLOCKED_COMMENTS_KEY]: [entry, ...filtered] });
-}
-
 async function readAutoRunChannels(): Promise<AutoRunChannelEntry[]> {
   const r = await chrome.storage.local.get(AUTO_RUN_CHANNELS_KEY);
   const raw = (r[AUTO_RUN_CHANNELS_KEY] as Partial<AutoRunChannelEntry>[]) ?? [];
-  return raw.map((c) => ({ autoRunSummary: true, autoRunComments: false, ...c } as AutoRunChannelEntry));
+  return raw.map((c) => ({ autoRunSummary: true, ...c } as AutoRunChannelEntry));
 }
 
-async function writeAutoRunChannel(info: ChannelInfo, field: "summary" | "comments", enable: boolean): Promise<void> {
+async function writeAutoRunChannel(info: ChannelInfo, enable: boolean): Promise<void> {
   const channels = await readAutoRunChannels();
   const existing = channels.find((c) => c.id === info.id || c.name === info.name);
   let updated: AutoRunChannelEntry[];
   if (existing) {
-    const patched: AutoRunChannelEntry = {
-      ...existing,
-      avatarUrl: info.avatarUrl, // refresh avatar on each visit
-      autoRunSummary: field === "summary" ? enable : existing.autoRunSummary,
-      autoRunComments: field === "comments" ? enable : existing.autoRunComments,
-    };
-    if (!patched.autoRunSummary && !patched.autoRunComments) {
+    if (!enable) {
       updated = channels.filter((c) => c.id !== existing.id);
     } else {
-      updated = channels.map((c) => (c.id === existing.id ? patched : c));
+      updated = channels.map((c) =>
+        c.id === existing.id ? { ...existing, avatarUrl: info.avatarUrl, autoRunSummary: true } : c,
+      );
     }
   } else if (enable) {
     updated = [{
       id: info.id, name: info.name, avatarUrl: info.avatarUrl,
       addedAt: new Date().toISOString(),
-      autoRunSummary: field === "summary",
-      autoRunComments: field === "comments",
+      autoRunSummary: true,
     }, ...channels];
   } else {
     updated = channels;
@@ -609,7 +545,6 @@ let currentAutoRunSummary = false;
 // Whether headless Direct API (free Gemini, no tab) is configured. Drives the
 // "Get instant results" CTA shown when it's NOT set up.
 let currentDirectApiEnabled = false;
-let currentAutoRunComments = false;
 
 // --- TL;DW summary panel -------------------------------------------------
 
@@ -648,33 +583,6 @@ function removeSummaryPanel(): void {
   summaryPanel?.remove();
   summaryPanel = null;
   summaryPanelKind = null;
-}
-
-// --- TL;DW comments panel (injected into ytd-comments-header-renderer) ----
-
-let commentsObserver: MutationObserver | null = null;
-/** Pending sentiment to apply as soon as the comments section appears in the DOM. */
-let pendingCommentSentiment: { sentiment: string; audienceScore?: number } | null = null;
-
-/**
- * Returns a stable injection target for the comments card — the PARENT of
- * ytd-comments#comments, not inside it. YouTube re-renders the inside of
- * ytd-comments as threads lazy-load, which would wipe any panel injected there.
- * Inserting before ytd-comments itself sits in a stable container.
- */
-function commentsCardTarget(): { container: Element; referenceNode: Element } | null {
-  const comments = document.querySelector("ytd-comments#comments");
-  if (!comments?.parentElement) return null;
-  return { container: comments.parentElement, referenceNode: comments };
-}
-
-/** Still used by watchForCommentsSection to detect when comments section appears. */
-function commentsHeaderHost(): Element | null {
-  return document.querySelector("ytd-comments-header-renderer");
-}
-
-function removeCommentsPanel(): void {
-  document.getElementById(TLDW_COMMENTS_PANEL_ID)?.remove();
 }
 
 function theme(): { bg: string; border: string; text: string; sub: string; hover: string } {
@@ -753,20 +661,19 @@ function panelHost(): Element | null {
 // --- auto-run pill toggle (shared by all panel states) -----------------------
 
 /**
- * A small pill button in the panel header that shows/toggles auto-run state
- * for either summary or comments. Color reflects current state.
+ * A small pill button in the panel header that shows/toggles per-channel
+ * auto-summarize state. ON shows a red STOP outline so the state is clear.
  */
 function buildAutoToggle(
   info: ChannelInfo,
-  field: "summary" | "comments",
   initialOn: boolean,
   t: ReturnType<typeof theme>,
 ): HTMLButtonElement {
   // OFF state reads as the offer ("turn it on"); ON state reads as a clear,
   // unmistakable red STOP so it never looks like "nothing changed".
-  const offLabel = field === "summary" ? "↻ Auto-summarize" : "💬 Auto analyze";
-  const onLabel = field === "summary" ? "■ Stop auto-summarize" : "■ Stop auto analyze";
-  const enableColor = field === "summary" ? "#1a73e8" : "#0d9488"; // feature color, used as OFF-hover preview
+  const offLabel = "↻ Auto-summarize";
+  const onLabel = "■ Stop auto-summarize";
+  const enableColor = "#1a73e8"; // feature color, used as OFF-hover preview
   const STOP_COLOR = "#dc2626";
 
   const btn = document.createElement("button");
@@ -788,8 +695,8 @@ function buildAutoToggle(
     btn.style.borderColor = on ? STOP_COLOR : "transparent";
     btn.style.color = on ? STOP_COLOR : t.sub;
     btn.title = on
-      ? `Auto-run ${field} is ON for ${info.name} — click to stop`
-      : `Turn on auto-run ${field} for ${info.name}`;
+      ? `Auto-summarize is ON for ${info.name} — click to stop`
+      : `Turn on auto-summarize for ${info.name}`;
   };
 
   applyState(initialOn);
@@ -807,23 +714,20 @@ function buildAutoToggle(
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
     if (busy) return;
-    const current = field === "summary" ? currentAutoRunSummary : currentAutoRunComments;
-    const enabling = !current;
+    const enabling = !currentAutoRunSummary;
     if (enabling) {
       busy = true;
-      showAutoRunConfirmOverlay(info, field, () => {
-        if (field === "summary") currentAutoRunSummary = true;
-        else currentAutoRunComments = true;
+      showAutoRunConfirmOverlay(info, () => {
+        currentAutoRunSummary = true;
         applyState(true);
-        void writeAutoRunChannel(info, field, true).finally(() => { busy = false; });
+        void writeAutoRunChannel(info, true).finally(() => { busy = false; });
       }, () => { busy = false; });
       return;
     }
     busy = true;
-    if (field === "summary") currentAutoRunSummary = false;
-    else currentAutoRunComments = false;
+    currentAutoRunSummary = false;
     applyState(false);
-    void writeAutoRunChannel(info, field, false).finally(() => { busy = false; });
+    void writeAutoRunChannel(info, false).finally(() => { busy = false; });
   });
 
   return btn;
@@ -873,7 +777,7 @@ function buildPanelHead(
 
   const autoToggles: HTMLElement[] = [];
   if (channelInfo && showAutoRunToggle) {
-    autoToggles.push(buildAutoToggle(channelInfo, "summary", currentAutoRunSummary, t));
+    autoToggles.push(buildAutoToggle(channelInfo, currentAutoRunSummary, t));
   }
 
   const blockBtn = (showBlockBtn && channelInfo) ? buildBlockButton(t, channelInfo) : null;
@@ -1029,7 +933,7 @@ function buildBlockButton(t: ReturnType<typeof theme>, info: ChannelInfo): HTMLB
   btn.addEventListener("mouseleave", () => { btn.style.background = t.border; btn.style.color = t.sub; });
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
-    showSkipOverlay(info.name, info, "summary", () => { /* panel stays open */ });
+    showSkipOverlay(info.name, info, () => { /* panel stays open */ });
   });
   return btn;
 }
@@ -1162,20 +1066,17 @@ function showSummaryErrorPanel(): void {
 
 type ChannelComparison = {
   avgAiRating: number | null;
-  avgAudienceScore: number | null;
   count: number;
   avgUserRating: number | null;
   userBreakdown?: { engaged: number; skimmed: number; skipped: number };
 };
 
-/** The five rating-dimension toggles read from settings when building the panel. */
+/** The rating-dimension toggles read from settings when building the panel. */
 type RatingToggles = {
   showAiRecommendation: boolean;
   trackAiAverage: boolean;
   askForMyRating: boolean;
   trackMyAverage: boolean;
-  includeCommentSentiment: boolean;
-  trackCommunityAverage: boolean;
 };
 
 const DEFAULT_RATING_TOGGLES: RatingToggles = {
@@ -1183,8 +1084,6 @@ const DEFAULT_RATING_TOGGLES: RatingToggles = {
   trackAiAverage: true,
   askForMyRating: true,
   trackMyAverage: true,
-  includeCommentSentiment: false,
-  trackCommunityAverage: true,
 };
 
 /**
@@ -1201,7 +1100,6 @@ async function computeChannelComparison(
   type HistEntry = {
     channel?: string;
     aiRating?: number;
-    audienceScore?: number;
     userRating?: "watch" | "skim" | "skip";
   };
   const history = (r["history"] as HistEntry[]) ?? [];
@@ -1209,7 +1107,6 @@ async function computeChannelComparison(
   if (videos.length < 1) return undefined;
 
   const ai = videos.map((v) => v.aiRating).filter((n): n is number => n !== undefined);
-  const aud = videos.map((v) => v.audienceScore).filter((n): n is number => n !== undefined);
   const usr = videos
     .map((v) => v.userRating)
     .filter((v): v is "watch" | "skim" | "skip" => v !== undefined);
@@ -1222,7 +1119,6 @@ async function computeChannelComparison(
   return {
     count: videos.length,
     avgAiRating: ai.length ? ai.reduce((a, b) => a + b, 0) / ai.length : null,
-    avgAudienceScore: aud.length ? aud.reduce((a, b) => a + b, 0) / aud.length : null,
     avgUserRating: usr.length ? usr.reduce((a, b) => a + USER_RATING_SCALE[b], 0) / usr.length : null,
     userBreakdown,
   };
@@ -1237,8 +1133,6 @@ async function loadRatingToggles(): Promise<RatingToggles> {
     trackAiAverage: s.trackAiAverage ?? true,
     askForMyRating: s.askForMyRating ?? true,
     trackMyAverage: s.trackMyAverage ?? true,
-    includeCommentSentiment: s.includeCommentSentiment ?? false,
-    trackCommunityAverage: s.trackCommunityAverage ?? true,
   };
 }
 
@@ -1248,7 +1142,6 @@ function buildSummaryPanel(
   initialUserRating?: "watch" | "skim" | "skip",
   videoId?: string | null,
   toggles: RatingToggles = DEFAULT_RATING_TOGGLES,
-  audienceScore?: number,
 ): HTMLElement {
   const t = theme();
   const panel = document.createElement("div");
@@ -1442,9 +1335,6 @@ function buildSummaryPanel(
     if (toggles.showAiRecommendation && toggles.trackAiAverage && channelStats.avgAiRating !== null) {
       dimEls.push(renderCue("AI", channelStats.avgAiRating, aiThisVideo, scoreToVerdict));
     }
-    if (toggles.includeCommentSentiment && toggles.trackCommunityAverage && channelStats.avgAudienceScore !== null) {
-      dimEls.push(renderCue("Community", channelStats.avgAudienceScore, audienceScore ?? null, scoreToVerdict));
-    }
   }
 
   // My-dimension cue holder — populated/updated below and on each rating click.
@@ -1473,7 +1363,7 @@ function buildSummaryPanel(
 
   // Voting is its own injection now (the standalone rating bar below the panel),
   // not embedded here — so the summary panel carries only the read-only
-  // AI / Community / You comparison cues, never the rating buttons.
+  // AI / You comparison cues, never the rating buttons.
 
   panel.append(
     head, body,
@@ -1771,7 +1661,6 @@ function showSummaryPanel(
   channelStats?: ChannelComparison,
   userRating?: "watch" | "skim" | "skip",
   videoId?: string | null,
-  audienceScore?: number,
 ): void {
   const host = panelHost();
   if (!host) return;
@@ -1782,7 +1671,7 @@ function showSummaryPanel(
     const h = panelHost();
     if (!h) return;
     removeSummaryPanel();
-    const panel = buildSummaryPanel(tldw, channelStats, userRating, vid, toggles, audienceScore);
+    const panel = buildSummaryPanel(tldw, channelStats, userRating, vid, toggles);
     summaryPanel = panel;
     summaryPanelKind = "summary";
     h.prepend(summaryPanel);
@@ -1799,7 +1688,6 @@ function showSummaryPanel(
 function showSkipOverlay(
   channelName: string,
   info: ChannelInfo | null,
-  mode: "summary" | "comments",
   onCancel: () => void,
 ): void {
   document.getElementById("tldw-skip-overlay")?.remove();
@@ -1857,7 +1745,7 @@ function showSkipOverlay(
   cacheNote.textContent = " Cached summaries will also be deleted.";
   nameLine.append(
     chNameEl,
-    document.createTextNode(" — Choose what to skip for this channel."),
+    document.createTextNode(" — Skip AI summaries for this channel?"),
     cacheNote,
   );
 
@@ -1872,23 +1760,6 @@ function showSkipOverlay(
 
   textBlock.append(nameLine, reopenNote);
   desc.append(textBlock);
-
-  // Checkboxes: one for each panel type
-  const mkCheckRow = (labelText: string, checked: boolean) => {
-    const wrap = document.createElement("label");
-    Object.assign(wrap.style, { display: "flex", alignItems: "center", gap: "10px", cursor: "pointer", fontSize: "15px", color: t.text });
-    const cb = document.createElement("input");
-    cb.type = "checkbox"; cb.checked = checked;
-    Object.assign(cb.style, { width: "18px", height: "18px", cursor: "pointer", accentColor: "#dc2626", flexShrink: "0" });
-    const lbl = document.createElement("span"); lbl.textContent = labelText;
-    wrap.append(cb, lbl);
-    return { wrap, cb };
-  };
-  const { wrap: summaryWrap, cb: summaryCb } = mkCheckRow("Skip AI summaries for this channel", mode === "summary");
-  const { wrap: commentsWrap, cb: commentsCb } = mkCheckRow("Skip comment analysis for this channel", mode === "comments");
-  const checks = document.createElement("div");
-  Object.assign(checks.style, { display: "flex", flexDirection: "column", gap: "10px" });
-  checks.append(summaryWrap, commentsWrap);
 
   // Buttons: Cancel on left, Confirm on right
   const row = document.createElement("div");
@@ -1910,32 +1781,16 @@ function showSkipOverlay(
     border: "none", background: "#dc2626",
     color: "#fff", cursor: "pointer", fontSize: "15px", fontWeight: "600",
   });
-  const syncOverlay = () => {
-    const any = summaryCb.checked || commentsCb.checked;
-    confirmBtn.disabled = !any;
-    confirmBtn.style.opacity = any ? "1" : "0.45";
-    confirmBtn.style.cursor = any ? "pointer" : "default";
-    cacheNote.style.display = summaryCb.checked ? "" : "none";
-  };
-  summaryCb.addEventListener("change", syncOverlay);
-  commentsCb.addEventListener("change", syncOverlay);
-  syncOverlay();
 
   confirmBtn.addEventListener("click", () => {
     overlay.remove();
     const finalInfo = info ?? getChannelInfo();
-    if (summaryCb.checked) {
-      if (finalInfo) void addBlockedChannelEntry(finalInfo).then(() => { removeSummaryPanel(); });
-      else removeSummaryPanel();
-    }
-    if (commentsCb.checked) {
-      if (finalInfo) void addBlockedCommentsChannelEntry(finalInfo).then(() => { removeCommentsPanel(); });
-      else removeCommentsPanel();
-    }
+    if (finalInfo) void addBlockedChannelEntry(finalInfo).then(() => { removeSummaryPanel(); });
+    else removeSummaryPanel();
   });
 
   row.append(cancelBtn, confirmBtn);
-  modal.append(hd, desc, checks, row);
+  modal.append(hd, desc, row);
   overlay.append(modal);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) { overlay.remove(); onCancel(); } });
   document.addEventListener("keydown", function esc(e) {
@@ -1947,7 +1802,6 @@ function showSkipOverlay(
 /** Confirmation overlay shown before enabling auto-run for a channel. */
 function showAutoRunConfirmOverlay(
   info: ChannelInfo,
-  field: "summary" | "comments",
   onConfirm: () => void,
   onCancel: () => void,
 ): void {
@@ -1995,7 +1849,6 @@ function showAutoRunConfirmOverlay(
   const textBlock = document.createElement("div");
   Object.assign(textBlock.style, { fontSize: "13px", color: t.sub, lineHeight: "1.65" });
 
-  const what = field === "summary" ? "AI summary" : "comment analysis";
   const nameLine = document.createElement("div");
   Object.assign(nameLine.style, { marginBottom: "8px" });
   const chNameEl = document.createElement("strong");
@@ -2003,7 +1856,7 @@ function showAutoRunConfirmOverlay(
   Object.assign(chNameEl.style, { fontSize: "15px", color: t.text });
   nameLine.append(
     chNameEl,
-    document.createTextNode(` — Every new video from this channel will automatically get an ${what}.`),
+    document.createTextNode(" — Every new video from this channel will automatically get an AI summary."),
   );
 
   const apiNote = document.createElement("div");
@@ -2107,7 +1960,7 @@ function showIdlePanel(onGetSummary: () => void): void {
     e.stopPropagation();
     const info = capturedChannelInfo ?? getChannelInfo();
     const channelName = info?.name ?? "this channel";
-    showSkipOverlay(channelName, info, "summary", () => { /* panel stays open */ });
+    showSkipOverlay(channelName, info, () => { /* panel stays open */ });
   });
 
   // Build the header with the TL;DW action + Skip channel as inline controls.
@@ -2127,258 +1980,6 @@ function showIdlePanel(onGetSummary: () => void): void {
   placeRatingBar();
 }
 
-// --- comments panel (injected into ytd-comments-header-renderer) ----------
-
-function showCommentsSentimentResult(sentiment: string, audienceScore?: number): void {
-  const target = commentsCardTarget();
-  removeCommentsPanel();
-  if (!target) return;
-
-  const t = theme();
-  const panel = document.createElement("div");
-  panel.id = TLDW_COMMENTS_PANEL_ID;
-  Object.assign(panel.style, {
-    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
-    padding: "10px 14px", marginBottom: "12px",
-    font: "14px/1.4 Roboto, system-ui, sans-serif", color: t.text,
-  });
-
-  // Header row: icon + title + score + close
-  const head = document.createElement("div");
-  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px", marginBottom: "8px" });
-
-  const icon = document.createElement("img");
-  icon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
-  Object.assign(icon.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
-
-  const title = document.createElement("span");
-  title.textContent = "Comment Analysis";
-  Object.assign(title.style, { fontWeight: "700", fontSize: "15px", color: t.text, flexShrink: "0" });
-
-  const spacer = document.createElement("div"); spacer.style.flex = "1";
-
-  const closeBtn = document.createElement("button");
-  Object.assign(closeBtn.style, {
-    background: "transparent", border: "none", color: t.sub, cursor: "pointer",
-    fontSize: "14px", lineHeight: "1", padding: "4px 6px", borderRadius: "6px", flexShrink: "0",
-  });
-  closeBtn.textContent = "✕";
-  closeBtn.addEventListener("mouseenter", () => (closeBtn.style.background = t.hover));
-  closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
-  closeBtn.addEventListener("click", removeCommentsPanel);
-
-  const autoToggle = currentChannelInfo
-    ? buildAutoToggle(currentChannelInfo, "comments", currentAutoRunComments, t)
-    : null;
-
-  const skipCommentsBtn = currentChannelInfo ? (() => {
-    const info = currentChannelInfo;
-    const btn = document.createElement("button");
-    btn.textContent = "⊘ Skip channel";
-    Object.assign(btn.style, {
-      fontSize: "13px", fontWeight: "700", padding: "0 12px", borderRadius: "999px",
-      border: "none", cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
-      background: t.border, color: t.sub, transition: "background 0.15s, color 0.15s",
-      ...pillGeom,
-    });
-    btn.addEventListener("mouseenter", () => { btn.style.background = "#dc2626"; btn.style.color = "#fff"; });
-    btn.addEventListener("mouseleave", () => { btn.style.background = t.border; btn.style.color = t.sub; });
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      showSkipOverlay(info.name, info, "comments", () => { /* stay */ });
-    });
-    return btn;
-  })() : null;
-
-  closeBtn.style.marginLeft = "12px";
-  const rightItems = [...(autoToggle ? [autoToggle] : []), ...(skipCommentsBtn ? [skipCommentsBtn] : [])];
-  if (audienceScore !== undefined) {
-    const verdict = scoreToVerdict(audienceScore);
-    const scorePill = document.createElement("span");
-    scorePill.textContent = verdict;
-    Object.assign(scorePill.style, {
-      fontSize: "11px", fontWeight: "700", padding: "0 9px",
-      borderRadius: "999px", background: verdictColor(verdict), color: "#fff", whiteSpace: "nowrap",
-      ...pillGeom,
-    });
-    head.append(icon, title, scorePill, spacer, ...rightItems, closeBtn);
-  } else {
-    head.append(icon, title, spacer, ...rightItems, closeBtn);
-  }
-
-  const text = document.createElement("div");
-  text.textContent = sentiment;
-  Object.assign(text.style, { fontSize: "13px", color: t.text, lineHeight: "1.5" });
-
-  panel.append(head, text);
-  target.container.insertBefore(panel, target.referenceNode);
-  pendingCommentSentiment = null;
-  log("comment sentiment shown in comments panel");
-}
-
-/** Fill the comments panel with sentiment. Falls back to storing pending if comments section not yet in DOM. */
-function fillCommunitySection(sentiment: string, audienceScore?: number): void {
-  if (commentsHeaderHost()) {
-    showCommentsSentimentResult(sentiment, audienceScore);
-  } else {
-    pendingCommentSentiment = { sentiment, audienceScore };
-    log("comment sentiment stored as pending — comments section not yet in DOM");
-  }
-}
-
-function showCommentsIdlePanel(onGetComments: () => void): void {
-  const target = commentsCardTarget();
-  if (!target) return;
-  removeCommentsPanel();
-
-  const t = theme();
-  const capturedChannelInfo = currentChannelInfo;
-
-  const panel = document.createElement("div");
-  panel.id = TLDW_COMMENTS_PANEL_ID;
-  Object.assign(panel.style, {
-    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
-    padding: "10px 14px", marginBottom: "12px",
-    font: "14px/1.4 Roboto, system-ui, sans-serif",
-  });
-
-  const getBtn = document.createElement("button");
-  getBtn.textContent = "Get Comment Analysis";
-  Object.assign(getBtn.style, {
-    fontSize: "13px", fontWeight: "600", padding: "0 16px", borderRadius: "999px",
-    background: "#0d9488", color: "#fff", border: "none", cursor: "pointer",
-    whiteSpace: "nowrap", flexShrink: "0",
-    ...pillGeom,
-  });
-  getBtn.title = "Analyze viewer comments for this video";
-  getBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    getBtn.textContent = "Analyzing…";
-    getBtn.disabled = true;
-    onGetComments();
-  });
-
-  const skipCommentsBtn = document.createElement("button");
-  skipCommentsBtn.textContent = "Skip channel";
-  Object.assign(skipCommentsBtn.style, {
-    fontSize: "12px", fontWeight: "600", padding: "0 14px", borderRadius: "999px",
-    background: "transparent", color: t.sub, border: `1px solid ${t.border}`,
-    cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
-    ...pillGeom,
-  });
-  skipCommentsBtn.title = "Skip TL;DW comment analysis for this channel";
-  skipCommentsBtn.addEventListener("mouseenter", () => { skipCommentsBtn.style.borderColor = "#dc2626"; skipCommentsBtn.style.color = "#dc2626"; });
-  skipCommentsBtn.addEventListener("mouseleave", () => { skipCommentsBtn.style.borderColor = t.border; skipCommentsBtn.style.color = t.sub; });
-  skipCommentsBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const info = capturedChannelInfo ?? getChannelInfo();
-    const channelName = info?.name ?? "this channel";
-    showSkipOverlay(channelName, info, "comments", () => { /* panel stays open */ });
-  });
-
-  // Header row: icon + title + action buttons + close
-  const head = document.createElement("div");
-  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px" });
-
-  const icon = document.createElement("img");
-  icon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
-  Object.assign(icon.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
-
-  const titleEl = document.createElement("span");
-  titleEl.textContent = "TL;DW";
-  Object.assign(titleEl.style, { fontWeight: "700", fontSize: "15px", color: t.text, flexShrink: "0" });
-
-  const spacer = document.createElement("div"); spacer.style.flex = "1";
-
-  const closeBtn = document.createElement("button");
-  Object.assign(closeBtn.style, {
-    background: "transparent", border: "none", color: t.sub, cursor: "pointer",
-    fontSize: "14px", lineHeight: "1", padding: "4px 6px", borderRadius: "6px", flexShrink: "0",
-  });
-  closeBtn.textContent = "✕";
-  closeBtn.addEventListener("mouseenter", () => (closeBtn.style.background = t.hover));
-  closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
-  closeBtn.addEventListener("click", removeCommentsPanel);
-
-  closeBtn.style.marginLeft = "12px";
-  head.append(icon, titleEl, getBtn, skipCommentsBtn, spacer, closeBtn);
-  panel.append(head);
-
-  target.container.insertBefore(panel, target.referenceNode);
-  log("comments idle panel shown");
-}
-
-async function maybeStartCommentsInjection(): Promise<void> {
-  const r = await chrome.storage.local.get(["settings", AUTO_RUN_CHANNELS_KEY, BLOCKED_COMMENTS_KEY]);
-  const s = r["settings"] as Record<string, unknown> | undefined;
-  if (!(s?.useDirectApi as boolean) || !(s?.geminiApiKey as string)) return;
-
-  // If we have a pending cached sentiment, show it immediately.
-  if (pendingCommentSentiment) {
-    showCommentsSentimentResult(pendingCommentSentiment.sentiment, pendingCommentSentiment.audienceScore);
-    return;
-  }
-
-  // Check if comments are blocked for this channel.
-  if (currentChannelInfo) {
-    const blocked = (r[BLOCKED_COMMENTS_KEY] as BlockedChannelEntry[]) ?? [];
-    if (blocked.some((c) => c.id === currentChannelInfo!.id || c.name === currentChannelInfo!.name)) {
-      log("comment analysis blocked for channel:", currentChannelInfo.name);
-      return;
-    }
-  }
-
-  const autoRunChannels = (r[AUTO_RUN_CHANNELS_KEY] as AutoRunChannelEntry[]) ?? [];
-  const channelEntry = currentChannelInfo
-    ? autoRunChannels.find((c) => c.id === currentChannelInfo!.id || c.name === currentChannelInfo!.name)
-    : undefined;
-  const shouldAutoRun = channelEntry?.autoRunComments ?? false;
-  currentAutoRunComments = shouldAutoRun;
-
-  const fireComments = () => {
-    try { void chrome.runtime.sendMessage({ type: "ASK_COMMENTS" }); } catch { /* best effort */ }
-  };
-
-  if (shouldAutoRun) {
-    // Show a loading shimmer card and kick off the call.
-    const target = commentsCardTarget();
-    if (target) {
-      removeCommentsPanel();
-      const t = theme();
-      ensureShimmerStyle();
-      const panel = document.createElement("div");
-      panel.id = TLDW_COMMENTS_PANEL_ID;
-      Object.assign(panel.style, {
-        background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
-        padding: "10px 14px", marginBottom: "12px",
-        font: "13px/1.4 Roboto, system-ui, sans-serif",
-        fontSize: "13px", color: t.sub,
-        animation: "tldw-shimmer 1.4s infinite",
-      });
-      panel.textContent = "💬 Analyzing comments…";
-      target.container.insertBefore(panel, target.referenceNode);
-    }
-    fireComments();
-  } else {
-    showCommentsIdlePanel(fireComments);
-  }
-}
-
-function watchForCommentsSection(): void {
-  if (commentsObserver) { commentsObserver.disconnect(); commentsObserver = null; }
-  if (commentsHeaderHost()) {
-    void maybeStartCommentsInjection();
-    return;
-  }
-  commentsObserver = new MutationObserver(() => {
-    if (commentsHeaderHost()) {
-      commentsObserver?.disconnect();
-      commentsObserver = null;
-      void maybeStartCommentsInjection();
-    }
-  });
-  commentsObserver.observe(document.body, { childList: true, subtree: true });
-}
 
 // --- auto TL;DW ----------------------------------------------------------
 
@@ -2439,22 +2040,13 @@ async function maybeStartDirectApiRun(): Promise<void> {
 
   currentAutoRunSummary = channelEntry?.autoRunSummary ?? false;
 
-  type CacheEntry = { tldw: TldwSummary; cachedAt: string; commentSentiment?: string; audienceScore?: number; userRating?: "watch" | "skim" | "skip"; channelName?: string };
+  type CacheEntry = { tldw: TldwSummary; cachedAt: string; userRating?: "watch" | "skim" | "skip"; channelName?: string };
 
-  // Serve a cached result if fresh, then optionally load pending comment sentiment.
+  // Serve a cached result if fresh.
   const serveCached = (entry: CacheEntry) => {
     void computeChannelComparison(currentChannelInfo?.name).then((channelStats) => {
-      showSummaryPanel(
-        { ...entry.tldw, source: "cached" },
-        channelStats,
-        entry.userRating,
-        vid,
-        entry.audienceScore,
-      );
+      showSummaryPanel({ ...entry.tldw, source: "cached" }, channelStats, entry.userRating, vid);
     });
-    if (entry.commentSentiment) {
-      pendingCommentSentiment = { sentiment: entry.commentSentiment, audienceScore: entry.audienceScore };
-    }
     log("served from cache");
   };
 
@@ -2540,20 +2132,14 @@ function onNavigate(): void {
   lastHandledUrl = url;
   removeSummaryPanel();
   removeStandaloneRatingBar();
-  removeCommentsPanel();
-  if (commentsObserver) { commentsObserver.disconnect(); commentsObserver = null; }
-  pendingCommentSentiment = null;
   activeTranscriptFetch = null;
   currentChannelInfo = null;
   currentAutoRunSummary = false;
-  currentAutoRunComments = false;
   // After the Direct-API flow settles (cached summary / idle panel / Basic-mode
   // early-return), inject the standalone rating bar. It is gated on the
   // askForMyRating setting and no-ops when a rating-owning summary panel is up,
   // so this single call covers Basic mode, idle, and post-summary states.
-  void maybeStartDirectApiRun()
-    .then(() => { watchForCommentsSection(); })
-    .finally(() => { void maybeShowStandaloneRatingBar(); });
+  void maybeStartDirectApiRun().finally(() => { void maybeShowStandaloneRatingBar(); });
   setTimeout(() => { void autoRunIfLong(); }, 2500);
 }
 
@@ -2573,11 +2159,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     void getTranscript().then((transcript) => sendResponse({ transcript }));
     return true;
   }
-  if (type === "GET_COMMENTS") {
-    log("comments requested");
-    void getTopComments().then((comments) => sendResponse({ comments }));
-    return true;
-  }
   if (type === "PAUSE_VIDEO") {
     const video = document.querySelector<HTMLVideoElement>(
       "video.html5-main-video, video",
@@ -2593,18 +2174,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (type === "GET_CHANNEL_STATUS") {
     const info = currentChannelInfo ?? getChannelInfo();
     if (!info) {
-      sendResponse({ isBlocked: false, isCommentsBlocked: false, channelName: null });
+      sendResponse({ isBlocked: false, channelName: null });
       return false;
     }
-    void Promise.all([
-      chrome.storage.local.get(BLOCKED_CHANNELS_KEY),
-      chrome.storage.local.get(BLOCKED_COMMENTS_KEY),
-    ]).then(([r1, r2]) => {
+    void chrome.storage.local.get(BLOCKED_CHANNELS_KEY).then((r1) => {
       const blocked = (r1[BLOCKED_CHANNELS_KEY] as BlockedChannelEntry[]) ?? [];
-      const blockedComments = (r2[BLOCKED_COMMENTS_KEY] as BlockedChannelEntry[]) ?? [];
       sendResponse({
         isBlocked: blocked.some((c) => c.id === info.id || c.name === info.name),
-        isCommentsBlocked: blockedComments.some((c) => c.id === info.id || c.name === info.name),
         channelName: info.name,
       });
     });
@@ -2628,17 +2204,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       } else {
         showSummaryPanel({ ...tldw, source: msg.source }, msg.channelStats, undefined, vid);
       }
-    }
-    sendResponse({ ok: true });
-    return false;
-  }
-  if (type === "SET_COMMENT_SENTIMENT") {
-    const msg = message as { sentiment?: string; audienceScore?: number };
-    if (msg.sentiment) {
-      fillCommunitySection(msg.sentiment, msg.audienceScore);
-    } else {
-      // No sentiment (comments unavailable or error) — just remove loading shimmer.
-      removeCommentsPanel();
     }
     sendResponse({ ok: true });
     return false;

@@ -328,15 +328,10 @@ export function App() {
         </div>
       )}
 
-      {onVideo && channelStatus && (channelStatus.isBlocked || channelStatus.isCommentsBlocked) && (
+      {onVideo && channelStatus && channelStatus.isBlocked && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "var(--border)", borderRadius: 8, fontSize: 12, color: "var(--text-muted)" }}>
           <span style={{ flex: 1 }}>
-            {channelStatus.channelName ?? "This channel"} is on your skip list
-            {channelStatus.isBlocked && channelStatus.isCommentsBlocked
-              ? " (summaries + comments)"
-              : channelStatus.isBlocked
-              ? " (summaries)"
-              : " (comments)"}
+            {channelStatus.channelName ?? "This channel"} is on your skip list (summaries)
           </span>
           <button
             onClick={openOptions}
