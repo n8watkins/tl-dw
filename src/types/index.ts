@@ -34,8 +34,14 @@ export type SearchHistoryEntry = {
    * The user's personal verdict on this video. Internal enum is kept as
    * watch/skim/skip (displayed as Engaged/Skimmed/Skipped); numeric map for
    * channel averages is watch=3, skim=2, skip=1 (see USER_RATING_SCALE).
+   * Now set automatically by the watch-time engine (watchtime.ts) rather than
+   * by manual button clicks.
    */
   userRating?: "watch" | "skim" | "skip";
+  /** Accumulated content-seconds watched for this video (from the watch-time engine). */
+  watchedSeconds?: number;
+  /** Latest known video duration in seconds (written by the watch-time engine). */
+  durationSeconds?: number;
   createdAt: string;
 };
 
@@ -214,9 +220,21 @@ export type Settings = {
   showAiRecommendation: boolean;
   /** AI dimension — track-average: show the per-channel AI rating average + cue. Requires showAiRecommendation. */
   trackAiAverage: boolean;
-  /** My dimension — collect/show: render the personal rating buttons (Engaged/Skimmed/Skipped). */
-  askForMyRating: boolean;
-  /** My dimension — track-average: show the per-channel My rating average + cue. Requires askForMyRating. */
+  /**
+   * Engagement tracking — master switch. When true, watch-time is measured and
+   * videos are auto-rated Engaged/Skimmed/Skipped based on actual playback.
+   */
+  trackEngagement: boolean;
+  /** Engagement tracking — show the live on-page watch-progress cue in the summary panel. */
+  showEngagementStatus: boolean;
+  /** Percentage of video watched to count as Engaged (default 60). */
+  engagedPct: number;
+  /** Percentage floor for Skimmed; below this threshold counts as Skipped (default 15). */
+  skimmedPct: number;
+  /**
+   * My dimension — track-average: show the per-channel engagement average + cue.
+   * Computed from auto-tracked ratings (no manual buttons).
+   */
   trackMyAverage: boolean;
   /** Auto-skip in-video sponsored segments using the free SponsorBlock community data. */
   skipSponsors: boolean;
@@ -329,20 +347,20 @@ export type OpenOrFocusDestinationMessage = { type: "OPEN_OR_FOCUS_DESTINATION" 
 export type GetChannelStatusMessage = { type: "GET_CHANNEL_STATUS" };
 
 /**
- * Sent from the content panel when the user picks a personal verdict. The
- * background patches the matching history entry, or — if none exists (the
- * summary was never saved, or its entry expired) — creates a lightweight
- * rating-only history entry so the channel still surfaces in the Channels view.
+ * Sent from watchtime.ts (the watch-time engine content script) to report
+ * accumulated playback progress. The background uses this to auto-rate videos
+ * as Engaged/Skimmed/Skipped based on actual watch time, replacing the old
+ * manual rating buttons.
  */
-export type RateVideoMessage = {
-  type: "RATE_VIDEO";
+export type WatchProgressMessage = {
+  type: "WATCH_PROGRESS";
   videoId: string;
-  /**
-   * The chosen verdict, or `null` to CLEAR a previously-set rating (toggle off).
-   * When clearing, the background removes `userRating` from the matching history
-   * entry and does NOT create a rating-only entry.
-   */
-  rating: "watch" | "skim" | "skip" | null;
+  /** Seconds of content watched since the last successful report. */
+  deltaSeconds: number;
+  /** Latest known video duration in seconds. */
+  durationSeconds: number;
+  /** True if a TL;DW summary panel was shown for this video (affects skip verdict). */
+  sawSummary: boolean;
   video: { url: string; title?: string; channel?: string; avatarUrl?: string };
 };
 
@@ -397,5 +415,5 @@ export type RuntimeMessage =
   | OpenOptionsMessage
   | OpenOrFocusDestinationMessage
   | GetChannelStatusMessage
-  | RateVideoMessage
+  | WatchProgressMessage
   | GetSponsorSegmentsMessage;

@@ -272,7 +272,7 @@ function VideoRow({ entry, trackMyAverage }: { entry: SearchHistoryEntry; trackM
         </span>
       )}
 
-      {/* My rating pill */}
+      {/* Auto-tracked engagement pill */}
       {hasUserRating && (
         <span
           style={{
@@ -285,8 +285,9 @@ function VideoRow({ entry, trackMyAverage }: { entry: SearchHistoryEntry; trackM
             background: "var(--border)",
             color: "var(--text)",
           }}
+          title="Auto-tracked engagement"
         >
-          You: {USER_RATING_LABELS[entry.userRating!]}
+          Auto: {USER_RATING_LABELS[entry.userRating!]}
         </span>
       )}
 
@@ -402,7 +403,7 @@ function ChannelCard({
                 AI usually {scoreToVerdict(stats.avgAiRating)}
               </span>
             )}
-            {/* My rating pill */}
+            {/* Auto-tracked engagement pill */}
             {trackMyAverage && stats.avgUserRating !== null && (
               <span
                 style={{
@@ -414,9 +415,9 @@ function ChannelCard({
                   background: "var(--border)",
                   color: "var(--text)",
                 }}
-                title={`Engaged ${stats.userBreakdown.engaged} · Skimmed ${stats.userBreakdown.skimmed} · Skipped ${stats.userBreakdown.skipped}`}
+                title={`Auto-tracked: Engaged ${stats.userBreakdown.engaged} · Skimmed ${stats.userBreakdown.skimmed} · Skipped ${stats.userBreakdown.skipped}`}
               >
-                You: usually {userAvgToLabel(stats.avgUserRating)}
+                Auto: usually {userAvgToLabel(stats.avgUserRating)}
               </span>
             )}
             {/* Last watched */}

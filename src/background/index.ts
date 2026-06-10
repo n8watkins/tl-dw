@@ -5,17 +5,16 @@ import { addHistoryEntry, computeChannelStats, expireOldEntries, trimToLimit } f
 import type { ChannelStats } from "../lib/history";
 import {
   addOpenSearch,
-  addRatingOnlyHistoryEntry,
   ensureSeeded,
   getCachedSummary,
   getHistory,
   getOpenSearches,
   getProfiles,
   getSettings,
-  patchHistoryEntryRating,
   pruneOpenSearch,
   recordDeliveryStatus,
   recordGeminiCall,
+  recordWatchProgress,
   resolveProfile,
   setCachedSummary,
   setHistory,
@@ -643,19 +642,15 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: true });
       return false;
     }
-    if (message.type === "RATE_VIDEO") {
-      const { videoId, rating, video } = message;
+    if (message.type === "WATCH_PROGRESS") {
+      const { videoId, deltaSeconds, durationSeconds, sawSummary, video } = message;
       void (async () => {
-        // Patch the existing history entry; if there's none (summary never saved,
-        // or its entry expired), create a lightweight rating-only entry so the
-        // rating — and its channel — persist durably in the Channels view.
-        const patched = await patchHistoryEntryRating(videoId, rating);
-        // When clearing (rating === null) we only strip the rating off an
-        // existing entry; we never fabricate a rating-only entry.
-        if (!patched && rating !== null) {
-          const settings = await getSettings();
-          await addRatingOnlyHistoryEntry({ video, rating, settings });
+        const settings = await getSettings();
+        if (!settings.trackEngagement) {
+          sendResponse({ ok: true });
+          return;
         }
+        await recordWatchProgress({ videoId, deltaSeconds, durationSeconds, sawSummary, video, settings });
         sendResponse({ ok: true });
       })();
       return true;

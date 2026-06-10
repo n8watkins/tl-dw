@@ -60,6 +60,11 @@ export default defineManifest({
       js: ["src/content/sponsorblock.ts"],
       run_at: "document_idle",
     },
+    {
+      matches: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      js: ["src/content/watchtime.ts"],
+      run_at: "document_idle",
+    },
   ],
   commands: {
     "ask-gemini": {

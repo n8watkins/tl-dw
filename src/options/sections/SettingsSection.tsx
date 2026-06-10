@@ -298,32 +298,32 @@ export function SettingsSection() {
 
       <div className="settings-group">
         <div className="settings-group-title">
-          <Icon name="bar-chart" /> My Ratings
+          <Icon name="bar-chart" /> Engagement tracking
           <TierBadge tier="basic" style={{ marginLeft: 8 }} />
         </div>
         <div className="setting-sub" style={{ marginBottom: 12 }}>
-          Your personal Engaged / Skimmed / Skipped rating, tracked per channel.
+          Automatically rates videos Engaged / Skimmed / Skipped based on how much you actually watch.
           Works on every video — no API key required.
         </div>
 
-        {/* My rating: collect/show (A) */}
+        {/* Master switch */}
         <div className="setting-row">
           <div className="setting-info">
-            <div className="setting-label">Ask for my rating</div>
+            <div className="setting-label">Track engagement</div>
             <div className="setting-sub">
-              Show the Engaged / Skimmed / Skipped buttons on the panel.
+              Track how much of each video you actually watch and auto-rate it Engaged / Skimmed / Skipped.
             </div>
           </div>
           <div className="setting-control">
             <label className="toggle">
               <input
                 type="checkbox"
-                checked={settings.askForMyRating}
+                checked={settings.trackEngagement}
                 onChange={(e) =>
                   void update(
                     e.target.checked
-                      ? { askForMyRating: true }
-                      : { askForMyRating: false, trackMyAverage: false },
+                      ? { trackEngagement: true }
+                      : { trackEngagement: false, showEngagementStatus: false, trackMyAverage: false },
                   )
                 }
               />
@@ -332,19 +332,88 @@ export function SettingsSection() {
           </div>
         </div>
 
-        {/* My rating: track average (B, requires A) */}
-        <div className="setting-row" style={{ opacity: settings.askForMyRating ? 1 : 0.5 }}>
+        {/* Show live cue */}
+        <div className="setting-row" style={{ opacity: settings.trackEngagement ? 1 : 0.5 }}>
           <div className="setting-info">
-            <div className="setting-label">Track my average</div>
+            <div className="setting-label">Show watch-progress cue</div>
             <div className="setting-sub">
-              Average your verdict per channel and show it on the panel and in Channels.
+              Show a live watch-progress cue on the summary panel (e.g. "👁 41% watched · Skimmed").
             </div>
           </div>
           <div className="setting-control">
             <label className="toggle">
               <input
                 type="checkbox"
-                disabled={!settings.askForMyRating}
+                disabled={!settings.trackEngagement}
+                checked={settings.showEngagementStatus}
+                onChange={(e) => void update({ showEngagementStatus: e.target.checked })}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        </div>
+
+        {/* engagedPct threshold */}
+        <div className="setting-row" style={{ opacity: settings.trackEngagement ? 1 : 0.5 }}>
+          <div className="setting-info">
+            <div className="setting-label">Engaged threshold (%)</div>
+            <div className="setting-sub">
+              Watched ≥ this % (or 20+ minutes) counts as Engaged. Default: 60.
+            </div>
+          </div>
+          <div className="setting-control">
+            <input
+              type="number"
+              min={5}
+              max={100}
+              disabled={!settings.trackEngagement}
+              value={settings.engagedPct}
+              onChange={(e) => {
+                const v = Math.min(100, Math.max(5, Number(e.target.value)));
+                void update({ engagedPct: v, skimmedPct: Math.min(settings.skimmedPct, v - 1) });
+              }}
+              style={{ width: 70, textAlign: "center" }}
+            />
+          </div>
+        </div>
+
+        {/* skimmedPct threshold */}
+        <div className="setting-row" style={{ opacity: settings.trackEngagement ? 1 : 0.5 }}>
+          <div className="setting-info">
+            <div className="setting-label">Skipped threshold (%)</div>
+            <div className="setting-sub">
+              Below this % counts as Skipped (above is Skimmed). Default: 15.
+            </div>
+          </div>
+          <div className="setting-control">
+            <input
+              type="number"
+              min={1}
+              max={95}
+              disabled={!settings.trackEngagement}
+              value={settings.skimmedPct}
+              onChange={(e) => {
+                const v = Math.min(95, Math.max(1, Number(e.target.value)));
+                void update({ skimmedPct: v, engagedPct: Math.max(settings.engagedPct, v + 1) });
+              }}
+              style={{ width: 70, textAlign: "center" }}
+            />
+          </div>
+        </div>
+
+        {/* Track my average (requires trackEngagement) */}
+        <div className="setting-row" style={{ opacity: settings.trackEngagement ? 1 : 0.5 }}>
+          <div className="setting-info">
+            <div className="setting-label">Show your usual engagement per channel</div>
+            <div className="setting-sub">
+              Show your per-channel engagement average on the panel and in Channels (computed from auto-tracked ratings).
+            </div>
+          </div>
+          <div className="setting-control">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                disabled={!settings.trackEngagement}
                 checked={settings.trackMyAverage}
                 onChange={(e) => void update({ trackMyAverage: e.target.checked })}
               />

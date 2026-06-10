@@ -11,6 +11,7 @@ import type {
   Settings,
   StorageState,
 } from "../types";
+import { computeEngagementVerdict, VERDICT_RANK } from "./engagement";
 import {
   AUTO_RUN_CHANNELS_KEY,
   BLOCKED_CHANNELS_KEY,
@@ -63,71 +64,103 @@ export async function setHistory(history: SearchHistoryEntry[]): Promise<void> {
 }
 
 /**
- * Patch the personal verdict onto the newest history entry for `videoId`.
- * Returns `true` if an entry was found and updated, `false` if none matched
- * (e.g. the summary was never saved or its entry expired) — the caller then
- * creates a lightweight rating-only entry so the rating still persists.
- */
-export async function patchHistoryEntryRating(
-  videoId: string,
-  rating: "watch" | "skim" | "skip" | null,
-): Promise<boolean> {
-  const history = await getHistory();
-  const idx = history.findIndex((e) => extractVideoId(e.videoUrl) === videoId);
-  if (idx === -1) return false;
-  if (rating === null) {
-    // Clearing: drop the userRating property off the matched entry.
-    const { userRating: _drop, ...rest } = history[idx]!;
-    void _drop;
-    history[idx] = rest;
-  } else {
-    history[idx] = { ...history[idx], userRating: rating };
-  }
-  await setHistory(history);
-  return true;
-}
-
-/**
- * Create a lightweight, rating-only history entry and prepend it, respecting
- * the same `historyLimit`/`autoExpireHistory` trimming as a full search entry.
- * Used when the user rates a video that has no history entry yet, so the rating
- * (and its channel) still show up durably in the Channels view.
+ * Record a watch-progress delta for `videoId`, accumulate the total, compute an
+ * engagement verdict (Engaged/Skimmed/Skipped), and persist it using the
+ * upgrade-only rule (skip→skim→watch, never downgrade).
  *
- * `profileId`/`profileName`/`prompt` are required on SearchHistoryEntry; empty
- * strings are safe for the consumers that read them (HistorySection lowercases
- * them for search).
+ * - Finds the newest history entry for the video (matched by extractVideoId).
+ * - If none exists and the delta > 0 or a non-null verdict would result: creates
+ *   a lightweight stub entry (analogous to the old addRatingOnlyHistoryEntry).
+ * - After updating, mirrors the userRating into the summary-cache entry so a
+ *   cached summary panel reflects the auto-verdict.
  */
-export async function addRatingOnlyHistoryEntry(args: {
+export async function recordWatchProgress(args: {
+  videoId: string;
+  deltaSeconds: number;
+  durationSeconds: number;
+  sawSummary: boolean;
   video: { url: string; title?: string; channel?: string; avatarUrl?: string };
-  rating: "watch" | "skim" | "skip";
   settings: Settings;
 }): Promise<void> {
-  const entry: SearchHistoryEntry = {
-    id: crypto.randomUUID(),
-    videoUrl: args.video.url,
-    videoTitle: args.video.title,
-    channel: args.video.channel,
-    channelAvatarUrl: args.video.avatarUrl,
-    profileId: "",
-    profileName: "",
-    prompt: "",
-    userRating: args.rating,
-    createdAt: new Date().toISOString(),
-  };
-  const existing = await getHistory();
-  let next = [entry, ...existing];
-  // Same bounds as addHistoryEntry: drop expired entries, then cap to the limit.
-  if (args.settings.autoExpireHistory) {
-    const cutoff = Date.now() - args.settings.historyExpiryDays * 24 * 60 * 60 * 1000;
-    next = next.filter((e) => {
-      const t = new Date(e.createdAt).getTime();
-      return Number.isNaN(t) || t >= cutoff;
-    });
+  const { videoId, deltaSeconds, durationSeconds, sawSummary, video, settings } = args;
+
+  const history = await getHistory();
+  const idx = history.findIndex((e) => extractVideoId(e.videoUrl) === videoId);
+
+  // Compute prospective accumulated total if we find (or create) an entry.
+  const existingEntry = idx !== -1 ? history[idx]! : null;
+  const prevWatched = existingEntry?.watchedSeconds ?? 0;
+  const newWatched = prevWatched + deltaSeconds;
+
+  const verdict = computeEngagementVerdict(newWatched, durationSeconds, {
+    engagedPct: settings.engagedPct,
+    skimmedPct: settings.skimmedPct,
+    sawSummary,
+  });
+
+  // If there's no entry and we have nothing meaningful to store, bail out.
+  if (idx === -1 && deltaSeconds <= 0 && verdict === null) return;
+
+  let updatedEntry: SearchHistoryEntry;
+  if (idx !== -1) {
+    // Existing entry — accumulate and potentially upgrade verdict.
+    const current = history[idx]!;
+    const currentRank = VERDICT_RANK[current.userRating ?? "null"] ?? 0;
+    const newRank = VERDICT_RANK[verdict ?? "null"] ?? 0;
+    // Only upgrade: replace stored rating when new rank is strictly higher.
+    const nextRating: "watch" | "skim" | "skip" | undefined =
+      newRank > currentRank && verdict !== null
+        ? (verdict as "watch" | "skim" | "skip")
+        : current.userRating;
+
+    updatedEntry = {
+      ...current,
+      watchedSeconds: newWatched,
+      durationSeconds: durationSeconds || current.durationSeconds,
+      ...(nextRating !== undefined ? { userRating: nextRating } : {}),
+    };
+    history[idx] = updatedEntry;
+    await setHistory(history);
+  } else {
+    // No existing entry — create a stub so the channel shows up in Channels view.
+    const stub: SearchHistoryEntry = {
+      id: crypto.randomUUID(),
+      videoUrl: video.url,
+      videoTitle: video.title,
+      channel: video.channel,
+      channelAvatarUrl: video.avatarUrl,
+      profileId: "",
+      profileName: "",
+      prompt: "",
+      watchedSeconds: newWatched,
+      durationSeconds: durationSeconds || undefined,
+      ...(verdict !== null && verdict !== undefined ? { userRating: verdict as "watch" | "skim" | "skip" } : {}),
+      createdAt: new Date().toISOString(),
+    };
+    updatedEntry = stub;
+    let next = [stub, ...history];
+    if (settings.autoExpireHistory) {
+      const cutoff = Date.now() - settings.historyExpiryDays * 24 * 60 * 60 * 1000;
+      next = next.filter((e) => {
+        const t = new Date(e.createdAt).getTime();
+        return Number.isNaN(t) || t >= cutoff;
+      });
+    }
+    if (settings.historyLimit !== "unlimited") {
+      next = next.slice(0, settings.historyLimit);
+    }
+    await setHistory(next);
   }
-  if (args.settings.historyLimit !== "unlimited") {
-    next = next.slice(0, args.settings.historyLimit);
+
+  // Mirror the auto-rating into the summary cache so cached panels reflect it.
+  if (updatedEntry.userRating !== undefined) {
+    const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
+    const cache = (r[SUMMARY_CACHE_KEY] as Record<string, { tldw: unknown; cachedAt: string; userRating?: string }>) ?? {};
+    if (cache[videoId]) {
+      cache[videoId]!.userRating = updatedEntry.userRating;
+      await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
+    }
   }
-  await setHistory(next);
 }
 
 export async function getState(): Promise<StorageState> {
