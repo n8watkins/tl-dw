@@ -132,6 +132,12 @@ function onTimeUpdate(): void {
       programmaticSeek = true;
       video.currentTime = seg.end;
       notifyPanel();
+      // Fire-and-forget: tell the background to tally lifetime sponsor stats.
+      chrome.runtime.sendMessage({
+        type: "SPONSOR_SKIPPED",
+        secondsSaved: seg.end - seg.start,
+        category: seg.category,
+      }).catch(() => {});
       break;
     }
   }

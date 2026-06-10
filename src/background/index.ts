@@ -5,6 +5,7 @@ import { addHistoryEntry, computeChannelStats, expireOldEntries, trimToLimit } f
 import type { ChannelStats } from "../lib/history";
 import {
   addOpenSearch,
+  bumpLifetimeStats,
   ensureSeeded,
   getCachedSummary,
   getHistory,
@@ -302,10 +303,13 @@ async function runSummary(
 
   // Always fetch video metadata for headless runs so we can store the channel
   // name and avatar for channel-tracking stats, even when the gate is off.
+  // Also capture the duration for lifetime stats (durationSummarizedSeconds).
+  let videoDurationSeconds = 0;
   if (willUseDirectApi && !isThumbnail && activeTab?.id !== undefined) {
     const meta = await getVideoMeta(activeTab.id);
     if (meta?.channel) video.channel = meta.channel;
     if (meta?.avatarUrl) video.avatarUrl = meta.avatarUrl;
+    if (meta?.durationSeconds) videoDurationSeconds = meta.durationSeconds;
   }
 
   // Worth-watching gate: for chat destinations (a "prompt" payload), on videos
@@ -382,6 +386,8 @@ async function runSummary(
       void chrome.tabs
         .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw: cachedSummary.tldw, source: "cached", channelStats })
         .catch(() => {});
+      // Bump lifetime stats: cache hit.
+      void bumpLifetimeStats((s) => { s.cacheHits += 1; });
       void flashBadge("✓", true);
       return;
     }
@@ -437,6 +443,15 @@ async function runSummary(
         if (videoId) {
           void setCachedSummary(videoId, { tldw, cachedAt: new Date().toISOString(), channelName: video.channel });
         }
+
+        // Bump lifetime stats: summary completed (Direct API path).
+        const today = new Date().toISOString().slice(0, 10);
+        const durSec = videoDurationSeconds;
+        void bumpLifetimeStats((s) => {
+          s.summaries += 1;
+          s.activity[today] = (s.activity[today] ?? 0) + 1;
+          if (durSec > 0) s.durationSummarizedSeconds += durSec;
+        });
       }
       void flashBadge("✓", true);
       void recordDeliveryStatus({ site: "Gemini (API)", ok: true, at: new Date().toISOString() });
@@ -549,6 +564,13 @@ chrome.runtime.onMessage.addListener(
       void chrome.tabs
         .sendMessage(message.sourceTabId, { type: "SET_SUMMARY", tldw: message.tldw })
         .catch(() => {});
+      // Bump lifetime stats: summary completed (tab-scrape / AI_SUMMARY path).
+      const today = new Date().toISOString().slice(0, 10);
+      void bumpLifetimeStats((s) => {
+        s.summaries += 1;
+        s.activity[today] = (s.activity[today] ?? 0) + 1;
+        // Duration is not available from the AI_SUMMARY message; skip it.
+      });
       sendResponse({ ok: true });
       return false;
     }
@@ -639,6 +661,15 @@ chrome.runtime.onMessage.addListener(
       } else {
         void chrome.runtime.openOptionsPage();
       }
+      sendResponse({ ok: true });
+      return false;
+    }
+    if (message.type === "SPONSOR_SKIPPED") {
+      const { secondsSaved } = message;
+      void bumpLifetimeStats((s) => {
+        s.sponsorSkips += 1;
+        s.sponsorSecondsSaved += secondsSaved;
+      });
       sendResponse({ ok: true });
       return false;
     }

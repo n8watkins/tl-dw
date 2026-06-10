@@ -153,6 +153,38 @@ export type GeminiCallEntry = {
 /** Age thresholds the history auto-expiry offers (see HISTORY_EXPIRY_OPTIONS). */
 export type HistoryExpiryDays = 7 | 30 | 90 | 365;
 
+/**
+ * Lifetime usage counters stored under "tldwStats" in chrome.storage.local.
+ * Never pruned — survives history expiry and cache clears.
+ */
+export type LifetimeStats = {
+  /** ISO timestamp of the first write. */
+  since: string;
+  /** Total completed summaries (both Direct API and tab-scrape paths). */
+  summaries: number;
+  /** Summaries served instantly from cache — zero API wait. */
+  cacheHits: number;
+  /** Sum of video durations (in seconds) for summarized videos when known. */
+  durationSummarizedSeconds: number;
+  /** Total SponsorBlock auto-skips recorded. */
+  sponsorSkips: number;
+  /** Total seconds saved by SponsorBlock auto-skips. */
+  sponsorSecondsSaved: number;
+  /** Total tracked watch time across all videos (in seconds). */
+  secondsWatched: number;
+  /** Lifetime count of videos rated "Engaged" (watch). */
+  engaged: number;
+  /** Lifetime count of videos rated "Skimmed" (skim). */
+  skimmed: number;
+  /** Lifetime count of videos rated "Skipped" (skip). */
+  skipped: number;
+  /**
+   * Daily summary counts for activity heatmap.
+   * Keys are "YYYY-MM-DD"; capped at the most recent 366 entries.
+   */
+  activity: Record<string, number>;
+};
+
 /** Minutes thresholds the worth-watching gate offers (see WATCH_THRESHOLD_OPTIONS). */
 export type WatchThresholdMinutes = 15 | 20 | 30 | 45 | 60;
 
@@ -403,6 +435,16 @@ export type SponsorWindowApi = {
 /** Content script asking the worker to fetch this video's SponsorBlock segments. */
 export type GetSponsorSegmentsMessage = { type: "GET_SPONSOR_SEGMENTS"; videoId: string };
 
+/**
+ * Fired from sponsorblock.ts each time a segment is auto-skipped, so the
+ * background can tally lifetime sponsorSkips + sponsorSecondsSaved stats.
+ */
+export type SponsorSkippedMessage = {
+  type: "SPONSOR_SKIPPED";
+  secondsSaved: number;
+  category: string;
+};
+
 /** Worker's reply with the (possibly empty) list of segments to skip. */
 export type SponsorSegmentsResponse = { segments: SponsorSegment[] };
 
@@ -416,4 +458,5 @@ export type RuntimeMessage =
   | OpenOrFocusDestinationMessage
   | GetChannelStatusMessage
   | WatchProgressMessage
-  | GetSponsorSegmentsMessage;
+  | GetSponsorSegmentsMessage
+  | SponsorSkippedMessage;

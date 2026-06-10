@@ -122,6 +122,9 @@ export const BLOCKED_CHANNELS_KEY = "tldwBlockedChannels";
 /** chrome.storage.local key holding per-call Direct API history entries. */
 export const GEMINI_CALL_LOG_KEY = "geminiCallLog";
 
+/** chrome.storage.local key for lifetime usage stats (never pruned). */
+export const TLDW_STATS_KEY = "tldwStats";
+
 export const DEFAULT_SETTINGS: Settings = {
   autoSubmit: true,
   saveHistoryOnSearch: true,

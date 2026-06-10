@@ -5,6 +5,7 @@ import type {
   DeliveryStatus,
   GeminiCallEntry,
   GeminiUsage,
+  LifetimeStats,
   OpenSearch,
   PromptProfile,
   SearchHistoryEntry,
@@ -26,6 +27,7 @@ import {
   pruneCache,
   STORAGE_KEYS,
   SUMMARY_CACHE_KEY,
+  TLDW_STATS_KEY,
 } from "./constants";
 import { createDefaultProfiles } from "./profiles";
 
@@ -102,9 +104,14 @@ export async function recordWatchProgress(args: {
   if (idx === -1 && deltaSeconds <= 0 && verdict === null) return;
 
   let updatedEntry: SearchHistoryEntry;
+  // Track the previous rating (before the update) so we can compute the
+  // counter transition for lifetime stats.
+  let prevRating: "watch" | "skim" | "skip" | undefined;
+
   if (idx !== -1) {
     // Existing entry — accumulate and potentially upgrade verdict.
     const current = history[idx]!;
+    prevRating = current.userRating;
     const currentRank = VERDICT_RANK[current.userRating ?? "null"] ?? 0;
     const newRank = VERDICT_RANK[verdict ?? "null"] ?? 0;
     // Only upgrade: replace stored rating when new rank is strictly higher.
@@ -150,6 +157,20 @@ export async function recordWatchProgress(args: {
       next = next.slice(0, settings.historyLimit);
     }
     await setHistory(next);
+  }
+
+  // --- Bump lifetime stats: watch time + verdict transitions ---------------
+  const newRating = updatedEntry.userRating;
+  if (deltaSeconds > 0 || (newRating !== undefined && newRating !== prevRating)) {
+    void bumpLifetimeStats((s) => {
+      if (deltaSeconds > 0) s.secondsWatched += deltaSeconds;
+      if (newRating !== undefined && newRating !== prevRating) {
+        const delta = verdictCounterDelta(prevRating, newRating);
+        s.engaged = Math.max(0, s.engaged + delta.engaged);
+        s.skimmed = Math.max(0, s.skimmed + delta.skimmed);
+        s.skipped = Math.max(0, s.skipped + delta.skipped);
+      }
+    });
   }
 
   // Mirror the auto-rating into the summary cache so cached panels reflect it.
@@ -363,6 +384,91 @@ export async function getGeminiCallLog(): Promise<GeminiCallEntry[]> {
 
 export async function clearGeminiCallLog(): Promise<void> {
   await chrome.storage.local.remove(GEMINI_CALL_LOG_KEY);
+}
+
+// --- Lifetime usage stats -------------------------------------------------
+
+function emptyLifetimeStats(): LifetimeStats {
+  return {
+    since: "",
+    summaries: 0,
+    cacheHits: 0,
+    durationSummarizedSeconds: 0,
+    sponsorSkips: 0,
+    sponsorSecondsSaved: 0,
+    secondsWatched: 0,
+    engaged: 0,
+    skimmed: 0,
+    skipped: 0,
+    activity: {},
+  };
+}
+
+/**
+ * Trim an activity record to the newest `maxKeys` calendar dates.
+ * Pure helper (exported for tests).
+ */
+export function trimActivity(
+  activity: Record<string, number>,
+  maxKeys = 366,
+): Record<string, number> {
+  const keys = Object.keys(activity);
+  if (keys.length <= maxKeys) return activity;
+  // Sort descending (newest first) and keep only the first maxKeys.
+  const keep = new Set(keys.sort((a, b) => b.localeCompare(a)).slice(0, maxKeys));
+  const trimmed: Record<string, number> = {};
+  for (const k of keep) trimmed[k] = activity[k]!;
+  return trimmed;
+}
+
+export async function getLifetimeStats(): Promise<LifetimeStats> {
+  const r = await chrome.storage.local.get(TLDW_STATS_KEY);
+  const stored = r[TLDW_STATS_KEY] as Partial<LifetimeStats> | undefined;
+  return { ...emptyLifetimeStats(), ...stored, activity: stored?.activity ?? {} };
+}
+
+/**
+ * Read-modify-write for lifetime stats. Sets `since` on first write and
+ * trims `activity` to the newest 366 calendar dates.
+ *
+ * IMPORTANT: Only call from background/storage-layer code (single writer).
+ */
+export async function bumpLifetimeStats(
+  mutate: (s: LifetimeStats) => void,
+): Promise<void> {
+  const stats = await getLifetimeStats();
+  if (!stats.since) stats.since = new Date().toISOString();
+  mutate(stats);
+  stats.activity = trimActivity(stats.activity);
+  await chrome.storage.local.set({ [TLDW_STATS_KEY]: stats });
+}
+
+/**
+ * Compute the delta to apply to the three lifetime verdict counters when a
+ * history entry's userRating transitions from `prev` to `next`.
+ *
+ * Rules:
+ * - Decrement the old bucket (floor 0 is enforced by callers).
+ * - Increment the new bucket.
+ * - If `prev === next` (no transition), return all zeros.
+ *
+ * Pure helper exported for unit tests.
+ */
+export function verdictCounterDelta(
+  prev: "watch" | "skim" | "skip" | undefined,
+  next: "watch" | "skim" | "skip",
+): { engaged: number; skimmed: number; skipped: number } {
+  const delta = { engaged: 0, skimmed: 0, skipped: 0 };
+  if (prev === next) return delta;
+  // Decrement old
+  if (prev === "watch") delta.engaged -= 1;
+  else if (prev === "skim") delta.skimmed -= 1;
+  else if (prev === "skip") delta.skipped -= 1;
+  // Increment new
+  if (next === "watch") delta.engaged += 1;
+  else if (next === "skim") delta.skimmed += 1;
+  else if (next === "skip") delta.skipped += 1;
+  return delta;
 }
 
 // --- Summary result cache -------------------------------------------------
