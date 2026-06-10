@@ -8,11 +8,14 @@ import type {
   Settings,
 } from "../types";
 import {
+  DEFAULT_SETTINGS,
   DESTINATIONS,
   destinationVerb,
+  GEMINI_URL,
   getDestination,
   isYouTubeVideoUrl,
   isYouTubeShortUrl,
+  STORAGE_KEYS,
 } from "../lib/constants";
 import { DestinationIcon } from "../lib/DestinationIcon";
 import {
@@ -131,6 +134,25 @@ export function App() {
     })();
   }, []);
 
+  // Keep settings in sync if the options page (or any other tab) writes them
+  // while the popup is open. Re-read the fresh value and update the derived
+  // state that drives the Direct API indicator and key presence. Gate and
+  // destination are session-local overrides — they're only updated when the
+  // user hasn't made an in-popup choice yet (i.e. still at default).
+  useEffect(() => {
+    const handleChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area !== "local") return;
+      if (changes[STORAGE_KEYS.settings]?.newValue) {
+        const fresh: Settings = { ...DEFAULT_SETTINGS, ...(changes[STORAGE_KEYS.settings].newValue as Settings) };
+        setSettings(fresh);
+        setGate(fresh.worthWatchingGate ?? false);
+        setDestinationId(fresh.destinationId ?? "gemini");
+      }
+    };
+    chrome.storage.onChanged.addListener(handleChange);
+    return () => chrome.storage.onChanged.removeListener(handleChange);
+  }, []);
+
   // Collapse to the most recent status per (kind, site) — statuses are stored
   // newest-first — so a later success hides an earlier failure instead of the
   // red alert sticking around after the next send works.
@@ -207,7 +229,7 @@ export function App() {
     const dest = getDestination(entry.destinationId);
     const video = { url: entry.videoUrl, title: entry.videoTitle };
 
-    const targetUrl = dest.id === "gemini" ? settings.geminiUrl : dest.url;
+    const targetUrl = dest.id === "gemini" ? GEMINI_URL : dest.url;
     const t = await chrome.tabs.create({ url: targetUrl, active: settings.focusGeminiTab });
     if (t.id !== undefined) {
       await setPendingPrompt(t.id, { prompt: entry.prompt });

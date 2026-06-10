@@ -1,15 +1,13 @@
 import { buildDestinationPrompt, prependWorthWatchingGate } from "../lib/promptBuilder";
 import { parseTldwBlock } from "../lib/tldw";
-import { getDestination, isYouTubeVideoUrl, pruneCache, STORAGE_KEYS, SUMMARY_CACHE_KEY } from "../lib/constants";
+import { GEMINI_URL, getDestination, isYouTubeVideoUrl, pruneCache, STORAGE_KEYS, SUMMARY_CACHE_KEY } from "../lib/constants";
 import { addHistoryEntry, computeChannelStats, expireOldEntries, trimToLimit } from "../lib/history";
 import type { ChannelStats } from "../lib/history";
 import {
   addOpenSearch,
   addRatingOnlyHistoryEntry,
-  clearGeminiUsage,
   ensureSeeded,
   getCachedSummary,
-  getGeminiUsage,
   getHistory,
   getOpenSearches,
   getProfiles,
@@ -25,7 +23,7 @@ import {
   takePendingPrompt,
 } from "../lib/storage";
 import { extractVideoId } from "../lib/constants";
-import type { GeminiUsage, RuntimeMessage, Settings, SummarySource, VideoContext, VideoMeta } from "../types";
+import type { RuntimeMessage, Settings, SummarySource, VideoContext, VideoMeta } from "../types";
 
 const MENU_ROOT = "tldw-root";
 
@@ -456,11 +454,11 @@ async function runSummary(
   }
 
   // Open the destination tab and hand its injector the prompt to auto-fill.
-  // Gemini's URL is user-configurable; the rest open their fixed URL.
+  // Gemini's URL is fixed (GEMINI_URL); the rest open their configured URL.
   // When temporary chats are on, prefer the incognito URL if the destination
   // has one (Claude, ChatGPT). Gemini has no incognito URL —
   // its content script clicks the temp-chat button instead.
-  const baseUrl = destination.id === "gemini" ? settings.geminiUrl : destination.url;
+  const baseUrl = destination.id === "gemini" ? GEMINI_URL : destination.url;
   const targetUrl =
     settings.temporaryChats && destination.incognitoUrl
       ? destination.incognitoUrl
@@ -583,14 +581,6 @@ chrome.runtime.onMessage.addListener(
         }
       })();
       return true; // async response
-    }
-    if (message.type === "GET_GEMINI_USAGE") {
-      void getGeminiUsage().then((usage: GeminiUsage) => sendResponse(usage));
-      return true;
-    }
-    if (message.type === "CLEAR_GEMINI_USAGE") {
-      void clearGeminiUsage().then(() => sendResponse({ ok: true }));
-      return true;
     }
     if (message.type === "OPEN_OR_FOCUS_DESTINATION") {
       const ytTabId = sender.tab?.id;

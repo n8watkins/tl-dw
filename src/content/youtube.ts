@@ -2004,7 +2004,7 @@ async function maybeStartDirectApiRun(): Promise<void> {
   // summary UI. A finished/recorded live stream has a transcript, so it's fine.
   if (isUnsummarizableLive()) { removeSummaryPanel(); return; }
 
-  // Set currentChannelInfo early so comments injection can use it even when we return early.
+  // Set currentChannelInfo early so the blocked-channel check and auto-run toggle can use it even when we return early.
   currentChannelInfo = getChannelInfo();
 
   const r = await chrome.storage.local.get(["settings", "tldwSummaryCache", AUTO_RUN_CHANNELS_KEY, BLOCKED_CHANNELS_KEY]);
@@ -2095,7 +2095,9 @@ async function maybeStartDirectApiRun(): Promise<void> {
 
 /**
  * Threshold path: waits 2500ms so the video element has its duration, then
- * runs for videos over the configured length (opens a tab — not headless).
+ * runs for videos over the configured length. Sends an ASK message with
+ * source "auto": headless via Direct API when a key is configured, otherwise
+ * opens a destination tab.
  */
 async function autoRunIfLong(): Promise<void> {
   const vid = currentVideoId();

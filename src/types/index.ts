@@ -186,7 +186,6 @@ export type Settings = {
   autoExpireHistory: boolean;
   /** Age (in days) past which entries are dropped when auto-expire is on. */
   historyExpiryDays: HistoryExpiryDays;
-  geminiUrl: string;
   /** Switch focus to the new destination tab; when false it opens in the background. */
   focusGeminiTab: boolean;
   /** Pause the YouTube video when a summary is sent. */
@@ -197,8 +196,6 @@ export type Settings = {
   worthWatchingMinutes: WatchThresholdMinutes;
   /** Channels/keywords (one per line) that bypass the gate — always full summary. */
   gateBypassTerms: string;
-  /** Fetch the video's transcript and include it in the prompt when available. */
-  includeTranscript: boolean;
   /** Which destination a summary is sent to (see DESTINATIONS). */
   destinationId: string;
   /** Open chats in incognito/temporary mode — not saved to the AI's history. */
@@ -317,12 +314,6 @@ export type AiSummaryMessage = {
   sourceTabId: number;
 };
 
-/** Popup requesting the direct-API usage stats; responds with GeminiUsage. */
-export type GetGeminiUsageMessage = { type: "GET_GEMINI_USAGE" };
-
-/** Popup asking to reset the direct-API usage counter. */
-export type ClearGeminiUsageMessage = { type: "CLEAR_GEMINI_USAGE" };
-
 /** Popup/content asking the worker to open the extension's options page.
  *  Optional `section` deep-links to a sidebar section via the page's URL hash. */
 export type OpenOptionsMessage = { type: "OPEN_OPTIONS"; section?: string };
@@ -403,9 +394,8 @@ export type RuntimeMessage =
   | RebuildMenuMessage
   | InjectResultMessage
   | AiSummaryMessage
-  | GetGeminiUsageMessage
-  | ClearGeminiUsageMessage
   | OpenOptionsMessage
   | OpenOrFocusDestinationMessage
+  | GetChannelStatusMessage
   | RateVideoMessage
   | GetSponsorSegmentsMessage;
