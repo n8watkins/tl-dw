@@ -56,6 +56,16 @@ let lastNotifiedAt = 0;
 
 let trackEngagement = true;
 
+/**
+ * Snapshots taken while the tracked video is actually playing, so a forced
+ * flush during navigation reports the OLD video's duration/meta — not whatever
+ * the DOM happens to show for the next video.
+ */
+let lastKnownDuration = 0;
+let lastKnownSawSummary = false;
+let lastKnownMeta: { url: string; title?: string; channel?: string; avatarUrl?: string } | null = null;
+let lastMetaRefresh = 0;
+
 /** Cached settings thresholds used for the live verdict calculation. */
 let engagedPct = 60;
 let skimmedPct = 15;
@@ -148,9 +158,11 @@ async function reportProgress(forced = false): Promise<void> {
   if (!vid) return;
 
   const delta = pendingDelta;
-  const dur = currentDuration();
-  const sawSummary = currentSawSummary();
-  const videoMeta = currentVideoMeta();
+  // Prefer snapshots captured while this video was playing — during a SPA
+  // navigation the live DOM may already describe the NEXT video.
+  const dur = lastKnownDuration || currentDuration();
+  const sawSummary = lastKnownSawSummary || currentSawSummary();
+  const videoMeta = lastKnownMeta ?? currentVideoMeta();
 
   try {
     await chrome.runtime.sendMessage({
@@ -161,8 +173,9 @@ async function reportProgress(forced = false): Promise<void> {
       sawSummary,
       video: videoMeta,
     });
-    // Only zero out pendingDelta after the message successfully resolves.
-    if (currentVid === vid) pendingDelta = 0;
+    // Subtract only what we reported — seconds accumulated during the await
+    // stay pending. (If the video changed mid-flight, handleNav already reset.)
+    if (currentVid === vid) pendingDelta = Math.max(0, pendingDelta - delta);
   } catch {
     // Service worker may be sleeping — keep pendingDelta for the next report.
   }
@@ -179,6 +192,14 @@ function onTimeUpdate(): void {
   if (delta > 0 && delta <= 2.5) {
     totalWatched += delta;
     pendingDelta += delta;
+    // Snapshot while this video is verifiably the one playing (cheap reads
+    // every tick; the meta querySelectors at most every 5s).
+    lastKnownDuration = currentDuration() || lastKnownDuration;
+    lastKnownSawSummary = lastKnownSawSummary || currentSawSummary();
+    if (Date.now() - lastMetaRefresh > 5000) {
+      lastMetaRefresh = Date.now();
+      lastKnownMeta = currentVideoMeta();
+    }
     notifyPanel();
     if (pendingDelta >= REPORT_INTERVAL_S) {
       void reportProgress();
@@ -228,9 +249,11 @@ async function loadSettings(): Promise<void> {
 
 async function handleNav(): Promise<void> {
   const vid = videoIdFromUrl();
-  if (!vid || vid === lastHandledVid) return;
+  if (vid === lastHandledVid) return;
 
-  // Report any pending delta for the OLD video before resetting.
+  // Report any pending delta for the OLD video before resetting. This runs
+  // synchronously up to the sendMessage await, so it captures the old
+  // currentVid + snapshots before we reset below.
   if (lastHandledVid && pendingDelta > 0) {
     void reportProgress(true);
   }
@@ -241,6 +264,13 @@ async function handleNav(): Promise<void> {
   pendingDelta = 0;
   lastNotifiedAt = 0;
   lastTime = 0;
+  lastKnownDuration = 0;
+  lastKnownSawSummary = false;
+  lastKnownMeta = null;
+  lastMetaRefresh = 0;
+
+  // Left the watch page entirely (home, search, channel…) — nothing to track.
+  if (!vid) return;
 
   await loadSettings();
   if (!trackEngagement) return;
