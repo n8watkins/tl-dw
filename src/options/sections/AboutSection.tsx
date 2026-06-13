@@ -52,14 +52,14 @@ export function AboutSection() {
           </div>
         </div>
 
-        {/* Key moments */}
+        {/* Engagement tracking */}
         <div className="about-card" style={{"--ca": "#22c55e", "--cg": "rgba(34,197,94,0.1)"} as React.CSSProperties}>
           <div className="about-card-icon" style={{background:"rgba(34,197,94,0.12)", color:"#4ade80"}}>
             <Icon name="clock" />
           </div>
-          <div className="about-card-title">Key moments</div>
+          <div className="about-card-title">Engagement tracking</div>
           <div className="about-card-desc">
-            Clickable timestamps auto-detected from the transcript appear right on the YouTube page. Click any to seek.
+            TL;DW measures how much of each video you actually watch and auto-rates it Engaged, Skimmed, or Skipped — building per-channel insights over time.
           </div>
         </div>
 

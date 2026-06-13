@@ -88,25 +88,17 @@ the popup. Last updated 2026-06-06 (v0.1.47)._
 
 ---
 
+> **Note (2026-06-13):** This is a historical code-review snapshot from v0.1.47.
+> The live status doc is `STATUS.md` (kept current). The **Key moments / clickable
+> seek links** feature described below was shipped and later **removed entirely** —
+> the code, the `SEEK_LINKS.md` plan doc, and the About-page card are all gone. Do
+> not revisit it (see "Not doing" in STATUS.md). The completed-work log below is kept
+> for history but no longer reflects the shipped product.
+
 ## Recommended next
 
-### 1. Clickable seek links — v2 shipped (v0.1.38 – v0.1.47)
-The on-YouTube key-moments panel is mature: `getTimedTranscript()` retains
-per-segment timestamps, transcript-derived moments (no model / no answer reading),
-a theme-aware panel **below the player** with horizontal hover-timestamp chips,
-accordion collapse (persisted), click-to-seek-and-play, and an auto-show-on-summarize
-setting. Remaining (see SEEK_LINKS.md):
-
-- **Phase 4 — progress-bar tick markers** on the YouTube scrubber. Not started.
-- **Phase 5 — model-authored moments. Parked (decision needed).** The current labels
-  are a frequency heuristic and read rough. Three routes, pick one when revisiting:
-  - _BYO API key_ — user supplies a Gemini/OpenAI/Anthropic key; call the model
-    directly for timestamped JSON. Cleanest output; breaks the "no key" posture
-    (opt-in), transcript goes to the API. Roadmap-aligned path.
-  - _Scrape the AI tab_ — parse timestamps out of the rendered Moment Finder answer.
-    No key, but fragile and async.
-  - _Better heuristic_ — TextRank/TF-IDF sentence ranking, dedup, boundary snapping.
-    Stays private/offline; not truly model-authored but a real quality jump.
+The Key-moments / seek-links roadmap that lived here has been dropped along with the
+feature. Current next steps live in `STATUS.md`.
 
 ---
 

@@ -1,57 +1,65 @@
 # TL;DW Extension — Status
 
-**Version:** 0.1.94  
-**Last updated:** 2026-06-07
+**Version:** 0.1.156
+**Last updated:** 2026-06-13
 
 ---
 
 ## What's built
 
 ### 1. Core Direct API flow
-- Headless Gemini REST call on YouTube navigation — no destination tab opened
-- `---TLDW---` block parsed from response: VERDICT / SUMMARY / RATING / DETAILS
-- Widget injected into YouTube page with shimmer loading state
-- Auto-run trigger: fires when a video exceeds the configured minute threshold
-- Source label in widget links back to Direct API settings
+- Headless Gemini REST call on YouTube navigation — no destination tab opened.
+- `---TLDW---` block parsed from the response: VERDICT / SUMMARY / RATING / DETAILS.
+- Widget injected into the YouTube page with a shimmer loading state.
+- Auto-run trigger: fires when a video exceeds the configured minute threshold.
+- One Gemini API call per video — no secondary calls.
 
-### 2. Profile picker for Direct API
-- Separate profile selector in Direct API settings (independent of the global default)
-- Headless auto-runs resolve this profile first; falls back to global default if unset
-- Setting persisted as `settings.directApiProfileId`
+### 2. Open-in-a-tab flow (no API key)
+- Opens Gemini / ChatGPT / Claude / Perplexity / NotebookLM with the prompt filled
+  and submitted, using whatever account you're signed into.
+- For AIs that can't watch the video, the extracted transcript is attached.
+- TL;DW reads the finished answer back out of the tab and drops the summary onto
+  the YouTube page; falls back to copying the prompt if the composer can't be
+  filled. Auto-fill failures surface in the popup (`DeliveryStatus`).
+- "Open tab" button focuses the already-scraped tab instead of spawning duplicates.
 
-### 3. Daily quota bar
-- Progress bar in Direct API settings: today's calls / 500 RPD free tier
-- Color-coded: green (<60%), amber (60–90%), red (>90%)
-- Link to Google AI pricing page
-- Sits above the existing usage stats (total, all-time, last call)
+### 3. Engagement tracking (auto-rating)
+- A watch-time engine (`watchtime.ts`) measures content-seconds actually watched.
+- Videos are auto-rated **Engaged / Skimmed / Skipped** from watch percentage
+  (`engagedPct` / `skimmedPct` thresholds) — replaced the old manual rating buttons.
+- Per-channel engagement averages computed locally (no API call).
 
-### 4. Channel tracking + comparison
-- `channel` and `channelAvatarUrl` stored on every `SearchHistoryEntry`
-- Avatar scraped from YouTube DOM: `ytd-video-owner-renderer #avatar img`
-- `computeChannelStats()` groups history by channel, computes avg AI rating locally — **no extra API call**
-- Before sending `SET_SUMMARY`, background looks up the channel's historical stats
-- Widget shows `📊 vs channel` row: avg AI score and ▲/▼/≈ trend (threshold ±0.4)
+### 4. SponsorBlock auto-skip
+- Skips in-video sponsored segments using the free community SponsorBlock data
+  (`sponsorblock.ts`, `sponsor.ajay.app`).
+- Inline widget shows segments with clickable timestamps + Undo on auto-skip.
+- Lifetime skip count + seconds-saved tallied into stats.
 
-### 5. Channels page (options)
-- New `▦ Channels` nav item in the options sidebar (between History and Settings)
-- Channel cards with 44px circular avatar — real img with `onError` → color-hash initial fallback
-- AI score pill (green ≥8 / amber 6–7.9 / red <6)
-- "Last watched" relative timestamp on each card
-- Sort by: Most watched / Highest rated / Recent
-- CSS grid accordion: click to expand per-channel video list
-- Video rows: clickable title (opens YouTube), AI pill, date
-- Header: "N channels tracked · M videos total"
-- Empty state for users with no channel data yet
+### 5. Stats dashboard (neon)
+- Lifetime counters (`tldwStats`, never pruned): summaries, cache hits, watch time,
+  sponsor skips + seconds saved, Engaged/Skimmed/Skipped totals.
+- Activity heatmap from daily summary counts (most recent 366 days).
 
-### 6. API call log
-- Per-call accordion in Direct API settings showing prompt sent + raw response
-- Expandable — collapsed by default
+### 6. Channel tracking + comparison
+- `channel` and `channelAvatarUrl` stored on every `SearchHistoryEntry`.
+- `computeChannelStats()` groups history by channel for avg AI rating + engagement
+  — all local arithmetic, no LLM.
+- Widget shows a `📊 vs channel` row with avg score and ▲/▼/≈ trend.
+- **Channels page** in options: avatar cards, AI score pills, sort (most watched /
+  highest rated / recent), expandable per-channel video lists.
+- Per-channel **block** and **auto-run** lists.
 
-### 7. History management
-- Auto-expire entries older than a configurable number of days
-- Manual history limit (50 / 100 / 250 / unlimited)
-- Clear usage button with confirmation dialog
-- Permanent all-time call counter (never reset by clearing)
+### 7. Direct API settings
+- Profile picker independent of the global default (`directApiProfileId`).
+- Daily quota bar (today's calls / 500 RPD free tier), color-coded.
+- Per-call log (metadata-only by default; `keepFullCallLog` retains prompt+response).
+
+### 8. History management
+- Auto-expire entries older than a configurable number of days (7/30/90/365),
+  pruned on write and on startup.
+- Manual history limit (50 / 100 / 250 / unlimited).
+- Clear usage with confirmation; permanent all-time call counter survives clears.
+- History stores a transcript-free prompt only (storage-quota discipline).
 
 ---
 
@@ -59,13 +67,18 @@
 
 ### Medium priority
 
-**Avatar URL expiry**  
-YouTube avatar URLs embedded in `src` attributes can expire (they're signed CDN URLs). Current mitigation: `onError` falls back to the color-hash initial. But stale URLs sit in storage forever, so every Channels page load will fire broken image requests before falling back.
+**Avatar URL expiry**
+YouTube avatar URLs embedded in `src` are signed CDN URLs that can expire. Current
+mitigation: `onError` falls back to a color-hash initial. But stale URLs sit in
+storage forever, so every Channels page load fires broken image requests before
+falling back. Needs a de-dup / refresh strategy.
 
 ### Low priority
 
-**Popup has no channel context**  
-The options Channels page shows per-channel stats but the popup (shown while browsing YouTube) has no awareness of them. A "You've watched 4 videos from this channel, avg AI 7.2" line in the popup would close that gap.
+**Popup has no channel context**
+The Channels page shows per-channel stats but the popup (shown while browsing
+YouTube) has no awareness of them. A "You've watched 4 videos from this channel,
+avg AI 7.2" line in the popup would close that gap.
 
 ---
 
@@ -75,27 +88,33 @@ The options Channels page shows per-channel stats but the popup (shown while bro
 |---|---|
 | Types | `src/types/index.ts` |
 | Background orchestrator | `src/background/index.ts` |
-| Content script (YouTube DOM) | `src/content/youtube.ts` |
-| History helpers | `src/lib/history.ts` |
-| Storage helpers | `src/lib/storage.ts` |
+| YouTube content script (1.9k LOC) | `src/content/youtube.ts` |
+| MAIN-world fetch interceptor | `src/content/youtube-intercept.ts` |
+| Watch-time engine | `src/content/watchtime.ts` |
+| SponsorBlock | `src/content/sponsorblock.ts` |
+| Destination auto-fill | `src/content/inject.ts` |
+| Library helpers | `src/lib/` (history, storage, profiles, engagement, stats, promptBuilder) |
 | Options UI | `src/options/sections/` |
 
-**1 Gemini API call per video:**  
-Main transcript analysis — no secondary calls.
+Tests: 67 Vitest cases over the pure helpers (engagement, promptBuilder, profiles,
+history, stats). DOM/content-script and React UI remain untested.
 
-Channel comparison is always local arithmetic — no LLM involved.
+See `LESSONS_LEARNED.md` for the hard-won Chrome-extension patterns this project
+established.
 
 ---
 
 ## Not doing
 
-- **Key moments** (timestamps surfaced in widget) — explicitly killed, don't revisit
-- **YouTube Data API** — DOM-scraping only
+- **Key moments** (transcript-derived timestamps surfaced in the widget) —
+  explicitly killed, code removed. Don't revisit.
+- **YouTube Data API** — DOM-scraping / intercepted network data only.
 
 ---
 
 ## Potential next steps
 
-1. Avatar URL de-duplication / refresh strategy
-2. Popup channel context card
-3. Chrome Web Store prep (privacy policy, store listing, manifest audit)
+1. Avatar URL de-duplication / refresh strategy.
+2. Popup channel context card.
+3. Chrome Web Store prep (privacy policy, store listing, manifest audit).
+4. Consider splitting `youtube.ts` (~1.9k LOC) into panel / nav-mount / scrape modules.

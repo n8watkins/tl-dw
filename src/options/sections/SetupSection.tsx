@@ -55,7 +55,7 @@ export function SetupSection() {
           <div className="step-num">Step 3</div>
           <div className="step-title">Watch what you want</div>
           <div className="step-body">
-            Read the summary, catch the key moments, skip what doesn't matter. Your time, your call.
+            Read the summary, see the verdict, skip what doesn't matter. Your time, your call.
           </div>
         </div>
       </div>
