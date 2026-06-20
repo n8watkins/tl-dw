@@ -787,7 +787,10 @@ async function run(): Promise<void> {
     await activateTemporaryMode(location.hostname);
   }
 
-  const editor = await waitFor<HTMLElement>(config.editorSelectors, 12000);
+  // Generous ceiling: chat apps (ChatGPT/Claude) can render a splash and only
+  // mount the composer after their client-side router resolves, which on a cold
+  // load can land well past document_idle.
+  const editor = await waitFor<HTMLElement>(config.editorSelectors, 20000);
   if (!editor) {
     await fallbackToClipboard(prompt, config.name);
     await reportOutcome(config.name, {
@@ -829,15 +832,21 @@ async function run(): Promise<void> {
   if (btn) {
     btn.click();
   } else {
-    // Last resort: synthetic Enter.
-    editor.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "Enter",
-        code: "Enter",
-        keyCode: 13,
-        bubbles: true,
-      }),
-    );
+    // Last resort: synthetic Enter. Dispatch the full keydown→keypress→keyup
+    // sequence — some composers submit on keypress/keyup, and a lone keydown is
+    // a no-op there.
+    for (const type of ["keydown", "keypress", "keyup"] as const) {
+      editor.dispatchEvent(
+        new KeyboardEvent(type, {
+          key: "Enter",
+          code: "Enter",
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }
   }
 
   // After submit, wait for the AI to finish and forward the response.

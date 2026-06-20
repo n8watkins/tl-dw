@@ -298,6 +298,35 @@ export async function takePendingPrompt(
   return raw as PendingData | undefined;
 }
 
+/**
+ * Read a tab's pending prompt WITHOUT consuming it. The injector reads at
+ * document_idle, but on a cold chat-app load the composer can mount a beat after
+ * the router resolves; deleting on the first read meant a retry had nothing
+ * left. We keep the prompt until the injector reports an outcome
+ * (clearPendingPrompt on INJECT_RESULT), so a slow composer is still filled.
+ */
+export async function peekPendingPrompt(
+  tabId: number,
+): Promise<PendingData | undefined> {
+  const r = await chrome.storage.session.get(PENDING_KEY);
+  const pending = (r[PENDING_KEY] as Record<number, PendingData | string>) ?? {};
+  const raw = pending[tabId];
+  if (typeof raw === "string") return { prompt: raw }; // backward-compat
+  return raw as PendingData | undefined;
+}
+
+/** Drop a tab's pending prompt once a delivery attempt has completed. */
+export async function clearPendingPrompt(tabId: number): Promise<void> {
+  await withWriteLock(PENDING_KEY, async () => {
+    const r = await chrome.storage.session.get(PENDING_KEY);
+    const pending = (r[PENDING_KEY] as Record<number, PendingData | string>) ?? {};
+    if (pending[tabId] !== undefined) {
+      delete pending[tabId];
+      await chrome.storage.session.set({ [PENDING_KEY]: pending });
+    }
+  });
+}
+
 // --- session-scoped list of open destination tabs ---
 
 async function readOpenSearches(): Promise<OpenSearch[]> {

@@ -15,12 +15,13 @@ import {
   pruneOpenSearch,
   recordDeliveryStatus,
   recordGeminiCall,
+  clearPendingPrompt,
+  peekPendingPrompt,
   recordWatchProgress,
   resolveProfile,
   setCachedSummary,
   setHistory,
   setPendingPrompt,
-  takePendingPrompt,
 } from "../lib/storage";
 import { extractVideoId } from "../lib/constants";
 import type { RuntimeMessage, Settings, SummarySource, VideoContext, VideoMeta } from "../types";
@@ -611,6 +612,10 @@ chrome.runtime.onMessage.addListener(
         at: new Date().toISOString(),
       });
       void flashBadge(message.ok ? "✓" : "!", message.ok);
+      // The injector finished its attempt — drop the (peeked-not-consumed)
+      // pending prompt now so it isn't re-delivered, but only after a real
+      // attempt completed (so a slow-mounting composer kept its chance to retry).
+      if (sender.tab?.id !== undefined) void clearPendingPrompt(sender.tab.id);
       sendResponse({ ok: true });
       return false;
     }
@@ -771,7 +776,9 @@ chrome.runtime.onMessage.addListener(
         sendResponse({ prompt: null });
         return true;
       }
-      void Promise.all([takePendingPrompt(tabId), getSettings()]).then(
+      // Peek, don't consume: the prompt is cleared on INJECT_RESULT instead, so
+      // a composer that mounts late on a cold load still gets filled.
+      void Promise.all([peekPendingPrompt(tabId), getSettings()]).then(
         ([pending, settings]) =>
           sendResponse({
             prompt: pending?.prompt ?? null,
