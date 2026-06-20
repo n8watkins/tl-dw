@@ -1,8 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { LifetimeStats, GeminiUsage, SearchHistoryEntry } from "../../types";
-import { getLifetimeStats, getGeminiUsage, getHistory } from "../../lib/storage";
-import { computeChannelStats } from "../../lib/history";
+import { addBlockedChannel, getLifetimeStats, getGeminiUsage, getHistory } from "../../lib/storage";
+import { computeChannelStats, type ChannelStats } from "../../lib/history";
 import { GEMINI_USAGE_KEY, localDateKey, STORAGE_KEYS, TLDW_STATS_KEY } from "../../lib/constants";
+import {
+  compareWindows,
+  computeTimeSaved,
+  pctDelta,
+  type Delta,
+  type WindowKind,
+  type WindowStats,
+} from "../../lib/dashboards";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -68,18 +76,7 @@ function computeStreak(activity: Record<string, number>): number {
   return streak;
 }
 
-// ---------------------------------------------------------------------------
-// Time saved from history: Σ max(0, duration - watched) for skim/skip entries
-// ---------------------------------------------------------------------------
-function computeTimeSaved(history: SearchHistoryEntry[]): number {
-  return history.reduce((acc, e) => {
-    if ((e.userRating === "skim" || e.userRating === "skip") && e.durationSeconds != null) {
-      const watched = e.watchedSeconds ?? 0;
-      return acc + Math.max(0, e.durationSeconds - watched);
-    }
-    return acc;
-  }, 0);
-}
+// computeTimeSaved now lives in lib/dashboards.ts (shared with the windowed views).
 
 // ---------------------------------------------------------------------------
 // 12-week activity heatmap helpers
@@ -169,6 +166,198 @@ function DonutChart({ slices, size = 120 }: { slices: DonutSlice[]; size?: numbe
 }
 
 // ---------------------------------------------------------------------------
+// Windowed-view helpers (F7 Phase 1)
+// ---------------------------------------------------------------------------
+
+const WINDOW_LABEL: Record<WindowKind, string> = { week: "week", month: "month", year: "year" };
+
+/** A ▲/▼ pill comparing this window to the prior one. `good` flips the color so
+ *  "down" is green for a metric where less is better (we don't use that here, but
+ *  it keeps the chip honest). */
+function DeltaChip({ delta, suffix = "vs last" }: { delta: Delta; suffix?: string }) {
+  if (delta.dir === "new") {
+    return <span className="stat-delta new">new</span>;
+  }
+  if (delta.dir === "flat" || delta.pct === null) return null;
+  const arrow = delta.dir === "up" ? "▲" : "▼";
+  return (
+    <span className={`stat-delta ${delta.dir}`}>
+      {arrow} {Math.abs(Math.round(delta.pct))}% {suffix}
+    </span>
+  );
+}
+
+/** Finish-rate = engaged / rated (0..1, or null when nothing rated). */
+function finishRate(e: { engaged: number; skimmed: number; skipped: number }): number | null {
+  const rated = e.engaged + e.skimmed + e.skipped;
+  return rated > 0 ? e.engaged / rated : null;
+}
+
+/** The worst channel worth nudging to block: high count + high skip rate. */
+function nudgeCandidate(channels: ChannelStats[], excluded: Set<string>): ChannelStats | null {
+  let worst: ChannelStats | null = null;
+  let worstRate = 0;
+  for (const c of channels) {
+    if (excluded.has(c.channel)) continue;
+    const b = c.userBreakdown;
+    const rated = b.engaged + b.skimmed + b.skipped;
+    if (rated < 5) continue;
+    const skipRate = b.skipped / rated;
+    if (skipRate >= 0.7 && skipRate > worstRate) {
+      worst = c;
+      worstRate = skipRate;
+    }
+  }
+  return worst;
+}
+
+/** The week/month/year view. Pure-presentational: all data is precomputed. */
+function WindowedView({
+  kind, cur, prev, handledNudges, onNudge,
+}: {
+  kind: WindowKind;
+  cur: WindowStats;
+  prev: WindowStats;
+  handledNudges: Set<string>;
+  onNudge: (ch: ChannelStats, block: boolean) => void;
+}) {
+  const label = WINDOW_LABEL[kind];
+  const nudge = nudgeCandidate(cur.topChannels, handledNudges);
+  const finCur = finishRate(cur.engagement);
+  const finPrev = finishRate(prev.engagement);
+  const ratedTotal = cur.engagement.engaged + cur.engagement.skimmed + cur.engagement.skipped;
+  const donutSlices: DonutSlice[] = [
+    { value: cur.engagement.engaged, color: "#22c55e", label: "Engaged" },
+    { value: cur.engagement.skimmed, color: "#eab308", label: "Skimmed" },
+    { value: cur.engagement.skipped, color: "#ef4444", label: "Skipped" },
+  ];
+
+  if (cur.summaries === 0 && cur.videosWithMeta === 0) {
+    return <div className="empty-state" style={{ marginTop: 8 }}>Nothing summarized this {label} yet.</div>;
+  }
+
+  return (
+    <div>
+      {/* Hero — time saved this period */}
+      <div className="stat-card" style={{ "--ca": "#14b8a6", "--cg": "rgba(20,184,166,0.22)", marginBottom: 16 } as React.CSSProperties}>
+        <div className="stat-card-label">Time TL;DW gave back this {label}</div>
+        <div className="stat-card-num" style={{ color: "#2dd4bf" }}>
+          {fmtSeconds(cur.timeSavedSeconds)}{" "}
+          <DeltaChip delta={pctDelta(cur.timeSavedSeconds, prev.timeSavedSeconds)} />
+        </div>
+        <div className="stats-hero-line">
+          <strong>{fmtCount(cur.videosWithMeta)}</strong>{" "}
+          {cur.videosWithMeta === 1 ? "video" : "videos"} you skimmed or skipped instead of watching in full.
+        </div>
+      </div>
+
+      {/* Behaviour nudge — block a channel you mostly skip */}
+      {nudge && (
+        <div className="stat-nudge">
+          {nudge.avatarUrl ? <img className="stat-channel-av" src={nudge.avatarUrl} alt="" /> : <span className="stat-channel-av" />}
+          <div className="stat-nudge-text">
+            You skipped{" "}
+            <strong>{nudge.userBreakdown.skipped} of {nudge.userBreakdown.engaged + nudge.userBreakdown.skimmed + nudge.userBreakdown.skipped}</strong>{" "}
+            videos from <strong>{nudge.channel}</strong> this {label}. Block it from TL;DW?
+          </div>
+          <button className="nudge-block" onClick={() => onNudge(nudge, true)}>Block channel</button>
+          <button className="nudge-dismiss" onClick={() => onNudge(nudge, false)}>Not now</button>
+        </div>
+      )}
+
+      {/* Finish-rate donut + what you watched */}
+      <div className="stats-grid stats-mid-row">
+        <div className="stat-card stat-card-donut" style={{ "--ca": "#8b5cf6", "--cg": "rgba(139,92,246,0.15)" } as React.CSSProperties}>
+          <div className="stat-card-label">
+            Finish rate
+            {finCur !== null && finPrev !== null && (
+              <span style={{ marginLeft: 8 }}><DeltaChip delta={pctDelta(finCur, finPrev)} /></span>
+            )}
+          </div>
+          {ratedTotal === 0 ? (
+            <div className="stat-empty">Nothing rated this {label} yet.</div>
+          ) : (
+            <div className="stat-donut-body">
+              <DonutChart slices={donutSlices} size={130} />
+              <div className="stat-donut-legend">
+                {donutSlices.map((s) => (
+                  <div key={s.label} className="stat-legend-row">
+                    <span className="stat-legend-dot" style={{ background: s.color }} />
+                    <span className="stat-legend-label">{s.label}</span>
+                    <span className="stat-legend-count">{fmtCount(s.value)}</span>
+                    <span className="stat-legend-pct">{Math.round((s.value / ratedTotal) * 100)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="stat-card" style={{ "--ca": "#f43f5e", "--cg": "rgba(244,63,94,0.12)" } as React.CSSProperties}>
+          <div className="stat-card-label">What you watched</div>
+          {cur.topChannels.length === 0 ? (
+            <div className="stat-empty">No channels this {label}.</div>
+          ) : (
+            <div>
+              {cur.topChannels.slice(0, 5).map((c) => {
+                const b = c.userBreakdown;
+                const rated = b.engaged + b.skimmed + b.skipped;
+                const eng = rated > 0 ? Math.round((b.engaged / rated) * 100) : null;
+                return (
+                  <div key={c.channel} className="stat-channel-row">
+                    {c.avatarUrl ? <img className="stat-channel-av" src={c.avatarUrl} alt="" /> : <span className="stat-channel-av" />}
+                    <span className="stat-channel-name">{c.channel}</span>
+                    <span className="stat-channel-meta">
+                      {c.count} {c.count === 1 ? "video" : "videos"}{eng !== null ? ` · ${eng}% engaged` : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Small tiles */}
+      <div className="stats-grid stats-small-row">
+        <div className="stat-card stat-card-sm" style={{ "--ca": "#7c3aed", "--cg": "rgba(124,58,237,0.15)" } as React.CSSProperties}>
+          <div className="stat-sm-icon">📋</div>
+          <div className="stat-sm-num" style={{ color: "#a78bfa" }}>{fmtCount(cur.summaries)}</div>
+          <div className="stat-sm-label">Summaries</div>
+          <div className="stat-sm-sub"><DeltaChip delta={pctDelta(cur.summaries, prev.summaries)} /></div>
+        </div>
+        <div className="stat-card stat-card-sm" style={{ "--ca": "#06b6d4", "--cg": "rgba(6,182,212,0.15)" } as React.CSSProperties}>
+          <div className="stat-sm-icon">🗓</div>
+          <div className="stat-sm-num" style={{ color: "#22d3ee" }}>
+            {cur.activeDays}<span style={{ fontSize: 14, color: "#64748b" }}> / {cur.totalDays}</span>
+          </div>
+          <div className="stat-sm-label">Active days</div>
+          <div className="stat-sm-sub">this {label}</div>
+        </div>
+        <div className="stat-card stat-card-sm" style={{ "--ca": "#22c55e", "--cg": "rgba(34,197,94,0.15)" } as React.CSSProperties}>
+          <div className="stat-sm-icon">📺</div>
+          <div className="stat-sm-num" style={{ color: "#4ade80" }}>{fmtHours(cur.hoursPreviewedSeconds)}</div>
+          <div className="stat-sm-label">Hours previewed</div>
+          <div className="stat-sm-sub">of content summarized</div>
+        </div>
+        <div className="stat-card stat-card-sm" style={{ "--ca": "#a78bfa", "--cg": "rgba(167,139,250,0.15)" } as React.CSSProperties}>
+          <div className="stat-sm-icon">📡</div>
+          <div className="stat-sm-num" style={{ color: "#c4b5fd" }}>{fmtCount(cur.uniqueChannels)}</div>
+          <div className="stat-sm-label">Channels</div>
+          <div className="stat-sm-sub">this {label}</div>
+        </div>
+      </div>
+
+      {kind === "year" && (
+        <div className="stats-window-note">
+          Year view reflects your retained history — older entries may be pruned by your history limit / auto-delete settings.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -176,6 +365,16 @@ export function StatsSection() {
   const [stats, setStats] = useState<LifetimeStats | null>(null);
   const [usage, setUsage] = useState<GeminiUsage | null>(null);
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
+  const [view, setView] = useState<WindowKind | "all">("week");
+  // Channels the user dismissed or blocked via the nudge this session.
+  const [handledNudges, setHandledNudges] = useState<Set<string>>(new Set());
+
+  // Windowed comparison — derived only, recomputed when data or window changes
+  // (no extra storage reads; the storage listener already keeps history/stats fresh).
+  const comparison = useMemo(
+    () => (view !== "all" && stats ? compareWindows(history, stats.activity, view) : null),
+    [view, stats, history],
+  );
 
   async function loadAll() {
     const [s, u, h] = await Promise.all([getLifetimeStats(), getGeminiUsage(), getHistory()]);
@@ -230,6 +429,18 @@ export function StatsSection() {
 
   const hasAnyStats = stats.summaries > 0 || donutTotal > 0;
 
+  function handleNudge(ch: ChannelStats, block: boolean) {
+    if (block) {
+      void addBlockedChannel({
+        id: ch.channel,
+        name: ch.channel,
+        avatarUrl: ch.avatarUrl ?? "",
+        addedAt: new Date().toISOString(),
+      });
+    }
+    setHandledNudges((prev) => new Set(prev).add(ch.channel));
+  }
+
   return (
     <div>
       <div className="section-header">
@@ -238,6 +449,34 @@ export function StatsSection() {
           What TL;DW has saved you. All counted locally — nothing leaves your browser.
         </div>
       </div>
+
+      <div className="stats-window-toggle" role="tablist" aria-label="Stats window">
+        {(["week", "month", "year", "all"] as const).map((w) => (
+          <button
+            key={w}
+            role="tab"
+            aria-selected={view === w}
+            className={view === w ? "active" : ""}
+            onClick={() => setView(w)}
+          >
+            {w === "all" ? "All-time" : w === "week" ? "This week" : w === "month" ? "This month" : "This year"}
+          </button>
+        ))}
+      </div>
+
+      {view !== "all" && comparison && (
+        <WindowedView
+          kind={view}
+          cur={comparison.current}
+          prev={comparison.previous}
+          handledNudges={handledNudges}
+          onNudge={handleNudge}
+        />
+      )}
+
+      {view === "all" && (
+      <>
+      {/* keeps the original All-time layout byte-identical */}
 
       {/* ── Hero row ───────────────────────────────────────────── */}
       <div className="stats-grid stats-hero-row">
@@ -367,6 +606,8 @@ export function StatsSection() {
         <div className="stats-since">
           Tracking since {fmtDate(stats.since)}
         </div>
+      )}
+      </>
       )}
     </div>
   );
