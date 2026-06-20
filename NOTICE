@@ -1,0 +1,33 @@
+Third-Party Notices for TL;DW
+
+TL;DW is licensed under the MIT License (see LICENSE). It uses the following
+third-party software and data.
+
+== Bundled software ==
+
+React and React-DOM — MIT License.
+Copyright (c) Meta Platforms, Inc. and affiliates.
+https://github.com/facebook/react
+
+(Build/dev tooling — Vite, @crxjs/vite-plugin, TypeScript, Vitest — is used at
+build time only and is not redistributed in the packaged extension.)
+
+== Data services queried at runtime ==
+
+SponsorBlock — community-sourced sponsor-segment data.
+When sponsor-skip is enabled, TL;DW performs read-only segment lookups against
+the public SponsorBlock API (https://sponsor.ajay.app). It does not bundle,
+mirror, or redistribute the SponsorBlock database. The SponsorBlock segment
+database is made available under the Open Database License (ODbL) and
+Creative Commons Attribution-NonCommercial-ShareAlike 4.0 (CC BY-NC-SA 4.0);
+attribution is given here and the NonCommercial term applies to the data.
+SponsorBlock is a project by Ajay Ramachandran and contributors.
+https://sponsor.ajay.app/
+
+== Third-party services accessed with the user's own credentials ==
+
+The AI destinations — Google Gemini, OpenAI ChatGPT, Anthropic Claude, and
+Google NotebookLM — are independent third-party services. TL;DW accesses them
+through the user's own signed-in account (open-in-a-tab mode) or the user's own
+API key (Direct API mode). They are not bundled with, endorsed by, or
+affiliated with TL;DW. Their respective terms and privacy policies apply.

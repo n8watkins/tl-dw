@@ -42,6 +42,8 @@ your time before you spend it.
 - **Open-in-a-tab mode** uses whatever AI account you're already signed into; the
   prompt and transcript are sent to that site like any chat message.
 
+See [`PRIVACY.md`](PRIVACY.md) for the full privacy policy.
+
 ## Local Setup
 
 Requires Node 18+ (the Vite toolchain and the ESM `.mjs` build scripts assume a
@@ -106,6 +108,11 @@ number should match the latest build.
   motion works.
 - [`LESSONS_LEARNED.md`](LESSONS_LEARNED.md) — hard-won MV3 / YouTube-SPA patterns,
   each anchored to the code where it bites.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup, the test gate, and commit/PR
+  conventions.
+- [`PRIVACY.md`](PRIVACY.md) — the privacy policy (what's stored, what leaves your
+  device, and to whom).
+- [`CHANGELOG.md`](CHANGELOG.md) — notable feature milestones.
 - [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) — the manual in-Chrome smoke-test
   checklist.
 - [`docs/archive/`](docs/archive/) — completed planning / sprint docs, kept for
@@ -114,11 +121,13 @@ number should match the latest build.
 
 ## Contributing
 
-[`STATUS.md`](STATUS.md) is the live status doc. Feature work lands on short-lived
-`feat/*` branches via PR. Larger efforts have used a two-parallel-agent worktree
-split (data/prompt layer vs the `src/content/youtube.ts` widget); those completed
-sprint briefs are archived under [`docs/archive/`](docs/archive/).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the dev loop and conventions.
+[`STATUS.md`](STATUS.md) is the live status doc. In short: feature work lands on
+short-lived `feat/*` branches via PR, and every change is gated by `npm run
+typecheck` + `npm test` (currently 101 passing unit tests) plus the relevant
+[`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) checks before committing.
 
-Whatever you touch, gate every change with `npm run typecheck` and `npm test`
-(currently 101 passing unit tests) and run through
-[`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) before committing.
+## License
+
+[MIT](LICENSE) © Nathan Watkins. Third-party software and data (React; SponsorBlock
+community data) are credited in [`NOTICE`](NOTICE).
