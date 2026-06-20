@@ -59,4 +59,30 @@ describe("parseTldwBlock", () => {
   it("returns null when SUMMARY is missing", () => {
     expect(parseTldwBlock(block("VERDICT: WATCH\nRATING: 8"))).toBeNull();
   });
+
+  // #2 — the model restates the format template, then gives the real block.
+  it("prefers the LAST delimited block when the template is restated first", () => {
+    const restated =
+      "Here's the format I'll use:\n" +
+      "---TLDW---\nVERDICT: WATCH, SKIM, or SKIP\nSUMMARY: [one sentence — the conclusion]\n---END TLDW---\n\n" +
+      "Now the actual answer:\n" +
+      "---TLDW---\nVERDICT: SKIP\nRATING: 2\nSUMMARY: The real takeaway is it's filler.\nDETAILS: Skip it.\n---END TLDW---";
+    const out = parseTldwBlock(restated);
+    expect(out?.verdict).toBe("SKIP");
+    expect(out?.summary).toBe("The real takeaway is it's filler.");
+  });
+
+  // #7 — markdown inside the VALUE must be preserved, not deleted.
+  it("preserves * _ ` inside the summary/details value", () => {
+    const out = parseTldwBlock(
+      block("VERDICT: WATCH\nSUMMARY: Use the AWS_SECRET_KEY env var with *care*.\nDETAILS: See `config.ts`."),
+    );
+    expect(out?.summary).toBe("Use the AWS_SECRET_KEY env var with *care*.");
+    expect(out?.details).toBe("See `config.ts`.");
+  });
+
+  // #8 — a bare "TLDW" word in prose must not anchor the parse.
+  it("ignores a bare 'TLDW' mention in the prose", () => {
+    expect(parseTldwBlock("I'll give you the TLDW shortly. SUMMARY: not a real block")).toBeNull();
+  });
 });

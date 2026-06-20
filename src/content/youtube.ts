@@ -1737,7 +1737,22 @@ function showIdlePanel(onGetSummary: () => void): void {
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-const autoRunVideoIds = new Set<string>();
+// The video for which an automatic ASK has already been sent in the CURRENT
+// visit. Both auto paths (channel auto-run + the autoTldwMinutes threshold) set
+// it, so the two can't double-fire — but it's reset on every navigation, so a
+// failed/interrupted run never permanently blocks a re-summarize on revisit.
+// (A permanent per-video set did exactly that: a Direct-API failure left the
+// next visit stuck on a 90s skeleton with no ASK.)
+let autoAskedVid: string | null = null;
+
+/** Send the automatic ASK at most once per visit. Returns false (no send) if an
+ *  automatic ASK already went out for this video since the last navigation. */
+function sendAutoAsk(vid: string): boolean {
+  if (autoAskedVid === vid) return false;
+  autoAskedVid = vid;
+  void chrome.runtime.sendMessage({ type: "ASK" }).catch(() => { /* best effort */ });
+  return true;
+}
 
 /**
  * Direct API path: fires on navigation.
@@ -1814,11 +1829,11 @@ async function maybeStartDirectApiRun(): Promise<void> {
   // Note: invoked synchronously below for auto-run, or later from a user click
   // (idle/retry button) — in the click case the panel only exists for the current
   // video, so acting on it is correct.
-  // `auto` true => this is an automatic run (channel auto-run). It shares the
-  // autoRunVideoIds dedup with the length-threshold path so the two can't both
-  // fire ASK for the same video; the loading panel still shows and the result
-  // arrives via SET_SUMMARY. Manual runs (idle button / retry) pass auto=false
-  // so a user click always re-sends.
+  // `auto` true => automatic run (channel auto-run). It shares the per-visit
+  // sendAutoAsk dedup with the length-threshold path so the two can't both fire
+  // ASK for the same video; the loading panel still shows and the result arrives
+  // via SET_SUMMARY. Manual runs (idle button / retry) pass auto=false so a user
+  // click always re-sends, even after a prior failure.
   const startApiCall = async (auto = false) => {
     const freshR = await chrome.storage.local.get("tldwSummaryCache");
     if (stale()) return;
@@ -1829,11 +1844,13 @@ async function maybeStartDirectApiRun(): Promise<void> {
     }
     showLoadingPanel();
     void getTranscript();
-    if (auto) {
-      if (autoRunVideoIds.has(vid)) { log("auto ASK already sent for this video; awaiting result"); return; }
-      autoRunVideoIds.add(vid);
-    }
     log("summary run started");
+    if (auto) {
+      // Dedup-gated: if the threshold path already fired ASK this visit, the
+      // result is coming — keep the loading panel, don't double-send.
+      sendAutoAsk(vid);
+      return;
+    }
     try {
       await chrome.runtime.sendMessage({ type: "ASK" });
     } catch { /* best effort */ }
@@ -1874,10 +1891,10 @@ async function maybeStartDirectApiRun(): Promise<void> {
  */
 async function autoRunIfLong(): Promise<void> {
   const vid = currentVideoId();
-  // autoRunVideoIds is the shared dedup with the channel auto-run path: whichever
-  // fires ASK first marks the video, so the two can't double-fire for the same
-  // video without suppressing this threshold run when it's the sole auto-summarizer.
-  if (!vid || autoRunVideoIds.has(vid) || summaryPanel) return;
+  // sendAutoAsk is the shared per-visit dedup with the channel auto-run path:
+  // whichever fires first marks the video, so the two can't double-fire — but the
+  // mark resets on navigation, so this threshold run isn't permanently blocked.
+  if (!vid || summaryPanel || autoAskedVid === vid) return;
 
   const r = await chrome.storage.local.get("settings");
   const s = r["settings"] as Record<string, unknown> | undefined;
@@ -1887,13 +1904,10 @@ async function autoRunIfLong(): Promise<void> {
   const { durationSeconds } = getVideoMeta();
   if (!durationSeconds || durationSeconds / 60 < threshold) return;
 
-  autoRunVideoIds.add(vid);
+  // Re-check after the await: a panel may have mounted, or we may have navigated.
+  if (currentVideoId() !== vid || summaryPanel || autoAskedVid === vid) return;
   log("auto-running TL;DW for", Math.round(durationSeconds / 60), "min video");
-  try {
-    await chrome.runtime.sendMessage({ type: "ASK" });
-  } catch {
-    /* best effort */
-  }
+  sendAutoAsk(vid);
 }
 
 // yt-navigate-finish doesn't fire for all YouTube SPA navigation types.
@@ -1910,6 +1924,9 @@ function onNavigate(): void {
   lastHandledUrl = url;
   // Invalidate any in-flight run for the previous video before starting a new one.
   navEpoch++;
+  // Reset the per-visit auto-ASK dedup so the new video can auto-summarize (and a
+  // failed run on a previous visit doesn't block this one).
+  autoAskedVid = null;
   removeSummaryPanel();
   activeTranscriptFetch = null;
   currentChannelInfo = null;
