@@ -45,6 +45,13 @@ describe("buildDestinationPrompt", () => {
     expect(out).toContain("---TLDW---");
   });
 
+  it("instructs the model to drop meta-framing (state substance directly) — F5", () => {
+    const out = buildDestinationPrompt(profile, video, dest({ payload: "prompt", canWatch: true }));
+    expect(out).toContain("Do NOT describe the video");
+    // names the filler phrasings to avoid
+    expect(out).toMatch(/provides \/ covers \/ explains/);
+  });
+
   it("a watch-capable destination (Gemini) never appends the transcript", () => {
     const out = buildDestinationPrompt(
       profile,

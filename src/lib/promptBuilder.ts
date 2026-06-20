@@ -100,11 +100,18 @@ export function appendTldwBlock(prompt: string): string {
     prompt +
     "\n\nEnd your response with this block, formatted EXACTLY as shown — keep the " +
     "field labels and the `---` lines literally:\n\n" +
+    "Write the SUMMARY and DETAILS as direct statements of what the video actually " +
+    "says — its claims, findings, and advice. Do NOT describe the video or narrate " +
+    "what it 'does': never use framing like \"the video provides / covers / explains " +
+    "/ highlights / discusses / walks through\" or \"this is a masterclass in\". " +
+    "Speak as if stating the substance yourself. For example, write \"Fix conversion " +
+    "bottlenecks before scaling ad spend\" — not \"The video provides a masterclass in " +
+    "incremental improvement, focusing on fixing conversion bottlenecks.\"\n\n" +
     "---TLDW---\n" +
     "VERDICT: WATCH, SKIM, or SKIP\n" +
     "RATING: a single whole number from 1 to 10 for how worth-watching the video is\n" +
-    "SUMMARY: [one sentence — the video's actual conclusion or argument, stated directly, not a description of what it covers]\n" +
-    "DETAILS: [2-4 sentences: the key support, notable caveats, or what's skippable]\n" +
+    "SUMMARY: [one sentence stating the video's actual conclusion or claim directly]\n" +
+    "DETAILS: [2-4 sentences of the actual substance, stated directly as claims/advice — no meta-framing about 'the video']\n" +
     "---END TLDW---"
   );
 }
