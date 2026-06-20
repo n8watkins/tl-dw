@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { LifetimeStats, GeminiUsage, SearchHistoryEntry } from "../../types";
-import { addBlockedChannel, getLifetimeStats, getGeminiUsage, getHistory } from "../../lib/storage";
+import { addBlockedChannel, getBlockedChannels, getLifetimeStats, getGeminiUsage, getHistory } from "../../lib/storage";
 import { computeChannelStats, type ChannelStats } from "../../lib/history";
 import { GEMINI_USAGE_KEY, localDateKey, STORAGE_KEYS, TLDW_STATS_KEY } from "../../lib/constants";
 import {
@@ -174,7 +174,7 @@ const WINDOW_LABEL: Record<WindowKind, string> = { week: "week", month: "month",
 /** A ▲/▼ pill comparing this window to the prior one. `good` flips the color so
  *  "down" is green for a metric where less is better (we don't use that here, but
  *  it keeps the chip honest). */
-function DeltaChip({ delta, suffix = "vs last" }: { delta: Delta; suffix?: string }) {
+function DeltaChip({ delta, suffix = "vs last", unit = "%" }: { delta: Delta; suffix?: string; unit?: string }) {
   if (delta.dir === "new") {
     return <span className="stat-delta new">new</span>;
   }
@@ -182,9 +182,17 @@ function DeltaChip({ delta, suffix = "vs last" }: { delta: Delta; suffix?: strin
   const arrow = delta.dir === "up" ? "▲" : "▼";
   return (
     <span className={`stat-delta ${delta.dir}`}>
-      {arrow} {Math.abs(Math.round(delta.pct))}% {suffix}
+      {arrow} {Math.abs(Math.round(delta.pct))}{unit} {suffix}
     </span>
   );
+}
+
+/** A finish-rate (0..1) is a ratio, so compare it in percentage POINTS — a prior
+ *  rate of exactly 0% is real data (all skim/skip), not absence, so it must never
+ *  read as "new". */
+function ratePointsDelta(cur: number, prev: number): Delta {
+  const pts = (cur - prev) * 100;
+  return { pct: pts, dir: pts > 0.5 ? "up" : pts < -0.5 ? "down" : "flat" };
 }
 
 /** Finish-rate = engaged / rated (0..1, or null when nothing rated). */
@@ -271,7 +279,7 @@ function WindowedView({
           <div className="stat-card-label">
             Finish rate
             {finCur !== null && finPrev !== null && (
-              <span style={{ marginLeft: 8 }}><DeltaChip delta={pctDelta(finCur, finPrev)} /></span>
+              <span style={{ marginLeft: 8 }}><DeltaChip delta={ratePointsDelta(finCur, finPrev)} unit="pts" /></span>
             )}
           </div>
           {ratedTotal === 0 ? (
@@ -368,6 +376,9 @@ export function StatsSection() {
   const [view, setView] = useState<WindowKind | "all">("week");
   // Channels the user dismissed or blocked via the nudge this session.
   const [handledNudges, setHandledNudges] = useState<Set<string>>(new Set());
+  // Already-blocked channel names (loaded once) — so we never re-nudge to block
+  // a channel that's already blocked across reloads.
+  const [blockedNames, setBlockedNames] = useState<Set<string>>(new Set());
 
   // Windowed comparison — derived only, recomputed when data or window changes
   // (no extra storage reads; the storage listener already keeps history/stats fresh).
@@ -377,10 +388,13 @@ export function StatsSection() {
   );
 
   async function loadAll() {
-    const [s, u, h] = await Promise.all([getLifetimeStats(), getGeminiUsage(), getHistory()]);
+    const [s, u, h, blocked] = await Promise.all([
+      getLifetimeStats(), getGeminiUsage(), getHistory(), getBlockedChannels(),
+    ]);
     setStats(s);
     setUsage(u);
     setHistory(h);
+    setBlockedNames(new Set(blocked.map((c) => c.name)));
   }
 
   useEffect(() => {
@@ -469,7 +483,7 @@ export function StatsSection() {
           kind={view}
           cur={comparison.current}
           prev={comparison.previous}
-          handledNudges={handledNudges}
+          handledNudges={new Set([...handledNudges, ...blockedNames])}
           onNudge={handleNudge}
         />
       )}

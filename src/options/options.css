@@ -1674,7 +1674,7 @@ textarea { min-height: 176px; font-family: "JetBrains Mono", "Fira Code", ui-mon
   appearance: none;
   border: none;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -1696,7 +1696,7 @@ textarea { min-height: 176px; font-family: "JetBrains Mono", "Fira Code", ui-mon
 .stats-hero-line {
   font-size: 15px;
   line-height: 1.5;
-  color: var(--text-muted);
+  color: var(--muted);
 }
 .stats-hero-line strong {
   color: var(--text);
