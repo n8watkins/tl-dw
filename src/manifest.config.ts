@@ -6,6 +6,8 @@ export default defineManifest({
   name: "TL;DW",
   short_name: "TL;DW",
   version: pkg.version,
+  // A content script declares `world: "MAIN"`, which Chrome only honors from 111.
+  minimum_chrome_version: "111",
   description:
     "Too Long; Didn't Watch for YouTube. Send the current video to Gemini, ChatGPT, Claude, or NotebookLM in one keystroke.",
   icons: {
@@ -84,7 +86,9 @@ export default defineManifest({
   permissions: ["storage", "tabs", "contextMenus", "clipboardWrite"],
   host_permissions: [
     "https://www.youtube.com/*",
-    "https://youtube.com/*",
+    // The content scripts also match m.youtube.com (mobile); the bare
+    // youtube.com host is unused (it 301s to www before any script runs).
+    "https://m.youtube.com/*",
     "https://gemini.google.com/*",
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
