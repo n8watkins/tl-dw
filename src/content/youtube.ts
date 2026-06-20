@@ -543,6 +543,7 @@ let currentDirectApiEnabled = false;
 // (LESSONS_LEARNED #9 — "state goes stale after every await").
 let navEpoch = 0;
 
+
 // --- TL;DW summary panel -------------------------------------------------
 
 type TldwSummary = { verdict: string; summary: string; rating: string; details?: string; source?: string };
@@ -1813,7 +1814,12 @@ async function maybeStartDirectApiRun(): Promise<void> {
   // Note: invoked synchronously below for auto-run, or later from a user click
   // (idle/retry button) — in the click case the panel only exists for the current
   // video, so acting on it is correct.
-  const startApiCall = async () => {
+  // `auto` true => this is an automatic run (channel auto-run). It shares the
+  // autoRunVideoIds dedup with the length-threshold path so the two can't both
+  // fire ASK for the same video; the loading panel still shows and the result
+  // arrives via SET_SUMMARY. Manual runs (idle button / retry) pass auto=false
+  // so a user click always re-sends.
+  const startApiCall = async (auto = false) => {
     const freshR = await chrome.storage.local.get("tldwSummaryCache");
     if (stale()) return;
     const freshCache = (freshR["tldwSummaryCache"] as Record<string, CacheEntry> | undefined)?.[vid];
@@ -1823,6 +1829,10 @@ async function maybeStartDirectApiRun(): Promise<void> {
     }
     showLoadingPanel();
     void getTranscript();
+    if (auto) {
+      if (autoRunVideoIds.has(vid)) { log("auto ASK already sent for this video; awaiting result"); return; }
+      autoRunVideoIds.add(vid);
+    }
     log("summary run started");
     try {
       await chrome.runtime.sendMessage({ type: "ASK" });
@@ -1847,7 +1857,7 @@ async function maybeStartDirectApiRun(): Promise<void> {
   // destination tab (the user opted into auto-summarize for this channel);
   // headless mode runs the Gemini call with no tab.
   if (currentAutoRunSummary) {
-    await startApiCall();
+    await startApiCall(true);
     return;
   }
 
@@ -1864,6 +1874,9 @@ async function maybeStartDirectApiRun(): Promise<void> {
  */
 async function autoRunIfLong(): Promise<void> {
   const vid = currentVideoId();
+  // autoRunVideoIds is the shared dedup with the channel auto-run path: whichever
+  // fires ASK first marks the video, so the two can't double-fire for the same
+  // video without suppressing this threshold run when it's the sole auto-summarizer.
   if (!vid || autoRunVideoIds.has(vid) || summaryPanel) return;
 
   const r = await chrome.storage.local.get("settings");
