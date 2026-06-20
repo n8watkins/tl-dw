@@ -7,7 +7,7 @@ priority: high
 project_kind: multi
 
 local:
-  path: ~/n8builds/extensions/tldw
+  path: ~/projects/extensions/tldw
   dev_command: npm run dev
   build_command: npm run build
   test_command: npm run typecheck
@@ -19,7 +19,7 @@ links:
     url: https://github.com/n8watkins/tl-dw
   - label: Local Folder
     type: local
-    url: ~/n8builds/extensions/tldw
+    url: ~/projects/extensions/tldw
 
 parts:
   - name: Extension
