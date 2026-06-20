@@ -31,8 +31,14 @@ describe("watchedSecondsFromHistory", () => {
     expect(watchedSecondsFromHistory([hist("aaa", 137)], "aaa")).toBe(137);
   });
 
-  it("uses the newest (first) matching entry — history is newest-first", () => {
+  it("takes the max over all matching entries", () => {
     expect(watchedSecondsFromHistory([hist("aaa", 200), hist("aaa", 50)], "aaa")).toBe(200);
+  });
+
+  it("isn't shadowed by a newer summary entry that has no watchedSeconds", () => {
+    // addHistoryEntry prepends a summary row (no watchedSeconds) over the stub
+    // that holds the accumulated total — first-match would wrongly return 0.
+    expect(watchedSecondsFromHistory([hist("aaa"), hist("aaa", 120)], "aaa")).toBe(120);
   });
 });
 

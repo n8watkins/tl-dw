@@ -315,14 +315,18 @@ async function handleNav(): Promise<void> {
 
   // Restore accumulated progress so a refresh / return to a partly-watched video
   // resumes the engagement measurement (which feeds the per-channel average)
-  // instead of resetting to 0. Clamp to duration when known so a re-watch can't
-  // exceed 100%. Seed only the in-page accumulator — NOT pendingDelta — so we
-  // never re-report already-counted seconds to lifetime stats.
+  // instead of resetting to 0. Add the stored baseline to whatever an autoplaying
+  // video has already accrued during this await (so the autoplay timeupdate can't
+  // race the seed to 0 — the old `=== 0` guard lost the seed in exactly F3's
+  // target scenario). Only the in-page accumulator is seeded — NOT pendingDelta —
+  // so already-counted seconds are never re-reported to lifetime stats. Clamp to
+  // duration so a re-watch can't exceed 100%.
   try {
     const stored = await getWatchedSecondsForVideo(vid);
-    if (currentVid === vid && totalWatched === 0 && stored > 0) {
+    if (currentVid === vid && stored > 0) {
       const dur = currentDuration();
-      totalWatched = dur > 0 ? Math.min(stored, dur) : stored;
+      const base = stored + totalWatched;
+      totalWatched = dur > 0 ? Math.min(base, dur) : base;
       lastNotifiedAt = totalWatched;
     }
   } catch {

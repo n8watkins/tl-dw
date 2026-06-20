@@ -71,18 +71,25 @@ export async function setHistory(history: SearchHistoryEntry[]): Promise<void> {
 }
 
 /**
- * Accumulated watched-seconds for a video from history (0 if none). History is
- * newest-first, so the first matching entry holds the latest total. Pure helper
- * exported for tests; `getWatchedSecondsForVideo` wraps it over stored history.
- * Used by the watch-time engine to RESTORE progress on reload (F3) so a refresh
- * doesn't reset the engagement measurement that feeds the per-channel average.
+ * Accumulated watched-seconds for a video from history (0 if none). A video can
+ * have MULTIPLE history rows — a summary entry (no watchedSeconds) prepended by
+ * addHistoryEntry can shadow the watch-progress stub that holds the total — so we
+ * take the max over ALL matching entries rather than trusting first-match. Pure
+ * helper exported for tests; `getWatchedSecondsForVideo` wraps it over stored
+ * history. Used by the watch-time engine to RESTORE progress on reload (F3) so a
+ * refresh doesn't reset the engagement measurement that feeds the average.
  */
 export function watchedSecondsFromHistory(
   history: SearchHistoryEntry[],
   videoId: string,
 ): number {
-  const entry = history.find((e) => extractVideoId(e.videoUrl) === videoId);
-  return entry?.watchedSeconds ?? 0;
+  let max = 0;
+  for (const e of history) {
+    if (extractVideoId(e.videoUrl) === videoId && (e.watchedSeconds ?? 0) > max) {
+      max = e.watchedSeconds!;
+    }
+  }
+  return max;
 }
 
 export async function getWatchedSecondsForVideo(videoId: string): Promise<number> {
@@ -703,9 +710,12 @@ export async function removeBlockedChannel(channelId: string): Promise<void> {
 // A tag = { id, label, prompt }. Assignments live in two maps:
 //   CHANNEL_TAGS_KEY: channelKey -> tag ids   (auto-apply to the channel's videos)
 //   VIDEO_TAGS_KEY:   videoId    -> tag ids   (one-off for a single video)
-// channelKey is the channel DISPLAY NAME (both the widget's currentChannelInfo.name
-// and the background's video.channel resolve to it). videoId = extractVideoId(url).
-// The widget (content script) writes assignments directly; these helpers serve the
+// The widget writes channel assignments under getChannelInfo().id (the /@Handle
+// href, falling back to the name). The background only reliably has the display
+// name, but it now also threads the channel id (VideoMeta.channelId), so
+// getActiveTags matches channel tags by id OR name — the same belt-and-suspenders
+// every other channel-scoped feature uses (auto-run, blocked). videoId =
+// extractVideoId(url). The widget writes directly; these helpers serve the
 // background (resolve/weave) and the options Tags-library section.
 
 type TagAssignments = Record<string, string[]>;
@@ -718,6 +728,16 @@ export async function getTags(): Promise<Tag[]> {
 export async function setTags(tags: Tag[]): Promise<void> {
   await withWriteLock(TAGS_KEY, async () => {
     await chrome.storage.local.set({ [TAGS_KEY]: tags });
+  });
+}
+
+/** Serialized read-modify-write of the tag library — use this for edits so a
+ *  concurrent write (e.g. the widget's quick-create) isn't clobbered by a blind
+ *  overwrite of a stale snapshot. */
+export async function mutateTags(fn: (tags: Tag[]) => Tag[]): Promise<void> {
+  await withWriteLock(TAGS_KEY, async () => {
+    const tags = await getTags();
+    await chrome.storage.local.set({ [TAGS_KEY]: fn(tags) });
   });
 }
 
@@ -736,11 +756,13 @@ export async function getVideoTagIds(videoId: string): Promise<string[]> {
 
 /**
  * The active tags for a video: (channel tags ∪ video tags), deduped, resolved
- * against the library and returned in library order. Ids with no surviving
+ * against the library and returned in library order. Channel tags are matched by
+ * id OR name (the widget keys by id-with-name-fallback). Ids with no surviving
  * library entry (a deleted tag) are dropped.
  */
 export async function getActiveTags(args: {
-  channelKey?: string;
+  channelId?: string;
+  channelName?: string;
   videoId?: string;
 }): Promise<Tag[]> {
   const [library, channelMap, videoMap] = await Promise.all([
@@ -749,7 +771,8 @@ export async function getActiveTags(args: {
     readAssignments(VIDEO_TAGS_KEY),
   ]);
   const ids = new Set<string>([
-    ...(args.channelKey ? channelMap[args.channelKey] ?? [] : []),
+    ...(args.channelId ? channelMap[args.channelId] ?? [] : []),
+    ...(args.channelName ? channelMap[args.channelName] ?? [] : []),
     ...(args.videoId ? videoMap[args.videoId] ?? [] : []),
   ]);
   return library.filter((t) => ids.has(t.id));
@@ -790,14 +813,37 @@ export async function removeVideoTag(videoId: string, tagId: string): Promise<vo
 }
 
 /** "Apply to all future videos of this channel": move a tag from the video's
- *  one-off list into the channel's auto-apply list. */
+ *  one-off list into the channel's auto-apply list. Add to the channel FIRST,
+ *  then remove from the video — so a mid-operation failure leaves the tag in BOTH
+ *  buckets (getActiveTags dedups) rather than neither. */
 export async function promoteVideoTagToChannel(
   videoId: string,
   channelKey: string,
   tagId: string,
 ): Promise<void> {
-  await removeVideoTag(videoId, tagId);
   await addChannelTag(channelKey, tagId);
+  await removeVideoTag(videoId, tagId);
+}
+
+/** Delete a tag from the library AND strip its id from every channel/video
+ *  assignment, so no orphaned ids remain (the UI promises this on delete). */
+export async function deleteTagEverywhere(tagId: string): Promise<void> {
+  await mutateTags((tags) => tags.filter((t) => t.id !== tagId));
+  for (const key of [CHANNEL_TAGS_KEY, VIDEO_TAGS_KEY]) {
+    await withWriteLock(key, async () => {
+      const map = await readAssignments(key);
+      let changed = false;
+      for (const bucket of Object.keys(map)) {
+        const next = map[bucket]!.filter((id) => id !== tagId);
+        if (next.length !== map[bucket]!.length) {
+          changed = true;
+          if (next.length) map[bucket] = next;
+          else delete map[bucket];
+        }
+      }
+      if (changed) await chrome.storage.local.set({ [key]: map });
+    });
+  }
 }
 
 /** Open searches whose tabs are still open; prunes any that have closed. */

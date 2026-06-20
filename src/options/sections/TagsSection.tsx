@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Tag } from "../../types";
 import { TAGS_KEY } from "../../lib/constants";
-import { getTags, setTags } from "../../lib/storage";
+import { deleteTagEverywhere, getTags, mutateTags } from "../../lib/storage";
 import { Icon } from "../components/Icons";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 
@@ -33,26 +33,30 @@ export function TagsSection() {
     return () => chrome.storage.onChanged.removeListener(onChange);
   }, []);
 
-  /** Live edit in local state (smooth typing); persisted on blur / add / delete. */
+  /** Live edit in local state (smooth typing); committed on blur. */
   function editLocal(id: string, patch: Partial<Tag>) {
     setTagsState((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }
 
-  async function persist(next?: Tag[]) {
-    const value = next ?? tags;
-    if (next) setTagsState(next);
-    await setTags(value);
+  /** Persist one tag's current local values via read-modify-write, so a
+   *  concurrent external write (widget quick-create) isn't clobbered. */
+  function commitTag(tag: Tag) {
+    void mutateTags((stored) =>
+      stored.some((t) => t.id === tag.id)
+        ? stored.map((t) => (t.id === tag.id ? { ...t, label: tag.label, prompt: tag.prompt } : t))
+        : [...stored, tag],
+    );
   }
 
   function addTag(seed?: { label: string; prompt: string }) {
-    void persist([
-      ...tags,
-      { id: crypto.randomUUID(), label: seed?.label ?? "", prompt: seed?.prompt ?? "" },
-    ]);
+    const tag: Tag = { id: crypto.randomUUID(), label: seed?.label ?? "", prompt: seed?.prompt ?? "" };
+    setTagsState((prev) => [...prev, tag]);
+    void mutateTags((stored) => [...stored, tag]);
   }
 
   function deleteTag(id: string) {
-    void persist(tags.filter((t) => t.id !== id));
+    setTagsState((prev) => prev.filter((t) => t.id !== id));
+    void deleteTagEverywhere(id); // also strips it from channel/video assignments
     setDeleteId(null);
   }
 
@@ -88,7 +92,7 @@ export function TagsSection() {
                   value={tag.label}
                   placeholder="Tag name (e.g. Citations)"
                   onChange={(e) => editLocal(tag.id, { label: e.target.value })}
-                  onBlur={() => void persist()}
+                  onBlur={() => commitTag(tag)}
                   style={{ flex: 1, fontWeight: 600 }}
                 />
                 <button
@@ -105,7 +109,7 @@ export function TagsSection() {
                 value={tag.prompt}
                 placeholder="What should the AI do? e.g. 'Include the sources the video relies on.'"
                 onChange={(e) => editLocal(tag.id, { prompt: e.target.value })}
-                onBlur={() => void persist()}
+                onBlur={() => commitTag(tag)}
                 style={{ width: "100%", resize: "vertical", fontFamily: "inherit", fontSize: 14 }}
               />
             </div>
