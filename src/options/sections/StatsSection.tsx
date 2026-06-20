@@ -130,7 +130,10 @@ function DonutChart({ slices, size = 120 }: { slices: DonutSlice[]; size?: numbe
   const circumference = 2 * Math.PI * r;
 
   let offset = 0;
-  const arcs = slices.map((slice) => {
+  // Skip zero-value slices: a round line-cap paints a visible dot even on a
+  // zero-length dash (a stray dot when only one category has a value — common in
+  // the short windowed views).
+  const arcs = slices.filter((s) => s.value > 0).map((slice) => {
     const pct = slice.value / total;
     const dashArray = `${pct * circumference} ${(1 - pct) * circumference}`;
     const dashOffset = -offset * circumference;
@@ -193,6 +196,15 @@ function DeltaChip({ delta, suffix = "vs last", unit = "%" }: { delta: Delta; su
 function ratePointsDelta(cur: number, prev: number): Delta {
   const pts = (cur - prev) * 100;
   return { pct: pts, dir: pts > 0.5 ? "up" : pts < -0.5 ? "down" : "flat" };
+}
+
+/** Channel avatar with a graceful fallback to a plain circle — YouTube's signed
+ *  CDN avatar URLs expire (see STATUS.md), and a bare <img> would show a broken
+ *  glyph. Falls back to the same .stat-channel-av placeholder on missing/expired. */
+function ChannelAv({ url }: { url?: string }) {
+  const [err, setErr] = useState(false);
+  if (!url || err) return <span className="stat-channel-av" />;
+  return <img className="stat-channel-av" src={url} alt="" onError={() => setErr(true)} />;
 }
 
 /** Finish-rate = engaged / rated (0..1, or null when nothing rated). */
@@ -262,7 +274,7 @@ function WindowedView({
       {/* Behaviour nudge — block a channel you mostly skip */}
       {nudge && (
         <div className="stat-nudge">
-          {nudge.avatarUrl ? <img className="stat-channel-av" src={nudge.avatarUrl} alt="" /> : <span className="stat-channel-av" />}
+          <ChannelAv url={nudge.avatarUrl} />
           <div className="stat-nudge-text">
             You skipped{" "}
             <strong>{nudge.userBreakdown.skipped} of {nudge.userBreakdown.engaged + nudge.userBreakdown.skimmed + nudge.userBreakdown.skipped}</strong>{" "}
@@ -313,7 +325,7 @@ function WindowedView({
                 const eng = rated > 0 ? Math.round((b.engaged / rated) * 100) : null;
                 return (
                   <div key={c.channel} className="stat-channel-row">
-                    {c.avatarUrl ? <img className="stat-channel-av" src={c.avatarUrl} alt="" /> : <span className="stat-channel-av" />}
+                    <ChannelAv url={c.avatarUrl} />
                     <span className="stat-channel-name">{c.channel}</span>
                     <span className="stat-channel-meta">
                       {c.count} {c.count === 1 ? "video" : "videos"}{eng !== null ? ` · ${eng}% engaged` : ""}
