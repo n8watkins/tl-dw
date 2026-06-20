@@ -16,8 +16,22 @@ const TIMEDTEXT_PATH = "/api/timedtext";
 
 console.log("[TL;DW] fetch interceptor installed");
 
-function relay(kind: "get_transcript" | "timedtext", body: unknown): void {
-  window.postMessage({ __tldw: true, kind, body }, "*");
+function relay(
+  kind: "get_transcript" | "timedtext",
+  body: unknown,
+  videoId: string | undefined,
+): void {
+  window.postMessage({ __tldw: true, kind, body, videoId }, "*");
+}
+
+/** The watch video id from the current URL (the page being viewed when the
+ *  request is *issued* — captured synchronously, before any nav resolves). */
+function currentUrlVideoId(): string | undefined {
+  try {
+    return new URLSearchParams(location.search).get("v") ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const originalFetch = window.fetch;
@@ -34,20 +48,32 @@ window.fetch = function patchedFetch(
         : input instanceof URL
           ? input.href
           : (input as Request | undefined)?.url ?? "";
+    // Capture the video id NOW, when the request is issued — the page is still
+    // showing the video being fetched. Reading it when the response resolves
+    // (potentially after an SPA nav) would mis-tag a late response with the new
+    // video. timedtext carries the id in its URL; get_transcript does not, so it
+    // falls back to the current-URL id at request time.
+    const reqVideoId = currentUrlVideoId();
     if (url.includes(TRANSCRIPT_PATH)) {
       void promise.then((res) =>
         res
           .clone()
           .json()
-          .then((body) => relay("get_transcript", body))
+          .then((body) => relay("get_transcript", body, reqVideoId))
           .catch(() => {}),
       );
     } else if (url.includes(TIMEDTEXT_PATH)) {
+      let ttVideoId = reqVideoId;
+      try {
+        ttVideoId = new URL(url, location.href).searchParams.get("v") ?? reqVideoId;
+      } catch {
+        /* keep reqVideoId */
+      }
       void promise.then((res) =>
         res
           .clone()
           .text()
-          .then((body) => relay("timedtext", body))
+          .then((body) => relay("timedtext", body, ttVideoId))
           .catch(() => {}),
       );
     }

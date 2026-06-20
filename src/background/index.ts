@@ -1,6 +1,6 @@
 import { buildDestinationPrompt, prependWorthWatchingGate } from "../lib/promptBuilder";
 import { parseTldwBlock } from "../lib/tldw";
-import { GEMINI_URL, getDestination, isYouTubeVideoUrl, pruneCache, STORAGE_KEYS, SUMMARY_CACHE_KEY } from "../lib/constants";
+import { GEMINI_URL, getDestination, isYouTubeVideoUrl, localDateKey, pruneCache, STORAGE_KEYS, SUMMARY_CACHE_KEY } from "../lib/constants";
 import { addHistoryEntry, computeChannelStats, expireOldEntries, trimToLimit } from "../lib/history";
 import type { ChannelStats } from "../lib/history";
 import {
@@ -188,14 +188,30 @@ function isTrusted(bypassTerms: string, channel: string, title?: string): boolea
 /** Call the Gemini REST API directly and return the response text. */
 async function callGeminiApi(prompt: string, apiKey: string): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.4, maxOutputTokens: 4096 },
-    }),
-  });
+  // Bound the request: a stalled connection would otherwise leave the on-page
+  // skeleton spinning until the 90s loading timeout with no real error.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.4, maxOutputTokens: 4096 },
+      }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    throw new Error(
+      controller.signal.aborted
+        ? "the request timed out — check your connection and try again"
+        : err instanceof Error ? err.message : "network error",
+    );
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     const err = (await res.json().catch(() => null)) as
       | { error?: { message?: string } }
@@ -384,7 +400,7 @@ async function runSummary(
         }
       }
       void chrome.tabs
-        .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw: cachedSummary.tldw, source: "cached", channelStats })
+        .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw: cachedSummary.tldw, source: "cached", channelStats, videoId })
         .catch(() => {});
       // Bump lifetime stats: cache hit.
       void bumpLifetimeStats((s) => { s.cacheHits += 1; });
@@ -401,8 +417,31 @@ async function runSummary(
       await recordGeminiCall(video, logPrompt, responseText);
       tldw = parseTldwBlock(responseText);
 
+      // Nothing usable parsed — surface it on the page (replace the skeleton with
+      // an error + retry) instead of leaving it to spin for 90s and then show the
+      // misleading "tab flow" message while the badge falsely flashed success.
+      if (!tldw) {
+        void flashBadge("!");
+        void recordDeliveryStatus({
+          site: "Gemini (API)",
+          ok: false,
+          reason: "couldn't parse the model's response",
+          at: new Date().toISOString(),
+        });
+        if (activeTab?.id !== undefined) {
+          void chrome.tabs
+            .sendMessage(activeTab.id, {
+              type: "SET_SUMMARY_ERROR",
+              videoId,
+              reason: "the model's response wasn't in the expected format — try again",
+            })
+            .catch(() => {});
+        }
+        return;
+      }
+
       // Parse the AI rating (e.g. "8/10" → 8) for channel stats storage.
-      const aiRatingMatch = tldw?.rating ? /^(\d+)/.exec(tldw.rating) : null;
+      const aiRatingMatch = tldw.rating ? /^(\d+)/.exec(tldw.rating) : null;
       aiRating = aiRatingMatch ? parseInt(aiRatingMatch[1], 10) : undefined;
 
       // Save history BEFORE computing channelStats so this video is included
@@ -434,9 +473,9 @@ async function runSummary(
         }
       }
 
-      if (tldw && activeTab?.id !== undefined) {
+      if (activeTab?.id !== undefined) {
         void chrome.tabs
-          .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw, source: "Gemini API", channelStats })
+          .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw, source: "Gemini API", channelStats, videoId })
           .catch(() => {});
 
         // Cache the result so future visits to this video skip the API call.
@@ -445,7 +484,7 @@ async function runSummary(
         }
 
         // Bump lifetime stats: summary completed (Direct API path).
-        const today = new Date().toISOString().slice(0, 10);
+        const today = localDateKey();
         const durSec = videoDurationSeconds;
         void bumpLifetimeStats((s) => {
           s.summaries += 1;
@@ -456,13 +495,21 @@ async function runSummary(
       void flashBadge("✓", true);
       void recordDeliveryStatus({ site: "Gemini (API)", ok: true, at: new Date().toISOString() });
     } catch (err) {
+      const reason = err instanceof Error ? err.message : "API call failed";
       void flashBadge("!");
       void recordDeliveryStatus({
         site: "Gemini (API)",
         ok: false,
-        reason: err instanceof Error ? err.message : "API call failed",
+        reason,
         at: new Date().toISOString(),
       });
+      // Surface the failure on the page so the skeleton is replaced immediately
+      // with the real reason + a retry, rather than hanging until the 90s timeout.
+      if (activeTab?.id !== undefined) {
+        void chrome.tabs
+          .sendMessage(activeTab.id, { type: "SET_SUMMARY_ERROR", videoId, reason })
+          .catch(() => {});
+      }
     }
     return;
   }
@@ -546,7 +593,14 @@ chrome.runtime.onMessage.addListener(
         message.userCuriosity,
         sender.tab?.id,
         message.source ?? "auto",
-      ).then(() => sendResponse({ ok: true }));
+      ).then(
+        () => sendResponse({ ok: true }),
+        // runSummary has awaits outside its inner try (tabs.create, storage
+        // writes) that can reject. Without this, the rejection is unhandled AND
+        // the promised response never arrives, so the caller's port hangs until
+        // Chrome times it out and its loading panel stalls.
+        (err) => sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+      );
       return true;
     }
     if (message.type === "INJECT_RESULT") {
@@ -561,11 +615,27 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
     if (message.type === "AI_SUMMARY") {
-      void chrome.tabs
-        .sendMessage(message.sourceTabId, { type: "SET_SUMMARY", tldw: message.tldw })
-        .catch(() => {});
+      // Resolve which YouTube video this scrape was for so the content script can
+      // drop it if the user has since navigated away (otherwise it renders/caches
+      // on the wrong video). openSearches maps the destination tab (the sender)
+      // back to the source video URL.
+      const destTabId = sender.tab?.id;
+      const srcTabId = message.sourceTabId;
+      void (async () => {
+        let videoId: string | undefined;
+        try {
+          const searches = await getOpenSearches();
+          const match =
+            searches.find((s) => destTabId !== undefined && s.tabId === destTabId) ??
+            searches.find((s) => s.sourceTabId === srcTabId);
+          if (match?.videoUrl) videoId = extractVideoId(match.videoUrl) ?? undefined;
+        } catch { /* best effort — fall back to no guard */ }
+        void chrome.tabs
+          .sendMessage(srcTabId, { type: "SET_SUMMARY", tldw: message.tldw, videoId })
+          .catch(() => {});
+      })();
       // Bump lifetime stats: summary completed (tab-scrape / AI_SUMMARY path).
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localDateKey();
       void bumpLifetimeStats((s) => {
         s.summaries += 1;
         s.activity[today] = (s.activity[today] ?? 0) + 1;
@@ -676,18 +746,23 @@ chrome.runtime.onMessage.addListener(
     if (message.type === "WATCH_PROGRESS") {
       const { videoId, deltaSeconds, durationSeconds, sawSummary, video } = message;
       void (async () => {
-        const settings = await getSettings();
-        if (!settings.trackEngagement) {
-          sendResponse({ ok: true });
-          return;
+        try {
+          const settings = await getSettings();
+          if (settings.trackEngagement) {
+            await recordWatchProgress({ videoId, deltaSeconds, durationSeconds, sawSummary, video, settings });
+          }
+        } catch {
+          /* storage error — don't leave the port open; still respond below */
         }
-        await recordWatchProgress({ videoId, deltaSeconds, durationSeconds, sawSummary, video, settings });
         sendResponse({ ok: true });
       })();
       return true;
     }
     if (message.type === "REBUILD_MENU") {
-      void rebuildContextMenu().then(() => sendResponse({ ok: true }));
+      void rebuildContextMenu().then(
+        () => sendResponse({ ok: true }),
+        () => sendResponse({ ok: false }),
+      );
       return true;
     }
     if (message.type === "GET_PENDING") {

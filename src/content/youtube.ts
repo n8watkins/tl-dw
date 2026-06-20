@@ -38,7 +38,7 @@ let capturedVideoId: string | null = null;
 window.addEventListener("message", (event) => {
   if (event.source !== window) return;
   const data = event.data as
-    | { __tldw?: boolean; kind?: string; body?: unknown }
+    | { __tldw?: boolean; kind?: string; body?: unknown; videoId?: string }
     | undefined;
   if (!data || data.__tldw !== true) return;
 
@@ -51,7 +51,11 @@ window.addEventListener("message", (event) => {
 
   if (text) {
     captured = text;
-    capturedVideoId = currentVideoId();
+    // Tag with the id the interceptor captured when the request was ISSUED, not
+    // the current URL: a late response for the previous video must not be served
+    // as the current one's transcript after an SPA navigation.
+    capturedVideoId =
+      typeof data.videoId === "string" && data.videoId ? data.videoId : currentVideoId();
     log("intercepted transcript:", text.length, "chars");
   }
 });
@@ -306,12 +310,16 @@ async function getTranscript(): Promise<string | null> {
 
   if (activeTranscriptFetch) return activeTranscriptFetch;
 
+  const startVid = currentVideoId();
   activeTranscriptFetch = (async () => {
     const { openedByUs, expandedByUs } = await openTranscriptPanel();
     // Leave the page as we found it: collapse the panel AND the description if
     // *we* opened/expanded them. A panel/description the user already had open
-    // is left untouched.
+    // is left untouched. Skip the restore entirely if the user navigated away
+    // mid-fetch — otherwise we'd click the NEW video's transcript/description
+    // controls, toggling panels the user didn't touch.
     const restore = () => {
+      if (currentVideoId() !== startVid) return;
       if (openedByUs) closeTranscriptPanel();
       if (expandedByUs) collapseDescription();
     };
@@ -529,9 +537,19 @@ let currentAutoRunSummary = false;
 // "Get instant results" CTA shown when it's NOT set up.
 let currentDirectApiEnabled = false;
 
+// Incremented on every navigation. Async flows (maybeStartDirectApiRun) capture
+// it up front and bail if it changed after an await, so a slow run for the
+// previous video never mutates shared state or injects a panel onto the new one
+// (LESSONS_LEARNED #9 — "state goes stale after every await").
+let navEpoch = 0;
+
 // --- TL;DW summary panel -------------------------------------------------
 
 type TldwSummary = { verdict: string; summary: string; rating: string; details?: string; source?: string };
+
+/** A panel that may carry a teardown fn (e.g. removing a document listener),
+ *  invoked by removeSummaryPanel so we don't leak listeners across rebuilds. */
+type CleanablePanel = HTMLElement & { __tldwCleanup?: () => void };
 
 let summaryPanel: HTMLElement | null = null;
 // Which kind of panel is currently injected into the host. Drives mutual
@@ -563,6 +581,7 @@ function clearLoadingTimeout(): void {
 
 function removeSummaryPanel(): void {
   clearLoadingTimeout();
+  (summaryPanel as CleanablePanel | null)?.__tldwCleanup?.();
   summaryPanel?.remove();
   summaryPanel = null;
   summaryPanelKind = null;
@@ -998,7 +1017,7 @@ function showLoadingPanel(): void {
  * never returned a usable summary. Offers a one-click retry and explains the
  * tab-mode caveat so the user isn't left staring at a dead skeleton.
  */
-function showSummaryErrorPanel(): void {
+function showSummaryErrorPanel(reason?: string): void {
   const host = panelHost();
   if (!host) return;
   removeSummaryPanel();
@@ -1030,9 +1049,12 @@ function showSummaryErrorPanel(): void {
   Object.assign(head.style, { marginBottom: "8px" });
 
   const msg = document.createElement("div");
-  msg.textContent =
-    "Couldn't get the summary back in time. If you're using the tab flow (no API key), " +
-    "the destination tab may still be working or may need a sign-in — check it, then retry.";
+  // Prefer a specific reason from the Direct-API path (e.g. "quota exceeded",
+  // "input too long"); fall back to the generic tab-flow timeout copy.
+  msg.textContent = reason
+    ? `Couldn't get the summary: ${reason}`
+    : "Couldn't get the summary back in time. If you're using the tab flow (no API key), " +
+      "the destination tab may still be working or may need a sign-in — check it, then retry.";
   Object.assign(msg.style, { fontSize: "13px", lineHeight: "1.5", color: t.sub });
 
   panel.append(head, msg);
@@ -1374,14 +1396,13 @@ function buildSummaryPanel(
   renderEngagementCue();
   const onWatchUpdate = () => renderEngagementCue();
   document.addEventListener("tldw-watch-update", onWatchUpdate);
-  // Clean up the listener when the panel is removed from the DOM.
-  const panelObserver = new MutationObserver(() => {
-    if (!panel.isConnected) {
-      document.removeEventListener("tldw-watch-update", onWatchUpdate);
-      panelObserver.disconnect();
-    }
-  });
-  panelObserver.observe(document, { childList: true, subtree: true });
+  // Clean up the listener when the panel goes away. removeSummaryPanel() is the
+  // single removal path, so store the teardown on the element and let it run
+  // there — far cheaper than a per-panel MutationObserver watching the whole
+  // document subtree just to notice this one node leave.
+  (panel as CleanablePanel).__tldwCleanup = () => {
+    document.removeEventListener("tldw-watch-update", onWatchUpdate);
+  };
 
   panel.append(
     head, body,
@@ -1403,6 +1424,9 @@ function showSummaryPanel(
 
   const vid = videoId ?? currentVideoId();
   void loadRatingToggles().then((toggles) => {
+    // Bail if the user navigated away during the async read — otherwise a panel
+    // for a video they already left lands on the new video's page.
+    if (vid && currentVideoId() !== vid) return;
     // The host may have changed between the async read and now; re-resolve.
     const h = panelHost();
     if (!h) return;
@@ -1726,6 +1750,10 @@ const autoRunVideoIds = new Set<string>();
 async function maybeStartDirectApiRun(): Promise<void> {
   const vid = currentVideoId();
   if (!vid) return;
+  // Capture the nav epoch: if the user navigates away during any await below,
+  // this run is stale and must not touch shared state or inject a panel.
+  const myEpoch = navEpoch;
+  const stale = () => navEpoch !== myEpoch || currentVideoId() !== vid;
 
   // In-progress live streams have no transcript to summarize — don't offer the
   // summary UI. A finished/recorded live stream has a transcript, so it's fine.
@@ -1735,6 +1763,7 @@ async function maybeStartDirectApiRun(): Promise<void> {
   currentChannelInfo = getChannelInfo();
 
   const r = await chrome.storage.local.get(["settings", "tldwSummaryCache", AUTO_RUN_CHANNELS_KEY, BLOCKED_CHANNELS_KEY]);
+  if (stale()) return;
   // The on-page widget shows whether or not Direct API is configured. With no
   // key the TL;DW button and auto-summarize run the tab-scrape flow (open the
   // destination, read its answer back, inject it here) instead of a headless
@@ -1746,6 +1775,7 @@ async function maybeStartDirectApiRun(): Promise<void> {
   if (!currentChannelInfo) {
     for (let i = 0; i < 8; i++) {
       await sleep(250);
+      if (stale()) return;
       currentChannelInfo = getChannelInfo();
       if (currentChannelInfo) break;
     }
@@ -1761,6 +1791,7 @@ async function maybeStartDirectApiRun(): Promise<void> {
   }
 
   const autoRunChannels = await readAutoRunChannels();
+  if (stale()) return;
   const channelEntry = currentChannelInfo
     ? autoRunChannels.find((c) => c.id === currentChannelInfo!.id || c.name === currentChannelInfo!.name)
     : undefined;
@@ -1772,14 +1803,19 @@ async function maybeStartDirectApiRun(): Promise<void> {
   // Serve a cached result if fresh.
   const serveCached = (entry: CacheEntry) => {
     void computeChannelComparison(currentChannelInfo?.name).then((channelStats) => {
+      if (stale()) return;
       showSummaryPanel({ ...entry.tldw, source: "cached" }, channelStats, entry.userRating, vid);
     });
     log("served from cache");
   };
 
   // Helper: check cache first (re-reads storage for freshness), then fall back to API.
+  // Note: invoked synchronously below for auto-run, or later from a user click
+  // (idle/retry button) — in the click case the panel only exists for the current
+  // video, so acting on it is correct.
   const startApiCall = async () => {
     const freshR = await chrome.storage.local.get("tldwSummaryCache");
+    if (stale()) return;
     const freshCache = (freshR["tldwSummaryCache"] as Record<string, CacheEntry> | undefined)?.[vid];
     if (freshCache && Date.now() - new Date(freshCache.cachedAt).getTime() < CACHE_TTL_MS) {
       serveCached(freshCache);
@@ -1859,6 +1895,8 @@ function onNavigate(): void {
   const url = vid ? `v=${vid}` : (location.pathname + location.search);
   if (url === lastHandledUrl) return;
   lastHandledUrl = url;
+  // Invalidate any in-flight run for the previous video before starting a new one.
+  navEpoch++;
   removeSummaryPanel();
   activeTranscriptFetch = null;
   currentChannelInfo = null;
@@ -1911,14 +1949,37 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true; // async response
   }
   if (type === "SET_SUMMARY") {
-    const msg = message as { tldw?: TldwSummary; source?: string; channelStats?: ChannelComparison };
+    const msg = message as { tldw?: TldwSummary; source?: string; channelStats?: ChannelComparison; videoId?: string };
     const tldw = msg?.tldw;
     if (tldw?.verdict && tldw.summary) {
-      const vid = currentVideoId();
+      const cur = currentVideoId();
+      // A Direct-API call or tab-scrape can take many seconds; the user may have
+      // navigated to a different video in this same tab meanwhile. If the
+      // background told us which video this summary is FOR and it's no longer the
+      // one on screen, drop it — rendering it would show the wrong summary AND
+      // caching it under the current id would permanently poison that video's
+      // cache. Fall back to current behavior only when no videoId was provided.
+      if (msg.videoId && msg.videoId !== cur) {
+        sendResponse({ ok: true });
+        return false;
+      }
+      const vid = msg.videoId ?? cur;
       // Persist tab-scrape results so a refresh serves from cache instead of
       // re-opening a tab. Don't re-cache a result that itself came from cache.
       if (vid && msg.source !== "cached") void cacheScrapedSummary(vid, tldw);
       showSummaryPanel({ ...tldw, source: msg.source }, msg.channelStats, undefined, vid);
+    }
+    sendResponse({ ok: true });
+    return false;
+  }
+  if (type === "SET_SUMMARY_ERROR") {
+    // The Direct-API call failed or returned an unparseable response. Replace the
+    // spinning skeleton with an accurate error + retry instead of letting it hang
+    // 90s and then show the misleading tab-flow message — but only if we're still
+    // on the video the error is for.
+    const msg = message as { videoId?: string; reason?: string };
+    if (!msg.videoId || msg.videoId === currentVideoId()) {
+      if (summaryPanelKind === "loading") showSummaryErrorPanel(msg.reason);
     }
     sendResponse({ ok: true });
     return false;
