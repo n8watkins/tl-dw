@@ -189,13 +189,14 @@ function isTrusted(bypassTerms: string, channel: string, title?: string): boolea
 /** Call the Gemini REST API directly and return the response text. */
 async function callGeminiApi(prompt: string, apiKey: string): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${encodeURIComponent(apiKey)}`;
-  // Bound the request: a stalled connection would otherwise leave the on-page
-  // skeleton spinning until the 90s loading timeout with no real error.
+  // Bound the WHOLE request — connection AND body read — so a server that
+  // returns headers then stalls the body can't leave the on-page skeleton
+  // spinning to the 90s loading timeout. The signal stays armed until res.json()
+  // completes; the timer is cleared only in the outer finally.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60_000);
-  let res: Response;
   try {
-    res = await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -204,27 +205,26 @@ async function callGeminiApi(prompt: string, apiKey: string): Promise<string> {
       }),
       signal: controller.signal,
     });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => null)) as
+        | { error?: { message?: string } }
+        | null;
+      throw new Error(err?.error?.message ?? `HTTP ${res.status}`);
+    }
+    const data = (await res.json()) as {
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
+    };
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    if (!text) throw new Error("Gemini returned an empty response");
+    return text;
   } catch (err) {
-    throw new Error(
-      controller.signal.aborted
-        ? "the request timed out — check your connection and try again"
-        : err instanceof Error ? err.message : "network error",
-    );
+    if (controller.signal.aborted) {
+      throw new Error("the request timed out — check your connection and try again");
+    }
+    throw err instanceof Error ? err : new Error("network error");
   } finally {
     clearTimeout(timer);
   }
-  if (!res.ok) {
-    const err = (await res.json().catch(() => null)) as
-      | { error?: { message?: string } }
-      | null;
-    throw new Error(err?.error?.message ?? `HTTP ${res.status}`);
-  }
-  const data = (await res.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-  };
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  if (!text) throw new Error("Gemini returned an empty response");
-  return text;
 }
 
 /**
@@ -571,8 +571,13 @@ async function recordOpenSearch(
   });
 }
 
-// Forget a search the moment its tab closes.
-chrome.tabs.onRemoved.addListener((tabId) => void pruneOpenSearch(tabId));
+// Forget a search and drop any unconsumed pending prompt the moment its tab
+// closes (peek-don't-consume means an undelivered prompt would otherwise linger
+// and could be mis-served to a recycled tab id).
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void pruneOpenSearch(tabId);
+  void clearPendingPrompt(tabId);
+});
 
 chrome.commands.onCommand.addListener((command) => {
   // Alt+Shift+G opens the destination tab with the default profile — same as the
@@ -786,6 +791,9 @@ chrome.runtime.onMessage.addListener(
             temporaryChats: settings.temporaryChats,
             sourceTabId: pending?.sourceTabId,
           }),
+        // Always respond even on a storage error, so the injector's port doesn't
+        // hang (consistent with the ASK/WATCH_PROGRESS handlers).
+        () => sendResponse({ prompt: null }),
       );
       return true;
     }

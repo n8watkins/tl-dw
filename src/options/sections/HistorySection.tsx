@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { HistoryExpiryDays, HistoryLimit, SearchHistoryEntry, Settings } from "../../types";
-import { getHistory, getSettings, setHistory, setSettings } from "../../lib/storage";
+import { getHistory, getSettings, mutateHistory, setHistory, setSettings } from "../../lib/storage";
 import { DEFAULT_SETTINGS, HISTORY_EXPIRY_OPTIONS, STORAGE_KEYS } from "../../lib/constants";
 import { expireOldEntries, trimToLimit } from "../../lib/history";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -71,23 +71,25 @@ export function HistorySection() {
     const next = { ...settings, ...patch };
     setSettingsState(next);
     await setSettings(next);
-    // Re-apply expiry and the limit against the CURRENT stored history (not the
-    // in-memory snapshot, which may be missing entries the background just added)
-    // so this write can't drop them. The onChanged listener refreshes the list.
-    const stored = await getHistory();
-    const pruned = trimToLimit(expireOldEntries(stored, next), next.historyLimit);
-    if (pruned.length !== stored.length) await setHistory(pruned);
+    // Re-apply expiry + limit inside the shared history lock (mutateHistory), so
+    // a concurrent worker write (WATCH_PROGRESS from any open tab) can't slip
+    // between our read and write and get clobbered. The onChanged listener
+    // refreshes the visible list.
+    await mutateHistory((stored) => {
+      const pruned = trimToLimit(expireOldEntries(stored, next), next.historyLimit);
+      return pruned.length !== stored.length ? pruned : null;
+    });
   }
 
   async function deleteEntry(id: string) {
-    // Recompute from stored history so a concurrent background write isn't lost.
-    const stored = await getHistory();
-    await setHistory(stored.filter((e) => e.id !== id));
+    // Recompute from stored history under the lock so a concurrent background
+    // write isn't lost.
+    await mutateHistory((stored) => stored.filter((e) => e.id !== id));
     setDeleteId(null);
   }
 
   async function clearAll() {
-    await setHistory([]);
+    await mutateHistory(() => []);
     setConfirmClear(false);
   }
 

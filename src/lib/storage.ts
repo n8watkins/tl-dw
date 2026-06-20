@@ -66,23 +66,33 @@ export async function setHistory(history: SearchHistoryEntry[]): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEYS.history]: history });
 }
 
-// --- write serialization (single-worker mutex) -----------------------------
-// chrome.storage has no atomic read-modify-write. The background worker drives
-// many concurrent RMW sequences — WATCH_PROGRESS fires from every open YouTube
-// tab, plus stats bumps from the summary / cache-hit / sponsor paths — and a
-// bare get→modify→set can interleave so the later set() clobbers the earlier
-// one (lost updates: undercounted stats, dropped history entries). Funnel every
-// RMW for a given storage key through a per-key promise chain so each read+write
-// completes before the next begins. The chain lives only in the worker and only
-// holds across a single awaited write, so a worker restart at worst leaves one
-// write unordered — never lost.
+// --- write serialization (mutex) -------------------------------------------
+// chrome.storage has no atomic read-modify-write. Many concurrent RMW sequences
+// run — WATCH_PROGRESS fires from every open YouTube tab (all routed to the one
+// worker), stats bumps from the summary / cache-hit / sponsor paths, and the
+// options page editing history — and a bare get→modify→set can interleave so the
+// later set() clobbers the earlier one (lost stats, dropped history entries).
+//
+// Prefer the Web Locks API: it serializes across ALL same-origin realms, so a
+// worker WATCH_PROGRESS write and an options-page history edit (both the
+// chrome-extension:// origin) coordinate. The in-realm promise-chain is a
+// fallback for contexts without navigator.locks. (Content scripts run in the
+// page's origin and share a separate lock scope — unavoidable, and they do far
+// fewer storage writes.)
 const writeChains = new Map<string, Promise<unknown>>();
 
 export function withWriteLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const locks =
+    typeof navigator !== "undefined"
+      ? (navigator as Navigator & { locks?: LockManager }).locks
+      : undefined;
+  if (locks && typeof locks.request === "function") {
+    return locks.request(`tldw:${key}`, () => fn()) as Promise<T>;
+  }
+  // Fallback: in-realm promise chain. Run fn after prev settles (resolve OR
+  // reject) so one failed RMW doesn't wedge the queue; store a never-rejecting
+  // tail for the next waiter but return the real result so errors still surface.
   const prev = writeChains.get(key) ?? Promise.resolve();
-  // Run fn after prev settles (resolve OR reject), so one failed RMW doesn't
-  // wedge the queue. Store a never-rejecting tail so the next waiter chains off
-  // a settled promise; return the real result so the caller still sees errors.
   const result = prev.then(fn, fn);
   writeChains.set(key, result.then(
     () => undefined,
@@ -272,30 +282,46 @@ export type PendingData = {
   prompt: string;
   /** YouTube tab to send the AI response back to, if triggered from one. */
   sourceTabId?: number;
+  /** ms timestamp the prompt was queued, so a stale one isn't re-delivered on a
+   *  much-later tab reload (peek doesn't consume). */
+  at?: number;
 };
+
+/** Pending prompts older than this are ignored by peek — long enough for a slow
+ *  composer to mount, short enough that a later reload doesn't re-submit. */
+const PENDING_TTL_MS = 10 * 60 * 1000;
+
+function normalizePending(raw: PendingData | string | undefined): PendingData | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw === "string") return { prompt: raw }; // backward-compat
+  return raw;
+}
 
 export async function setPendingPrompt(
   tabId: number,
   data: PendingData,
 ): Promise<void> {
-  const r = await chrome.storage.session.get(PENDING_KEY);
-  const pending = (r[PENDING_KEY] as Record<number, PendingData>) ?? {};
-  pending[tabId] = data;
-  await chrome.storage.session.set({ [PENDING_KEY]: pending });
+  await withWriteLock(PENDING_KEY, async () => {
+    const r = await chrome.storage.session.get(PENDING_KEY);
+    const pending = (r[PENDING_KEY] as Record<number, PendingData>) ?? {};
+    pending[tabId] = { ...data, at: data.at ?? Date.now() };
+    await chrome.storage.session.set({ [PENDING_KEY]: pending });
+  });
 }
 
 export async function takePendingPrompt(
   tabId: number,
 ): Promise<PendingData | undefined> {
-  const r = await chrome.storage.session.get(PENDING_KEY);
-  const pending = (r[PENDING_KEY] as Record<number, PendingData | string>) ?? {};
-  const raw = pending[tabId];
-  if (raw !== undefined) {
-    delete pending[tabId];
-    await chrome.storage.session.set({ [PENDING_KEY]: pending });
-  }
-  if (typeof raw === "string") return { prompt: raw }; // backward-compat
-  return raw as PendingData | undefined;
+  return withWriteLock(PENDING_KEY, async () => {
+    const r = await chrome.storage.session.get(PENDING_KEY);
+    const pending = (r[PENDING_KEY] as Record<number, PendingData | string>) ?? {};
+    const raw = pending[tabId];
+    if (raw !== undefined) {
+      delete pending[tabId];
+      await chrome.storage.session.set({ [PENDING_KEY]: pending });
+    }
+    return normalizePending(raw);
+  });
 }
 
 /**
@@ -303,16 +329,21 @@ export async function takePendingPrompt(
  * document_idle, but on a cold chat-app load the composer can mount a beat after
  * the router resolves; deleting on the first read meant a retry had nothing
  * left. We keep the prompt until the injector reports an outcome
- * (clearPendingPrompt on INJECT_RESULT), so a slow composer is still filled.
+ * (clearPendingPrompt on INJECT_RESULT) — but ignore (and clean up) one older
+ * than PENDING_TTL_MS so a much-later tab reload doesn't auto-resubmit a stale
+ * prompt.
  */
 export async function peekPendingPrompt(
   tabId: number,
 ): Promise<PendingData | undefined> {
   const r = await chrome.storage.session.get(PENDING_KEY);
   const pending = (r[PENDING_KEY] as Record<number, PendingData | string>) ?? {};
-  const raw = pending[tabId];
-  if (typeof raw === "string") return { prompt: raw }; // backward-compat
-  return raw as PendingData | undefined;
+  const data = normalizePending(pending[tabId]);
+  if (data?.at !== undefined && Date.now() - data.at > PENDING_TTL_MS) {
+    await clearPendingPrompt(tabId);
+    return undefined;
+  }
+  return data;
 }
 
 /** Drop a tab's pending prompt once a delivery attempt has completed. */
@@ -347,11 +378,13 @@ export async function addOpenSearch(entry: OpenSearch): Promise<void> {
 
 /** Drop a search entry when its tab closes. */
 export async function pruneOpenSearch(tabId: number): Promise<void> {
-  const existing = await readOpenSearches();
-  const next = existing.filter((s) => s.tabId !== tabId);
-  if (next.length !== existing.length) {
-    await chrome.storage.session.set({ [OPEN_SEARCHES_KEY]: next });
-  }
+  await withWriteLock(OPEN_SEARCHES_KEY, async () => {
+    const existing = await readOpenSearches();
+    const next = existing.filter((s) => s.tabId !== tabId);
+    if (next.length !== existing.length) {
+      await chrome.storage.session.set({ [OPEN_SEARCHES_KEY]: next });
+    }
+  });
 }
 
 // --- session-scoped record of recent auto-fill outcomes ---
@@ -651,7 +684,15 @@ export async function getOpenSearches(): Promise<OpenSearch[]> {
   const open = new Set(tabs.map((t) => t.id));
   const pruned = list.filter((s) => open.has(s.tabId));
   if (pruned.length !== list.length) {
-    await chrome.storage.session.set({ [OPEN_SEARCHES_KEY]: pruned });
+    // Re-read under the lock so this prune-write can't clobber a concurrent
+    // addOpenSearch/pruneOpenSearch on the same key.
+    await withWriteLock(OPEN_SEARCHES_KEY, async () => {
+      const current = await readOpenSearches();
+      const stillOpen = current.filter((s) => open.has(s.tabId));
+      if (stillOpen.length !== current.length) {
+        await chrome.storage.session.set({ [OPEN_SEARCHES_KEY]: stillOpen });
+      }
+    });
   }
   return pruned;
 }
