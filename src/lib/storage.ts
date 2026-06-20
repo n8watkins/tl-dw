@@ -66,6 +66,25 @@ export async function setHistory(history: SearchHistoryEntry[]): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEYS.history]: history });
 }
 
+/**
+ * Accumulated watched-seconds for a video from history (0 if none). History is
+ * newest-first, so the first matching entry holds the latest total. Pure helper
+ * exported for tests; `getWatchedSecondsForVideo` wraps it over stored history.
+ * Used by the watch-time engine to RESTORE progress on reload (F3) so a refresh
+ * doesn't reset the engagement measurement that feeds the per-channel average.
+ */
+export function watchedSecondsFromHistory(
+  history: SearchHistoryEntry[],
+  videoId: string,
+): number {
+  const entry = history.find((e) => extractVideoId(e.videoUrl) === videoId);
+  return entry?.watchedSeconds ?? 0;
+}
+
+export async function getWatchedSecondsForVideo(videoId: string): Promise<number> {
+  return watchedSecondsFromHistory(await getHistory(), videoId);
+}
+
 // --- write serialization (mutex) -------------------------------------------
 // chrome.storage has no atomic read-modify-write. Many concurrent RMW sequences
 // run — WATCH_PROGRESS fires from every open YouTube tab (all routed to the one

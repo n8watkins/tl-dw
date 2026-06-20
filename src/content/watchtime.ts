@@ -34,6 +34,7 @@
 
 import { computeEngagementVerdict } from "../lib/engagement";
 import type { EngagementVerdict } from "../lib/engagement";
+import { getWatchedSecondsForVideo } from "../lib/storage";
 
 const log = (...args: unknown[]) => console.log("[TL;DW WT]", ...args);
 
@@ -308,9 +309,26 @@ async function handleNav(): Promise<void> {
   if (!vid) return;
 
   await loadSettings();
-  if (!trackEngagement) return;
+  if (currentVid !== vid || !trackEngagement) return;
 
   attach();
+
+  // Restore accumulated progress so a refresh / return to a partly-watched video
+  // resumes the engagement measurement (which feeds the per-channel average)
+  // instead of resetting to 0. Clamp to duration when known so a re-watch can't
+  // exceed 100%. Seed only the in-page accumulator — NOT pendingDelta — so we
+  // never re-report already-counted seconds to lifetime stats.
+  try {
+    const stored = await getWatchedSecondsForVideo(vid);
+    if (currentVid === vid && totalWatched === 0 && stored > 0) {
+      const dur = currentDuration();
+      totalWatched = dur > 0 ? Math.min(stored, dur) : stored;
+      lastNotifiedAt = totalWatched;
+    }
+  } catch {
+    /* best effort — start from 0 if the read fails */
+  }
+
   log("tracking video", vid);
 }
 
