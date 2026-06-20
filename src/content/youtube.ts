@@ -553,11 +553,13 @@ let navEpoch = 0;
 // --- tags: library + per-channel / per-video assignments (direct storage) ----
 // chrome.storage has no atomic read-modify-write (LESSONS_LEARNED #13). Every tag
 // write here is funnelled through serializeTagWrite, an in-realm promise chain, so
-// two rapid clicks in this tab can't clobber each other's get→modify→set. Content
-// scripts run in the page origin — a separate lock scope from the worker — so this
-// chain is the available serializer (the worker/options coordinate via the storage
-// withWriteLock on the same keys). The storage SHAPES are the Phase 0 contract
-// Agent A reads verbatim for weaving.
+// two rapid clicks IN THIS TAB can't clobber each other's get→modify→set — the
+// common case (the widget is the only writer of the assignment maps). It does NOT
+// coordinate with writes from the worker/options page: content scripts run in the
+// page origin, a separate lock scope from the extension realm, so navigator.locks
+// wouldn't bridge them either. A concurrent edit of the SAME key from the options
+// Tags section while clicking chips here can still lost-update; that's rare and
+// accepted. The storage SHAPES are the Phase 0 contract Agent A reads for weaving.
 
 type TagMap = Record<string, string[]>;
 
@@ -1432,12 +1434,16 @@ async function regenerateSummary(vid: string | null, opts: RegenOpts = {}): Prom
   // none remain, so we only need to flag the video here — no extra storage read.
   pendingTagPromptVid = promote && vid ? vid : null;
 
-  const r = await chrome.storage.local.get("tldwSummaryCache");
-  const cache = (r["tldwSummaryCache"] as Record<string, unknown>) ?? {};
-  if (vid && cache[vid]) {
-    delete cache[vid];
-    await chrome.storage.local.set({ tldwSummaryCache: cache });
-  }
+  // Drop this video's cache entry. Wrap in try/catch so a storage hiccup can't
+  // skip the re-run below — the old clearBtn used .finally to re-run regardless.
+  try {
+    const r = await chrome.storage.local.get("tldwSummaryCache");
+    const cache = (r["tldwSummaryCache"] as Record<string, unknown>) ?? {};
+    if (vid && cache[vid]) {
+      delete cache[vid];
+      await chrome.storage.local.set({ tldwSummaryCache: cache });
+    }
+  } catch { /* best effort — still re-run below */ }
   // Bail if the user navigated during the awaited storage I/O — otherwise we'd
   // tear down the freshly-injected panel for the NEW video (LESSONS_LEARNED #9).
   if (navEpoch !== startEpoch) return;
@@ -1447,15 +1453,9 @@ async function regenerateSummary(vid: string | null, opts: RegenOpts = {}): Prom
   // fire exactly once (no double-count — it re-marks the video immediately).
   if (vid && autoAskedVid === vid) autoAskedVid = null;
   removeSummaryPanel();
-  await maybeStartDirectApiRun();
-  // maybeStartDirectApiRun re-runs automatically only for auto-summarize channels;
-  // for a manual channel it lands the idle "Get Summary" panel. Regenerate promises
-  // an immediate re-run, so kick the configured run (startApiCall, captured as
-  // currentSummarizeAction) now — but only if we're still on this video and it
-  // actually landed the idle panel (so we don't double-run an auto channel).
-  if (forceRun && currentVideoId() === vid && summaryPanelKind === "idle" && currentSummarizeAction) {
-    void currentSummarizeAction();
-  }
+  // forceRun makes maybeStartDirectApiRun re-run even on a non-auto channel, so the
+  // run decision lives in one place (no post-hoc panel-state inspection here).
+  await maybeStartDirectApiRun({ forceRun });
 }
 
 // --- tags row (F6-UI) building blocks ----------------------------------------
@@ -1736,9 +1736,19 @@ function buildTagsRow(
   const channelInfo = currentChannelInfo;
   const chKey = channelInfo ? channelTagKey(channelInfo) : null;
 
+  // Each rebuild() recreates the "+ add" popover, so its teardown is kept in a
+  // single-slot list (drained + replaced per rebuild) rather than pushed onto the
+  // panel-wide `cleanups` — otherwise that array would grow one stale closure per
+  // tag edit for the panel's lifetime. One panel-level cleanup closes whatever the
+  // current popover is.
+  const addControlCleanups: Array<() => void> = [];
+  cleanups.push(() => { for (const fn of addControlCleanups.splice(0)) fn(); });
+
   const rebuild = async () => {
     // Guard against a late rebuild landing on a different video after navigation.
     if (vid && currentVideoId() !== vid) return;
+    // Close + forget the previous rebuild's add-control popover before rebuilding.
+    for (const fn of addControlCleanups.splice(0)) fn();
     const [library, chMap, vidMap] = await Promise.all([
       readTagLibrary(), readChannelTagMap(), readVideoTagMap(),
     ]);
@@ -1774,7 +1784,7 @@ function buildTagsRow(
     }
 
     if (vid && channelInfo) {
-      children.push(buildTagAddControl(t, library, vid, channelInfo, cleanups, rebuild));
+      children.push(buildTagAddControl(t, library, vid, channelInfo, addControlCleanups, rebuild));
     }
 
     // ↻ Regenerate (F8) — force a fresh run that picks up any tags just added.
@@ -2406,8 +2416,12 @@ function sendAutoAsk(vid: string): boolean {
  *   the Gemini API call automatically.
  * - Otherwise: show an idle panel with a "Get Summary" button and a per-channel
  *   auto-run toggle so the user can opt in for future visits.
+ *
+ * `forceRun` (F8 Regenerate) makes the non-auto branch run immediately instead of
+ * landing the idle CTA, so the run decision lives here rather than being re-derived
+ * by the caller from the resulting panel state.
  */
-async function maybeStartDirectApiRun(): Promise<void> {
+async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promise<void> {
   const vid = currentVideoId();
   if (!vid) return;
   // Capture the nav epoch: if the user navigates away during any await below,
@@ -2519,6 +2533,13 @@ async function maybeStartDirectApiRun(): Promise<void> {
   // headless mode runs the Gemini call with no tab.
   if (currentAutoRunSummary) {
     await startApiCall(true);
+    return;
+  }
+
+  // F8 Regenerate: re-run now even though this channel isn't auto-summarize,
+  // instead of dropping the user back to the idle CTA.
+  if (opts.forceRun) {
+    await startApiCall(false);
     return;
   }
 
