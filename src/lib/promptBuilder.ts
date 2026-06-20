@@ -1,4 +1,4 @@
-import type { Destination, PromptProfile, VideoContext } from "../types";
+import type { Destination, PromptProfile, Tag, VideoContext } from "../types";
 
 const FALLBACKS = {
   title: "Current YouTube video",
@@ -117,6 +117,17 @@ export function appendTldwBlock(prompt: string): string {
 }
 
 /**
+ * Append the user's active tag instructions (F6) — each tag's `prompt` fragment —
+ * so the summary also addresses what they want from this channel/video (e.g.
+ * citations, tutorial framing). Woven before the TLDW block, like curiosity.
+ */
+export function appendTags(prompt: string, tags?: Tag[] | null): string {
+  if (!tags || tags.length === 0) return prompt;
+  const lines = tags.map((t) => `- ${t.prompt}`).join("\n");
+  return `${prompt}\n\nAlso specifically address each of the following, weaving them into the DETAILS:\n${lines}`;
+}
+
+/**
  * Build the prompt for a specific destination. Gemini can open the video URL
  * itself (canWatch), so it gets the link only. Every other destination can't
  * watch the video, so the transcript is included — regardless of whether the
@@ -128,6 +139,7 @@ export function buildDestinationPrompt(
   destination: Destination,
   transcript?: string | null,
   userCuriosity?: string | null,
+  tags?: Tag[] | null,
 ): string {
   // Link-style destinations get just the video URL (e.g. NotebookLM ingesting
   // the YouTube link directly via its "Websites" source).
@@ -157,11 +169,12 @@ export function buildDestinationPrompt(
     curiosity && !hasCuriosityVar
       ? `${prompt}\n\nIn particular, address this: ${curiosity}`
       : prompt;
+  const withTags = appendTags(withCuriosity, tags);
   // Order: instructions → transcript (fenced as data) → the binding output-format
   // block LAST. Keeping the format directive after the untrusted transcript makes
   // it the most salient instruction and harder for transcript content to override.
   const withTranscript = destination.canWatch
-    ? withCuriosity
-    : appendTranscript(withCuriosity, transcript);
+    ? withTags
+    : appendTranscript(withTags, transcript);
   return appendTldwBlock(withTranscript);
 }

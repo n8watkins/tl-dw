@@ -7,6 +7,7 @@ import {
   addOpenSearch,
   bumpLifetimeStats,
   ensureSeeded,
+  getActiveTags,
   getCachedSummary,
   getHistory,
   getOpenSearches,
@@ -360,12 +361,21 @@ async function runSummary(
     }
   }
 
+  // Resolve the user's active tags for this video (F6): channel tags ∪ video
+  // tags. The channel key is the display name (what we scraped into video.channel).
+  // Woven into every prompt build below so tagged asks (e.g. citations) shape both
+  // the Direct-API and tab-flow summaries.
+  const activeTags = await getActiveTags({
+    channelKey: video.channel,
+    videoId: extractVideoId(url) ?? undefined,
+  });
+
   // Whenever we actually have a transcript, append it to the prompt (treat the
   // destination as non-watching) rather than relying on the AI to open the URL.
   // This covers both the headless REST path and the tab flow (incl. Gemini).
   const promptDest =
     willUseDirectApi || transcript ? { ...destination, canWatch: false } : destination;
-  let prompt = buildDestinationPrompt(profile, video, promptDest, transcript, userCuriosity);
+  let prompt = buildDestinationPrompt(profile, video, promptDest, transcript, userCuriosity, activeTags);
   if (gateMinutes > 0) {
     prompt = prependWorthWatchingGate(prompt, gateMinutes);
   }
@@ -378,7 +388,7 @@ async function runSummary(
   // --- headless path: call Gemini API directly (no tab) -------------------
   if (willUseDirectApi) {
     // Build the transcript-free prompt once for both the call log and history.
-    let logPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity);
+    let logPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity, activeTags);
     if (gateMinutes > 0) logPrompt = prependWorthWatchingGate(logPrompt, gateMinutes);
 
     const videoId = extractVideoId(url);
@@ -538,7 +548,7 @@ async function runSummary(
     // KB, and persisting it per entry would bloat chrome.storage.local toward
     // its ~10 MB quota (and means "Copy prompt" wouldn't quietly drag the whole
     // transcript along). Rebuild the prompt with no transcript for the log.
-    let historyPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity);
+    let historyPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity, activeTags);
     if (gateMinutes > 0) {
       historyPrompt = prependWorthWatchingGate(historyPrompt, gateMinutes);
     }

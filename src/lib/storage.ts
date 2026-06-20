@@ -11,12 +11,14 @@ import type {
   SearchHistoryEntry,
   Settings,
   StorageState,
+  Tag,
 } from "../types";
 import { computeEngagementVerdict, VERDICT_RANK } from "./engagement";
 import {
   AUTO_RUN_CHANNELS_KEY,
   BLOCKED_CHANNELS_KEY,
   CACHE_TTL_MS,
+  CHANNEL_TAGS_KEY,
   DEFAULT_SETTINGS,
   DELIVERY_STATUS_KEY,
   extractVideoId,
@@ -28,7 +30,9 @@ import {
   pruneCache,
   STORAGE_KEYS,
   SUMMARY_CACHE_KEY,
+  TAGS_KEY,
   TLDW_STATS_KEY,
+  VIDEO_TAGS_KEY,
 } from "./constants";
 import { createDefaultProfiles } from "./profiles";
 
@@ -693,6 +697,107 @@ export async function removeBlockedChannel(channelId: string): Promise<void> {
     const existing = await getBlockedChannels();
     await setBlockedChannels(existing.filter((c) => c.id !== channelId && c.name !== channelId));
   });
+}
+
+// --- Tags (F6) --------------------------------------------------------------
+// A tag = { id, label, prompt }. Assignments live in two maps:
+//   CHANNEL_TAGS_KEY: channelKey -> tag ids   (auto-apply to the channel's videos)
+//   VIDEO_TAGS_KEY:   videoId    -> tag ids   (one-off for a single video)
+// channelKey is the channel DISPLAY NAME (both the widget's currentChannelInfo.name
+// and the background's video.channel resolve to it). videoId = extractVideoId(url).
+// The widget (content script) writes assignments directly; these helpers serve the
+// background (resolve/weave) and the options Tags-library section.
+
+type TagAssignments = Record<string, string[]>;
+
+export async function getTags(): Promise<Tag[]> {
+  const r = await chrome.storage.local.get(TAGS_KEY);
+  return (r[TAGS_KEY] as Tag[]) ?? [];
+}
+
+export async function setTags(tags: Tag[]): Promise<void> {
+  await withWriteLock(TAGS_KEY, async () => {
+    await chrome.storage.local.set({ [TAGS_KEY]: tags });
+  });
+}
+
+async function readAssignments(key: string): Promise<TagAssignments> {
+  const r = await chrome.storage.local.get(key);
+  return (r[key] as TagAssignments) ?? {};
+}
+
+export async function getChannelTagIds(channelKey: string): Promise<string[]> {
+  return (await readAssignments(CHANNEL_TAGS_KEY))[channelKey] ?? [];
+}
+
+export async function getVideoTagIds(videoId: string): Promise<string[]> {
+  return (await readAssignments(VIDEO_TAGS_KEY))[videoId] ?? [];
+}
+
+/**
+ * The active tags for a video: (channel tags ∪ video tags), deduped, resolved
+ * against the library and returned in library order. Ids with no surviving
+ * library entry (a deleted tag) are dropped.
+ */
+export async function getActiveTags(args: {
+  channelKey?: string;
+  videoId?: string;
+}): Promise<Tag[]> {
+  const [library, channelMap, videoMap] = await Promise.all([
+    getTags(),
+    readAssignments(CHANNEL_TAGS_KEY),
+    readAssignments(VIDEO_TAGS_KEY),
+  ]);
+  const ids = new Set<string>([
+    ...(args.channelKey ? channelMap[args.channelKey] ?? [] : []),
+    ...(args.videoId ? videoMap[args.videoId] ?? [] : []),
+  ]);
+  return library.filter((t) => ids.has(t.id));
+}
+
+async function mutateAssignment(
+  key: string,
+  bucket: string,
+  fn: (ids: string[]) => string[],
+): Promise<void> {
+  await withWriteLock(key, async () => {
+    const map = await readAssignments(key);
+    const next = fn(map[bucket] ?? []);
+    if (next.length) map[bucket] = next;
+    else delete map[bucket];
+    await chrome.storage.local.set({ [key]: map });
+  });
+}
+
+export async function addChannelTag(channelKey: string, tagId: string): Promise<void> {
+  await mutateAssignment(CHANNEL_TAGS_KEY, channelKey, (ids) =>
+    ids.includes(tagId) ? ids : [...ids, tagId],
+  );
+}
+
+export async function removeChannelTag(channelKey: string, tagId: string): Promise<void> {
+  await mutateAssignment(CHANNEL_TAGS_KEY, channelKey, (ids) => ids.filter((id) => id !== tagId));
+}
+
+export async function addVideoTag(videoId: string, tagId: string): Promise<void> {
+  await mutateAssignment(VIDEO_TAGS_KEY, videoId, (ids) =>
+    ids.includes(tagId) ? ids : [...ids, tagId],
+  );
+}
+
+export async function removeVideoTag(videoId: string, tagId: string): Promise<void> {
+  await mutateAssignment(VIDEO_TAGS_KEY, videoId, (ids) => ids.filter((id) => id !== tagId));
+}
+
+/** "Apply to all future videos of this channel": move a tag from the video's
+ *  one-off list into the channel's auto-apply list. */
+export async function promoteVideoTagToChannel(
+  videoId: string,
+  channelKey: string,
+  tagId: string,
+): Promise<void> {
+  await removeVideoTag(videoId, tagId);
+  await addChannelTag(channelKey, tagId);
 }
 
 /** Open searches whose tabs are still open; prunes any that have closed. */

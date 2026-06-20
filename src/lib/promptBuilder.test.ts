@@ -52,6 +52,26 @@ describe("buildDestinationPrompt", () => {
     expect(out).toMatch(/provides \/ covers \/ explains/);
   });
 
+  it("weaves active tags into the prompt before the TLDW block — F6", () => {
+    const tags = [
+      { id: "t1", label: "Citations", prompt: "Include the sources the video relies on." },
+      { id: "t2", label: "Tutorial", prompt: "Frame the takeaways as step-by-step instructions." },
+    ];
+    const out = buildDestinationPrompt(
+      profile, video, dest({ payload: "prompt", canWatch: true }), null, null, tags,
+    );
+    expect(out).toContain("Include the sources the video relies on.");
+    expect(out).toContain("Frame the takeaways as step-by-step instructions.");
+    // tag instructions come before the binding output block
+    expect(out.indexOf("Frame the takeaways")).toBeLessThan(out.indexOf("---TLDW---"));
+  });
+
+  it("no-ops with no tags", () => {
+    const withNone = buildDestinationPrompt(profile, video, dest({ payload: "prompt", canWatch: true }), null, null, []);
+    const baseline = buildDestinationPrompt(profile, video, dest({ payload: "prompt", canWatch: true }));
+    expect(withNone).toBe(baseline);
+  });
+
   it("a watch-capable destination (Gemini) never appends the transcript", () => {
     const out = buildDestinationPrompt(
       profile,
