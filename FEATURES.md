@@ -278,6 +278,7 @@ Then a manual Chrome pass (see §5).
 Tag:            { id: string; label: string; prompt: string }
 Tag library:    chrome.storage.local["tldwTags"]:        Tag[]
 Channel tags:   chrome.storage.local["tldwChannelTags"]: Record<channelKey, string[]>  // tag ids, auto-apply
+                channelKey = channel DISPLAY NAME (background only has video.channel)
 Video tags:     chrome.storage.local["tldwVideoTags"]:   Record<videoId, string[]>     // tag ids, one-off
 Promote:        "apply to all future videos of this channel" moves a video tag id
                 from tldwVideoTags[videoId] into tldwChannelTags[channelKey].

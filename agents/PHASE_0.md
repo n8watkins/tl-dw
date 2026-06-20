@@ -38,10 +38,12 @@ export const CHANNEL_TAGS_KEY = "tldwChannelTags";
  *  channel" promotes a video tag into CHANNEL_TAGS_KEY for that channel. */
 export const VIDEO_TAGS_KEY = "tldwVideoTags";
 ```
-> The channel key matches what the widget/auto-run code already uses for a channel
-> (the `id` from `getChannelInfo()`, e.g. `/@Handle`, falling back to name). Reuse
-> the SAME key so tags line up with auto-run/blocked channel lookups. videoId comes
-> from `extractVideoId(url)`.
+> **channelKey = the channel DISPLAY NAME** (`getChannelInfo().name` in the widget;
+> `video.channel` in the background — both scrape the same name). The background
+> only has the name (not the `/@Handle` id), so tags MUST be keyed by name on both
+> sides or the background's lookup misses. videoId comes from `extractVideoId(url)`.
+> _(Resolved during Agent A implementation — `getActiveTags` keys channel tags by
+> name.)_
 
 ### 3. Gate + land
 ```bash
