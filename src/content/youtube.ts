@@ -934,7 +934,9 @@ function buildAutoToggle(
     padding: "0 12px", borderRadius: "999px", border: "2px solid transparent",
     cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
     background: t.border,
-    transition: "border-color 0.15s, color 0.15s",
+    // Include `background` so the F4 hover fill eases like the sibling header
+    // pills (Skip-channel / Gemini / kebab), not snap instantly.
+    transition: "background 0.15s, border-color 0.15s, color 0.15s",
     ...pillGeom,
   });
 
