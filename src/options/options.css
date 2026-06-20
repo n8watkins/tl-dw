@@ -1659,3 +1659,105 @@ textarea { min-height: 176px; font-family: "JetBrains Mono", "Fira Code", ui-mon
   border-top: 1px solid var(--border);
   letter-spacing: 0.01em;
 }
+
+/* ── F7 Phase 1: window toggle + deltas + nudge ─────────────────── */
+.stats-window-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  margin: 4px 0 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.stats-window-toggle button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding: 6px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.stats-window-toggle button:hover {
+  color: var(--text);
+}
+.stats-window-toggle button.active {
+  color: #fff;
+  background: var(--primary);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--primary) 45%, transparent);
+}
+
+/* The hero "time saved this period" sentence card */
+.stats-hero-line {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.stats-hero-line strong {
+  color: var(--text);
+}
+
+.stat-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+.stat-delta.up { color: #4ade80; background: rgba(34,197,94,0.13); }
+.stat-delta.down { color: #fb7185; background: rgba(244,63,94,0.13); }
+.stat-delta.flat { color: var(--faint); background: rgba(148,163,184,0.12); }
+.stat-delta.new { color: #c4b5fd; background: rgba(167,139,250,0.15); }
+
+/* Windowed top-channels list */
+.stat-channel-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+}
+.stat-channel-row:first-child { border-top: none; }
+.stat-channel-av {
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  object-fit: cover; background: var(--border);
+}
+.stat-channel-name {
+  flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.stat-channel-meta { font-size: 11px; color: var(--faint); flex-shrink: 0; }
+
+/* The "you skip X of this channel — block it?" nudge */
+.stat-nudge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+}
+.stat-nudge-text { flex: 1; font-size: 13px; line-height: 1.45; color: var(--text); }
+.stat-nudge-text strong { color: #fb7185; }
+.stat-nudge button {
+  flex-shrink: 0; appearance: none; border: none; cursor: pointer;
+  font-size: 12px; font-weight: 700; padding: 7px 14px; border-radius: 999px;
+}
+.stat-nudge .nudge-block { background: var(--danger); color: #fff; }
+.stat-nudge .nudge-dismiss { background: transparent; color: var(--faint); }
+
+.stats-window-note {
+  font-size: 11px; color: var(--faint); margin-top: 10px; text-align: center;
+  font-style: italic;
+}
