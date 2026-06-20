@@ -109,8 +109,20 @@ function getState(): WatchWindowState {
   };
 }
 
-(window as unknown as { __tldwWatch?: { getState: () => WatchWindowState } }).__tldwWatch = {
+/**
+ * Resync lastTime to the player's current position WITHOUT counting the jump.
+ * Called by sponsorblock.ts (same isolated world) the instant it seeks past a
+ * sponsor, so a timeupdate that fires for the jumped-to position before our own
+ * `seeked` handler runs can't count the skipped segment as watch time —
+ * especially for short skips whose forward jump is within the per-tick cap.
+ */
+function markSeek(): void {
+  if (video) lastTime = video.currentTime;
+}
+
+(window as unknown as { __tldwWatch?: { getState: () => WatchWindowState; markSeek: () => void } }).__tldwWatch = {
   getState,
+  markSeek,
 };
 
 function notifyPanel(): void {
@@ -157,7 +169,13 @@ async function reportProgress(forced = false): Promise<void> {
   const vid = currentVid;
   if (!vid) return;
 
+  // Claim the pending seconds BEFORE the await, not after. sendMessage to a cold
+  // service worker is slow, so a periodic report and a visibilitychange/pagehide
+  // flush routinely overlap; reading `delta` here but only subtracting after the
+  // await let both calls capture — and the background double-count — the SAME
+  // seconds. Zero it up front; restore on failure so nothing is lost.
   const delta = pendingDelta;
+  pendingDelta = 0;
   // Prefer snapshots captured while this video was playing — during a SPA
   // navigation the live DOM may already describe the NEXT video.
   const dur = lastKnownDuration || currentDuration();
@@ -173,11 +191,11 @@ async function reportProgress(forced = false): Promise<void> {
       sawSummary,
       video: videoMeta,
     });
-    // Subtract only what we reported — seconds accumulated during the await
-    // stay pending. (If the video changed mid-flight, handleNav already reset.)
-    if (currentVid === vid) pendingDelta = Math.max(0, pendingDelta - delta);
   } catch {
-    // Service worker may be sleeping — keep pendingDelta for the next report.
+    // Service worker may be sleeping — return the seconds to the pending pool so
+    // the next report retries them (unless we've since navigated to a new video,
+    // in which case handleNav already reset the counters and they don't apply).
+    if (currentVid === vid) pendingDelta += delta;
   }
 }
 
@@ -189,7 +207,11 @@ function onTimeUpdate(): void {
   const delta = t - lastTime;
   lastTime = t;
   // Only count forward motion within a reasonable range (filters seeks / stalls).
-  if (delta > 0 && delta <= 2.5) {
+  // Scale the cap by playbackRate: at 2x with a throttled (background-tab)
+  // timeupdate, a single tick can advance >2.5s of content and a fixed 2.5 cap
+  // would silently drop it. A real seek is far larger than one playback step.
+  const maxStep = 2.5 * (video.playbackRate || 1);
+  if (delta > 0 && delta <= maxStep) {
     totalWatched += delta;
     pendingDelta += delta;
     // Snapshot while this video is verifiably the one playing (cheap reads

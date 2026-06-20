@@ -192,6 +192,22 @@ export function userAvgToLabel(avg: number): string {
 }
 
 /**
+ * Local-timezone "YYYY-MM-DD" key. The activity heatmap and the daily Gemini
+ * quota counter are presented as "today" (the user's calendar day), so the day
+ * key must be derived from local components on BOTH the write and read side.
+ * `Date.toISOString().slice(0,10)` slices the UTC date, which drifts a day for
+ * negative-UTC zones (all of the Americas) once the UTC day has rolled over —
+ * making a streak read as broken or the quota reset mid-afternoon. Use this on
+ * both sides so they always agree.
+ */
+export function localDateKey(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
  * Extract the YouTube video ID from any watch/shorts/youtu.be URL.
  * Returns null for non-video URLs or URLs that don't parse.
  */

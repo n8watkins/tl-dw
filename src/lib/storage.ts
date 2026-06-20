@@ -22,6 +22,7 @@ import {
   extractVideoId,
   GEMINI_CALL_LOG_KEY,
   GEMINI_USAGE_KEY,
+  localDateKey,
   OPEN_SEARCHES_KEY,
   PENDING_KEY,
   pruneCache,
@@ -65,6 +66,47 @@ export async function setHistory(history: SearchHistoryEntry[]): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEYS.history]: history });
 }
 
+// --- write serialization (single-worker mutex) -----------------------------
+// chrome.storage has no atomic read-modify-write. The background worker drives
+// many concurrent RMW sequences — WATCH_PROGRESS fires from every open YouTube
+// tab, plus stats bumps from the summary / cache-hit / sponsor paths — and a
+// bare get→modify→set can interleave so the later set() clobbers the earlier
+// one (lost updates: undercounted stats, dropped history entries). Funnel every
+// RMW for a given storage key through a per-key promise chain so each read+write
+// completes before the next begins. The chain lives only in the worker and only
+// holds across a single awaited write, so a worker restart at worst leaves one
+// write unordered — never lost.
+const writeChains = new Map<string, Promise<unknown>>();
+
+export function withWriteLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = writeChains.get(key) ?? Promise.resolve();
+  // Run fn after prev settles (resolve OR reject), so one failed RMW doesn't
+  // wedge the queue. Store a never-rejecting tail so the next waiter chains off
+  // a settled promise; return the real result so the caller still sees errors.
+  const result = prev.then(fn, fn);
+  writeChains.set(key, result.then(
+    () => undefined,
+    () => undefined,
+  ));
+  return result;
+}
+
+/**
+ * Serialized read-modify-write of the history array. All history mutations
+ * (recordWatchProgress, addHistoryEntry) route through here so concurrent
+ * writers can't clobber each other. The callback receives the current stored
+ * history and returns the next array, or null to skip the write entirely.
+ */
+export async function mutateHistory(
+  fn: (history: SearchHistoryEntry[]) => SearchHistoryEntry[] | null,
+): Promise<void> {
+  await withWriteLock(STORAGE_KEYS.history, async () => {
+    const history = await getHistory();
+    const next = fn(history);
+    if (next !== null) await setHistory(next);
+  });
+}
+
 /**
  * Record a watch-progress delta for `videoId`, accumulate the total, compute an
  * engagement verdict (Engaged/Skimmed/Skipped), and persist it using the
@@ -86,49 +128,50 @@ export async function recordWatchProgress(args: {
 }): Promise<void> {
   const { videoId, deltaSeconds, durationSeconds, sawSummary, video, settings } = args;
 
-  const history = await getHistory();
-  const idx = history.findIndex((e) => extractVideoId(e.videoUrl) === videoId);
-
-  // Compute prospective accumulated total if we find (or create) an entry.
-  const existingEntry = idx !== -1 ? history[idx]! : null;
-  const prevWatched = existingEntry?.watchedSeconds ?? 0;
-  const newWatched = prevWatched + deltaSeconds;
-
-  const verdict = computeEngagementVerdict(newWatched, durationSeconds, {
-    engagedPct: settings.engagedPct,
-    skimmedPct: settings.skimmedPct,
-    sawSummary,
-  });
-
-  // If there's no entry and we have nothing meaningful to store, bail out.
-  if (idx === -1 && deltaSeconds <= 0 && verdict === null) return;
-
-  let updatedEntry: SearchHistoryEntry;
-  // Track the previous rating (before the update) so we can compute the
-  // counter transition for lifetime stats.
+  // The previous rating (before this update) and the resulting entry, captured
+  // out of the serialized history mutation so we can bump stats afterward.
+  let updatedEntry: SearchHistoryEntry | null = null;
   let prevRating: "watch" | "skim" | "skip" | undefined;
 
-  if (idx !== -1) {
-    // Existing entry — accumulate and potentially upgrade verdict.
-    const current = history[idx]!;
-    prevRating = current.userRating;
-    const currentRank = VERDICT_RANK[current.userRating ?? "null"] ?? 0;
-    const newRank = VERDICT_RANK[verdict ?? "null"] ?? 0;
-    // Only upgrade: replace stored rating when new rank is strictly higher.
-    const nextRating: "watch" | "skim" | "skip" | undefined =
-      newRank > currentRank && verdict !== null
-        ? (verdict as "watch" | "skim" | "skip")
-        : current.userRating;
+  await mutateHistory((history) => {
+    const idx = history.findIndex((e) => extractVideoId(e.videoUrl) === videoId);
 
-    updatedEntry = {
-      ...current,
-      watchedSeconds: newWatched,
-      durationSeconds: durationSeconds || current.durationSeconds,
-      ...(nextRating !== undefined ? { userRating: nextRating } : {}),
-    };
-    history[idx] = updatedEntry;
-    await setHistory(history);
-  } else {
+    // Compute prospective accumulated total if we find (or create) an entry.
+    const existingEntry = idx !== -1 ? history[idx]! : null;
+    const prevWatched = existingEntry?.watchedSeconds ?? 0;
+    const newWatched = prevWatched + deltaSeconds;
+
+    const verdict = computeEngagementVerdict(newWatched, durationSeconds, {
+      engagedPct: settings.engagedPct,
+      skimmedPct: settings.skimmedPct,
+      sawSummary,
+    });
+
+    // If there's no entry and we have nothing meaningful to store, skip the write.
+    if (idx === -1 && deltaSeconds <= 0 && verdict === null) return null;
+
+    if (idx !== -1) {
+      // Existing entry — accumulate and potentially upgrade verdict.
+      const current = history[idx]!;
+      prevRating = current.userRating;
+      const currentRank = VERDICT_RANK[current.userRating ?? "null"] ?? 0;
+      const newRank = VERDICT_RANK[verdict ?? "null"] ?? 0;
+      // Only upgrade: replace stored rating when new rank is strictly higher.
+      const nextRating: "watch" | "skim" | "skip" | undefined =
+        newRank > currentRank && verdict !== null
+          ? (verdict as "watch" | "skim" | "skip")
+          : current.userRating;
+
+      updatedEntry = {
+        ...current,
+        watchedSeconds: newWatched,
+        durationSeconds: durationSeconds || current.durationSeconds,
+        ...(nextRating !== undefined ? { userRating: nextRating } : {}),
+      };
+      history[idx] = updatedEntry;
+      return history;
+    }
+
     // No existing entry — create a stub so the channel shows up in Channels view.
     const stub: SearchHistoryEntry = {
       id: crypto.randomUUID(),
@@ -156,13 +199,17 @@ export async function recordWatchProgress(args: {
     if (settings.historyLimit !== "unlimited") {
       next = next.slice(0, settings.historyLimit);
     }
-    await setHistory(next);
-  }
+    return next;
+  });
+
+  if (!updatedEntry) return;
+  // TS can't see that the closure assigned these; narrow explicitly.
+  const entry = updatedEntry as SearchHistoryEntry;
 
   // --- Bump lifetime stats: watch time + verdict transitions ---------------
-  const newRating = updatedEntry.userRating;
+  const newRating = entry.userRating;
   if (deltaSeconds > 0 || (newRating !== undefined && newRating !== prevRating)) {
-    void bumpLifetimeStats((s) => {
+    await bumpLifetimeStats((s) => {
       if (deltaSeconds > 0) s.secondsWatched += deltaSeconds;
       if (newRating !== undefined && newRating !== prevRating) {
         const delta = verdictCounterDelta(prevRating, newRating);
@@ -174,13 +221,15 @@ export async function recordWatchProgress(args: {
   }
 
   // Mirror the auto-rating into the summary cache so cached panels reflect it.
-  if (updatedEntry.userRating !== undefined) {
-    const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
-    const cache = (r[SUMMARY_CACHE_KEY] as Record<string, { tldw: unknown; cachedAt: string; userRating?: string }>) ?? {};
-    if (cache[videoId]) {
-      cache[videoId]!.userRating = updatedEntry.userRating;
-      await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
-    }
+  if (entry.userRating !== undefined) {
+    await withWriteLock(SUMMARY_CACHE_KEY, async () => {
+      const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
+      const cache = (r[SUMMARY_CACHE_KEY] as Record<string, { tldw: unknown; cachedAt: string; userRating?: string }>) ?? {};
+      if (cache[videoId]) {
+        cache[videoId]!.userRating = entry.userRating;
+        await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
+      }
+    });
   }
 }
 
@@ -258,11 +307,13 @@ async function readOpenSearches(): Promise<OpenSearch[]> {
 
 /** Record a destination tab we just opened (newest first, deduped, capped). */
 export async function addOpenSearch(entry: OpenSearch): Promise<void> {
-  const existing = (await readOpenSearches()).filter(
-    (s) => s.tabId !== entry.tabId,
-  );
-  const next = [entry, ...existing].slice(0, 20);
-  await chrome.storage.session.set({ [OPEN_SEARCHES_KEY]: next });
+  await withWriteLock(OPEN_SEARCHES_KEY, async () => {
+    const existing = (await readOpenSearches()).filter(
+      (s) => s.tabId !== entry.tabId,
+    );
+    const next = [entry, ...existing].slice(0, 20);
+    await chrome.storage.session.set({ [OPEN_SEARCHES_KEY]: next });
+  });
 }
 
 /** Drop a search entry when its tab closes. */
@@ -278,10 +329,12 @@ export async function pruneOpenSearch(tabId: number): Promise<void> {
 
 /** Record an auto-fill outcome (newest first, capped) for the popup to show. */
 export async function recordDeliveryStatus(status: DeliveryStatus): Promise<void> {
-  const r = await chrome.storage.session.get(DELIVERY_STATUS_KEY);
-  const list = (r[DELIVERY_STATUS_KEY] as DeliveryStatus[]) ?? [];
-  const next = [status, ...list].slice(0, 10);
-  await chrome.storage.session.set({ [DELIVERY_STATUS_KEY]: next });
+  await withWriteLock(DELIVERY_STATUS_KEY, async () => {
+    const r = await chrome.storage.session.get(DELIVERY_STATUS_KEY);
+    const list = (r[DELIVERY_STATUS_KEY] as DeliveryStatus[]) ?? [];
+    const next = [status, ...list].slice(0, 10);
+    await chrome.storage.session.set({ [DELIVERY_STATUS_KEY]: next });
+  });
 }
 
 export async function getDeliveryStatuses(): Promise<DeliveryStatus[]> {
@@ -316,6 +369,7 @@ async function _recordGeminiCall(
   prompt?: string,
   response?: string,
 ): Promise<string> {
+ return withWriteLock(GEMINI_USAGE_KEY, async () => {
   const [usage, logRaw, settings] = await Promise.all([
     getGeminiUsage(),
     chrome.storage.local.get(GEMINI_CALL_LOG_KEY),
@@ -323,7 +377,9 @@ async function _recordGeminiCall(
   ]);
 
   const now = new Date();
-  const todayDate = now.toISOString().slice(0, 10);
+  // Use the LOCAL calendar date: the popup/stats present "today's calls" as the
+  // user's day, so the counter must reset at local midnight, not UTC midnight.
+  const todayDate = localDateKey(now);
   const isSameDay = usage.todayDate === todayDate;
 
   const updatedUsage: GeminiUsage = {
@@ -356,6 +412,7 @@ async function _recordGeminiCall(
   });
 
   return id;
+ });
 }
 
 export async function recordGeminiCall(
@@ -431,16 +488,20 @@ export async function getLifetimeStats(): Promise<LifetimeStats> {
  * Read-modify-write for lifetime stats. Sets `since` on first write and
  * trims `activity` to the newest 366 calendar dates.
  *
- * IMPORTANT: Only call from background/storage-layer code (single writer).
+ * Serialized through withWriteLock: the message-driven design has many
+ * concurrent callers (WATCH_PROGRESS from every tab, sponsor/summary/cache
+ * paths), so an un-serialized get→set would lose counter updates.
  */
 export async function bumpLifetimeStats(
   mutate: (s: LifetimeStats) => void,
 ): Promise<void> {
-  const stats = await getLifetimeStats();
-  if (!stats.since) stats.since = new Date().toISOString();
-  mutate(stats);
-  stats.activity = trimActivity(stats.activity);
-  await chrome.storage.local.set({ [TLDW_STATS_KEY]: stats });
+  await withWriteLock(TLDW_STATS_KEY, async () => {
+    const stats = await getLifetimeStats();
+    if (!stats.since) stats.since = new Date().toISOString();
+    mutate(stats);
+    stats.activity = trimActivity(stats.activity);
+    await chrome.storage.local.set({ [TLDW_STATS_KEY]: stats });
+  });
 }
 
 /**
@@ -485,12 +546,14 @@ export async function getCachedSummary(videoId: string): Promise<CachedSummary |
 }
 
 export async function setCachedSummary(videoId: string, entry: CachedSummary): Promise<void> {
-  const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
-  const cache = (r[SUMMARY_CACHE_KEY] as SummaryCache) ?? {};
-  cache[videoId] = entry;
-  // Bound growth on every write: drop stale entries (TTL) and cap the count.
-  pruneCache(cache);
-  await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
+  await withWriteLock(SUMMARY_CACHE_KEY, async () => {
+    const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
+    const cache = (r[SUMMARY_CACHE_KEY] as SummaryCache) ?? {};
+    cache[videoId] = entry;
+    // Bound growth on every write: drop stale entries (TTL) and cap the count.
+    pruneCache(cache);
+    await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
+  });
 }
 
 // --- Auto-run channel list ---------------------------------------------------
@@ -508,15 +571,19 @@ export async function setAutoRunChannels(channels: AutoRunChannel[]): Promise<vo
 
 /** Add or update a channel in the auto-run list (matched by id or name). */
 export async function addAutoRunChannel(channel: AutoRunChannel): Promise<void> {
-  const existing = await getAutoRunChannels();
-  const filtered = existing.filter((c) => c.id !== channel.id && c.name !== channel.name);
-  await setAutoRunChannels([channel, ...filtered]);
+  await withWriteLock(AUTO_RUN_CHANNELS_KEY, async () => {
+    const existing = await getAutoRunChannels();
+    const filtered = existing.filter((c) => c.id !== channel.id && c.name !== channel.name);
+    await setAutoRunChannels([channel, ...filtered]);
+  });
 }
 
 /** Remove a channel from the auto-run list entirely (matched by id or name). */
 export async function removeAutoRunChannel(channelId: string): Promise<void> {
-  const existing = await getAutoRunChannels();
-  await setAutoRunChannels(existing.filter((c) => c.id !== channelId && c.name !== channelId));
+  await withWriteLock(AUTO_RUN_CHANNELS_KEY, async () => {
+    const existing = await getAutoRunChannels();
+    await setAutoRunChannels(existing.filter((c) => c.id !== channelId && c.name !== channelId));
+  });
 }
 
 // --- Blocked channel list ---------------------------------------------------
@@ -532,15 +599,19 @@ export async function setBlockedChannels(channels: BlockedChannel[]): Promise<vo
 
 /** Add or update a channel in the blocked list (matched by id or name). */
 export async function addBlockedChannel(channel: BlockedChannel): Promise<void> {
-  const existing = await getBlockedChannels();
-  const filtered = existing.filter((c) => c.id !== channel.id && c.name !== channel.name);
-  await setBlockedChannels([channel, ...filtered]);
+  await withWriteLock(BLOCKED_CHANNELS_KEY, async () => {
+    const existing = await getBlockedChannels();
+    const filtered = existing.filter((c) => c.id !== channel.id && c.name !== channel.name);
+    await setBlockedChannels([channel, ...filtered]);
+  });
 }
 
 /** Remove a channel from the blocked list (matched by id or name). */
 export async function removeBlockedChannel(channelId: string): Promise<void> {
-  const existing = await getBlockedChannels();
-  await setBlockedChannels(existing.filter((c) => c.id !== channelId && c.name !== channelId));
+  await withWriteLock(BLOCKED_CHANNELS_KEY, async () => {
+    const existing = await getBlockedChannels();
+    await setBlockedChannels(existing.filter((c) => c.id !== channelId && c.name !== channelId));
+  });
 }
 
 /** Open searches whose tabs are still open; prunes any that have closed. */

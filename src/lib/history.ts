@@ -4,7 +4,7 @@ import type {
   Settings,
   VideoContext,
 } from "../types";
-import { getHistory, setHistory } from "./storage";
+import { mutateHistory } from "./storage";
 import { USER_RATING_SCALE } from "./constants";
 
 /** Keep only the newest `limit` entries ("unlimited" keeps all). Newest first. */
@@ -63,10 +63,12 @@ export async function addHistoryEntry(args: {
     userRating: args.userRating,
     createdAt: new Date().toISOString(),
   };
-  const existing = await getHistory();
-  const fresh = expireOldEntries([entry, ...existing], args.settings);
-  const next = trimToLimit(fresh, args.settings.historyLimit);
-  await setHistory(next);
+  // Serialized RMW (shares the history lock with recordWatchProgress) so a
+  // concurrent watch-progress write can't clobber this new entry, or vice-versa.
+  await mutateHistory((existing) => {
+    const fresh = expireOldEntries([entry, ...existing], args.settings);
+    return trimToLimit(fresh, args.settings.historyLimit);
+  });
 }
 
 export type ChannelStats = {

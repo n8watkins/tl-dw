@@ -45,6 +45,12 @@ function videoIdFromUrl(): string {
   }
 }
 
+/** Resync watchtime.ts's lastTime after a programmatic seek so it doesn't count
+ *  the jumped gap (both scripts share this isolated world via window). */
+function markWatchSeek(): void {
+  (window as unknown as { __tldwWatch?: { markSeek?: () => void } }).__tldwWatch?.markSeek?.();
+}
+
 async function loadEnabled(): Promise<boolean> {
   const r = await chrome.storage.local.get("settings");
   const s = r["settings"] as { skipSponsors?: boolean } | undefined;
@@ -98,6 +104,7 @@ function jumpTo(index: number, edge: "start" | "end"): void {
   undoableUntil.delete(seg);
   programmaticSeek = true;
   video.currentTime = edge === "end" ? seg.end : Math.max(0, seg.start);
+  markWatchSeek();
   notifyPanel();
 }
 
@@ -131,6 +138,9 @@ function onTimeUpdate(): void {
       undoableUntil.set(seg, seg.end + UNDO_GRACE); // Undo available briefly
       programmaticSeek = true;
       video.currentTime = seg.end;
+      // Tell the watch-time engine (same isolated world) we jumped, so it doesn't
+      // count the skipped sponsor as watched.
+      markWatchSeek();
       notifyPanel();
       // Fire-and-forget: tell the background to tally lifetime sponsor stats.
       chrome.runtime.sendMessage({
