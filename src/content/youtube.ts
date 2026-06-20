@@ -23,12 +23,15 @@ const currentVideoId = (): string | null =>
   new URLSearchParams(location.search).get("v");
 
 import {
+  CHANNEL_TAGS_KEY,
+  TAGS_KEY,
   USER_RATING_SCALE,
+  VIDEO_TAGS_KEY,
   pruneCache,
   scoreToVerdict,
   userAvgToLabel,
 } from "../lib/constants";
-import type { SponsorWindowApi } from "../types";
+import type { SponsorWindowApi, Tag } from "../types";
 
 // --- intercepted transcript cache ----------------------------------------
 
@@ -388,7 +391,7 @@ function isUnsummarizableLive(): boolean {
 }
 
 /** Read the current video's duration (seconds), channel name, and channel avatar URL. */
-function getVideoMeta(): { durationSeconds: number; channel: string; avatarUrl?: string } {
+function getVideoMeta(): { durationSeconds: number; channel: string; channelId?: string; avatarUrl?: string } {
   const video = document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
   let durationSeconds =
     video && Number.isFinite(video.duration) ? video.duration : 0;
@@ -407,7 +410,10 @@ function getVideoMeta(): { durationSeconds: number; channel: string; avatarUrl?:
     document.querySelector<HTMLImageElement>(
       "ytd-video-owner-renderer #avatar img, #owner yt-img-shadow img, ytd-video-owner-renderer yt-img-shadow img",
     )?.src ?? undefined;
-  return { durationSeconds, channel, avatarUrl };
+  // The channel id/href so the background can resolve channel tags by id (the key
+  // the tag row writes under), not just the display name.
+  const channelId = getChannelInfo()?.id;
+  return { durationSeconds, channel, channelId, avatarUrl };
 }
 
 // --- auto-run / blocked channel helpers (direct storage; no lib imports in content script) --
@@ -544,6 +550,104 @@ let currentDirectApiEnabled = false;
 let navEpoch = 0;
 
 
+// --- tags: library + per-channel / per-video assignments (direct storage) ----
+// chrome.storage has no atomic read-modify-write (LESSONS_LEARNED #13). Every tag
+// write here is funnelled through serializeTagWrite, an in-realm promise chain, so
+// two rapid clicks IN THIS TAB can't clobber each other's get→modify→set — the
+// common case (the widget is the only writer of the assignment maps). It does NOT
+// coordinate with writes from the worker/options page: content scripts run in the
+// page origin, a separate lock scope from the extension realm, so navigator.locks
+// wouldn't bridge them either. A concurrent edit of the SAME key from the options
+// Tags section while clicking chips here can still lost-update; that's rare and
+// accepted. The storage SHAPES are the Phase 0 contract Agent A reads for weaving.
+
+type TagMap = Record<string, string[]>;
+
+// Serialize tag writes within this tab: each runs after the previous one settles
+// (resolve OR reject, so one failure doesn't wedge the queue), still returning the
+// real result so callers see errors.
+let tagWriteChain: Promise<unknown> = Promise.resolve();
+function serializeTagWrite<T>(fn: () => Promise<T>): Promise<T> {
+  const run = tagWriteChain.then(fn, fn);
+  tagWriteChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+/** The key a channel's tags live under — the SAME id auto-run/blocked lookups
+ *  use (getChannelInfo().id, falling back to the display name) so Agent A's
+ *  background weaving lines up with what the widget writes here. */
+function channelTagKey(info: ChannelInfo): string {
+  return info.id || info.name;
+}
+
+async function readTagLibrary(): Promise<Tag[]> {
+  const r = await chrome.storage.local.get(TAGS_KEY);
+  return (r[TAGS_KEY] as Tag[]) ?? [];
+}
+
+async function readChannelTagMap(): Promise<TagMap> {
+  const r = await chrome.storage.local.get(CHANNEL_TAGS_KEY);
+  return (r[CHANNEL_TAGS_KEY] as TagMap) ?? {};
+}
+
+async function readVideoTagMap(): Promise<TagMap> {
+  const r = await chrome.storage.local.get(VIDEO_TAGS_KEY);
+  return (r[VIDEO_TAGS_KEY] as TagMap) ?? {};
+}
+
+/** Append a tag id to one map entry (deduped) and persist. */
+function addTagAssignment(mapKey: string, key: string, tagId: string): Promise<void> {
+  return serializeTagWrite(async () => {
+    const r = await chrome.storage.local.get(mapKey);
+    const map = (r[mapKey] as TagMap) ?? {};
+    const ids = map[key] ?? [];
+    if (!ids.includes(tagId)) map[key] = [...ids, tagId];
+    await chrome.storage.local.set({ [mapKey]: map });
+  });
+}
+
+/** Remove a tag id from one map entry and persist (drop the entry if empty). */
+function removeTagAssignment(mapKey: string, key: string, tagId: string): Promise<void> {
+  return serializeTagWrite(async () => {
+    const r = await chrome.storage.local.get(mapKey);
+    const map = (r[mapKey] as TagMap) ?? {};
+    const ids = (map[key] ?? []).filter((id) => id !== tagId);
+    if (ids.length) map[key] = ids;
+    else delete map[key];
+    await chrome.storage.local.set({ [mapKey]: map });
+  });
+}
+
+/** Create a tag in the library and return it (no assignment yet). */
+function createLibraryTag(label: string, prompt: string): Promise<Tag> {
+  return serializeTagWrite(async () => {
+    const lib = await readTagLibrary();
+    const id =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `tag-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tag: Tag = { id, label, prompt };
+    await chrome.storage.local.set({ [TAGS_KEY]: [...lib, tag] });
+    return tag;
+  });
+}
+
+/** "Apply to all future videos of this channel": move ids from VIDEO_TAGS_KEY[vid]
+ *  into CHANNEL_TAGS_KEY[channelKey], deduping against what's already there. */
+function promoteVideoTags(vid: string, channelKey: string, tagIds: string[]): Promise<void> {
+  return serializeTagWrite(async () => {
+    const [chMap, vidMap] = await Promise.all([readChannelTagMap(), readVideoTagMap()]);
+    const merged = [...(chMap[channelKey] ?? [])];
+    for (const id of tagIds) if (!merged.includes(id)) merged.push(id);
+    chMap[channelKey] = merged;
+    const remaining = (vidMap[vid] ?? []).filter((id) => !tagIds.includes(id));
+    if (remaining.length) vidMap[vid] = remaining;
+    else delete vidMap[vid];
+    await chrome.storage.local.set({ [CHANNEL_TAGS_KEY]: chMap, [VIDEO_TAGS_KEY]: vidMap });
+  });
+}
+
+
 // --- TL;DW summary panel -------------------------------------------------
 
 type TldwSummary = { verdict: string; summary: string; rating: string; details?: string; source?: string };
@@ -601,12 +705,31 @@ function verdictColor(verdict: string): string {
   return "#16a34a"; // WATCH
 }
 
-function darken(hex: string): string {
-  const n = parseInt(hex.slice(1), 16);
-  const r = Math.max(0, (n >> 16) - 30);
-  const g = Math.max(0, ((n >> 8) & 0xff) - 30);
-  const b = Math.max(0, (n & 0xff) - 30);
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+// Neutral-dark fill used for the "quiet" header actions (Open tab / Gemini
+// source) on hover — readable white-on-dark in both light and dark themes.
+const NEUTRAL_FILL = "#3f3f3f";
+
+/**
+ * Shared "fill on hover" treatment for header action pills (F4). On hover the
+ * pill fills SOLID with `fillColor` and switches to white text — the
+ * buildBlockButton pattern — then returns to its resting look on leave. The
+ * resting background/text/border are captured at call time, so callers just
+ * style the resting pill and add this.
+ */
+function pillHover(btn: HTMLElement, fillColor: string): void {
+  const restBg = btn.style.background;
+  const restColor = btn.style.color;
+  const restBorder = btn.style.borderColor;
+  btn.addEventListener("mouseenter", () => {
+    btn.style.background = fillColor;
+    btn.style.color = "#fff";
+    btn.style.borderColor = fillColor;
+  });
+  btn.addEventListener("mouseleave", () => {
+    btn.style.background = restBg;
+    btn.style.color = restColor;
+    btn.style.borderColor = restBorder;
+  });
 }
 
 /**
@@ -661,6 +784,132 @@ function panelHost(): Element | null {
   );
 }
 
+// --- popover menu primitive (overflow "⋯" menu + tag picker) ------------------
+
+/**
+ * Anchor a small popover to a trigger element. The panel is an absolutely
+ * positioned child of a relative wrapper, so it tracks the trigger as the page
+ * scrolls without any recomputation. Closes on outside-click and Esc; the
+ * teardown is pushed onto `cleanups` so a panel rebuild never leaks the document
+ * listeners.
+ */
+function buildPopoverMenu(
+  trigger: HTMLElement,
+  t: ReturnType<typeof theme>,
+  cleanups: Array<() => void>,
+  align: "left" | "right" = "right",
+): { wrap: HTMLElement; panel: HTMLElement; open: () => void; close: () => void; toggle: () => void } {
+  const wrap = document.createElement("span");
+  Object.assign(wrap.style, { position: "relative", display: "inline-flex", flexShrink: "0" });
+
+  const panel = document.createElement("div");
+  Object.assign(panel.style, {
+    position: "absolute", top: "calc(100% + 6px)", [align]: "0",
+    minWidth: "200px", maxWidth: "330px",
+    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "10px",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.30)",
+    padding: "6px", zIndex: "2147483000",
+    display: "none", flexDirection: "column", gap: "2px",
+    font: "13px/1.4 Roboto, system-ui, sans-serif", color: t.text, textAlign: "left",
+  });
+  // Keep clicks inside the popover from bubbling to the summary panel's
+  // detail-toggle handler (a click on the popover's padding would otherwise
+  // expand/collapse the details behind it).
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  wrap.append(trigger, panel);
+
+  let isOpen = false;
+  let armTimer: number | undefined;
+  const onDocClick = (e: MouseEvent) => { if (!wrap.contains(e.target as Node)) close(); };
+  const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+
+  const open = () => {
+    if (isOpen) return;
+    isOpen = true;
+    panel.style.display = "flex";
+    // Defer registering the outside-click listener so the click that OPENED the
+    // popover doesn't immediately close it. Track the timer so close() can cancel
+    // it — otherwise a teardown (e.g. SPA nav) between open() and the timer firing
+    // would register document listeners that nothing ever removes.
+    armTimer = window.setTimeout(() => {
+      armTimer = undefined;
+      if (!isOpen) return;
+      document.addEventListener("click", onDocClick, true);
+      document.addEventListener("keydown", onKey, true);
+    }, 0);
+  };
+  function close(): void {
+    if (!isOpen) return;
+    isOpen = false;
+    panel.style.display = "none";
+    if (armTimer !== undefined) { clearTimeout(armTimer); armTimer = undefined; }
+    document.removeEventListener("click", onDocClick, true);
+    document.removeEventListener("keydown", onKey, true);
+  }
+  const toggle = () => (isOpen ? close() : open());
+
+  cleanups.push(close);
+  return { wrap, panel, open, close, toggle };
+}
+
+/** One clickable row inside a popover menu. Fills on hover (F4): red for a
+ *  destructive action, a subtle theme highlight otherwise. */
+function menuItemRow(
+  t: ReturnType<typeof theme>,
+  label: string,
+  opts: { title?: string; danger?: boolean; onClick: () => void },
+): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.textContent = label;
+  if (opts.title) b.title = opts.title;
+  Object.assign(b.style, {
+    display: "block", width: "100%", textAlign: "left",
+    background: "transparent", border: "none", borderRadius: "7px",
+    color: t.text, cursor: "pointer", whiteSpace: "nowrap",
+    font: "600 13px/1.3 Roboto, system-ui, sans-serif", padding: "9px 11px",
+  });
+  const hoverBg = opts.danger ? "#dc2626" : t.hover;
+  const hoverColor = opts.danger ? "#fff" : t.text;
+  b.addEventListener("mouseenter", () => { b.style.background = hoverBg; b.style.color = hoverColor; });
+  b.addEventListener("mouseleave", () => { b.style.background = "transparent"; b.style.color = t.text; });
+  b.addEventListener("click", (e) => { e.stopPropagation(); opts.onClick(); });
+  return b;
+}
+
+/**
+ * The right-aligned "⋯" kebab that collapses the summary panel's SECONDARY
+ * actions (Open tab / Clear cache / source badge) into a popover (F1). The
+ * primary controls (verdict, Auto-summarize, Skip channel) stay inline.
+ */
+function buildOverflowMenu(
+  t: ReturnType<typeof theme>,
+  items: Array<{ label: string; title?: string; danger?: boolean; onClick: () => void }>,
+  cleanups: Array<() => void>,
+): HTMLElement {
+  const kebab = document.createElement("button");
+  kebab.textContent = "⋯";
+  kebab.setAttribute("aria-label", "More actions");
+  kebab.title = "More actions";
+  Object.assign(kebab.style, {
+    fontSize: "18px", fontWeight: "700", padding: "0 10px",
+    borderRadius: "999px", border: "2px solid transparent",
+    background: t.border, color: t.sub, cursor: "pointer", flexShrink: "0",
+    transition: "background 0.15s, color 0.15s", ...pillGeom,
+  });
+  kebab.addEventListener("mouseenter", () => { kebab.style.background = NEUTRAL_FILL; kebab.style.color = "#fff"; });
+  kebab.addEventListener("mouseleave", () => { kebab.style.background = t.border; kebab.style.color = t.sub; });
+
+  const { wrap, panel, toggle, close } = buildPopoverMenu(kebab, t, cleanups, "right");
+  for (const item of items) {
+    panel.append(menuItemRow(t, item.label, {
+      title: item.title, danger: item.danger,
+      onClick: () => { close(); item.onClick(); },
+    }));
+  }
+  kebab.addEventListener("click", (e) => { e.stopPropagation(); toggle(); });
+  return wrap;
+}
+
 // --- auto-run pill toggle (shared by all panel states) -----------------------
 
 /**
@@ -685,7 +934,9 @@ function buildAutoToggle(
     padding: "0 12px", borderRadius: "999px", border: "2px solid transparent",
     cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
     background: t.border,
-    transition: "border-color 0.15s, color 0.15s",
+    // Include `background` so the F4 hover fill eases like the sibling header
+    // pills (Skip-channel / Gemini / kebab), not snap instantly.
+    transition: "background 0.15s, border-color 0.15s, color 0.15s",
     ...pillGeom,
   });
 
@@ -705,9 +956,12 @@ function buildAutoToggle(
   applyState(initialOn);
 
   btn.addEventListener("mouseenter", () => {
-    // OFF → preview the feature color outline; ON → darken the red outline.
-    btn.style.borderColor = isOn ? darken(STOP_COLOR) : enableColor;
-    btn.style.color = isOn ? STOP_COLOR : enableColor;
+    // F4 fill-on-hover: OFF → blue fill (turn it on); ON → red fill (stop).
+    // White text either way; the resting ON state keeps its red outline so the
+    // STOP semantics stay clear even without hover.
+    btn.style.background = isOn ? STOP_COLOR : enableColor;
+    btn.style.borderColor = isOn ? STOP_COLOR : enableColor;
+    btn.style.color = "#fff";
   });
   btn.addEventListener("mouseleave", () => {
     applyState(isOn);
@@ -745,6 +999,7 @@ function buildPanelHead(
   showAutoRunToggle = true,
   showTitle = true,
   rightControls: HTMLElement[] = [],
+  endControls: HTMLElement[] = [],
 ): HTMLElement {
   const head = document.createElement("div");
   // flexWrap so the inline SponsorBlock widget can wrap below if the row is tight.
@@ -786,7 +1041,8 @@ function buildPanelHead(
   // beside it so they're not easy to mis-click.
   if (blockBtn) blockBtn.style.marginLeft = "16px";
   closeBtn.style.marginLeft = "12px";
-  // Right cluster order: extra right controls (e.g. Clear · Gemini) · Skip channel · Auto-summarize · ✕
+  // Right cluster order: extra right controls · Skip channel · Auto-summarize ·
+  // end controls (e.g. the "⋯" overflow menu) · ✕
   head.append(
     icon,
     ...(showTitle ? [title] : []),
@@ -795,6 +1051,7 @@ function buildPanelHead(
     ...rightControls,
     ...(blockBtn ? [blockBtn] : []),
     ...autoToggles,
+    ...endControls,
     closeBtn,
   );
   // The SponsorBlock widget is inserted in line with the header (left of the
@@ -953,11 +1210,10 @@ function buildGeminiLink(t: ReturnType<typeof theme>): HTMLButtonElement {
     fontSize: "13px", fontWeight: "700", padding: "0 12px", borderRadius: "999px",
     border: "2px solid transparent", background: t.border, color: "#1a73e8",
     cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
-    transition: "border-color 0.15s, color 0.15s", ...pillGeom,
+    transition: "background 0.15s, border-color 0.15s, color 0.15s", ...pillGeom,
   });
   b.title = "Get summaries instantly from the free Gemini API — no tab opens, no waiting. Click to set it up.";
-  b.addEventListener("mouseenter", () => { b.style.borderColor = "#1a73e8"; });
-  b.addEventListener("mouseleave", () => { b.style.borderColor = "transparent"; });
+  pillHover(b, NEUTRAL_FILL);
   b.addEventListener("click", (e) => {
     e.stopPropagation();
     void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" });
@@ -1138,6 +1394,445 @@ async function loadRatingToggles(): Promise<RatingToggles> {
   };
 }
 
+/**
+ * F2: a plain-language line for how the user usually engages with THIS channel,
+ * derived from the channel's average personal verdict. Anchored to the same
+ * buckets as userAvgToLabel (Engaged→watch, Skimmed→skim, Skipped→skip).
+ */
+function channelEngagementSentence(avgUserRating: number): string {
+  const verb =
+    ({ Engaged: "watch", Skimmed: "skim", Skipped: "skip" } as Record<string, string>)[
+      userAvgToLabel(avgUserRating)
+    ] ?? "skim";
+  return `You usually ${verb} this channel`;
+}
+
+// F8 "Regenerate" tag tie-in: when the user forces a re-run while VIDEO-ONLY tags
+// are active, remember the video so the fresh summary can offer to save those
+// tags for the whole channel. Cleared on navigation and once the offer is acted on.
+let pendingTagPromptVid: string | null = null;
+
+type RegenOpts = {
+  /** Arm the "save these tags for the channel?" offer for the fresh summary (F8). */
+  promote?: boolean;
+  /** Re-run even on a non-auto channel (Regenerate), vs. just dropping back to the
+   *  configured flow (Clear cache, which lands the idle CTA for manual channels). */
+  forceRun?: boolean;
+};
+
+/**
+ * Drop this video's cache and re-run (F8 Regenerate / Clear cache). Reuses the
+ * existing flow: clear cache → maybeStartDirectApiRun. For an auto-run channel
+ * that fires a fresh Gemini call automatically; `forceRun` additionally kicks the
+ * run for a manual channel (which would otherwise just land the idle CTA), so
+ * "Regenerate" always re-summarizes. The cache-skip + autoAskedVid dedup keeps it
+ * to a single ASK / single count.
+ */
+async function regenerateSummary(vid: string | null, opts: RegenOpts = {}): Promise<void> {
+  const { promote = false, forceRun = false } = opts;
+  const startEpoch = navEpoch;
+  // Arm (Regenerate) or clear (Clear cache) the promote offer. The rebuilt
+  // summary's tags row recomputes the actual video-only set and drops the flag if
+  // none remain, so we only need to flag the video here — no extra storage read.
+  pendingTagPromptVid = promote && vid ? vid : null;
+
+  // Drop this video's cache entry. Wrap in try/catch so a storage hiccup can't
+  // skip the re-run below — the old clearBtn used .finally to re-run regardless.
+  try {
+    const r = await chrome.storage.local.get("tldwSummaryCache");
+    const cache = (r["tldwSummaryCache"] as Record<string, unknown>) ?? {};
+    if (vid && cache[vid]) {
+      delete cache[vid];
+      await chrome.storage.local.set({ tldwSummaryCache: cache });
+    }
+  } catch { /* best effort — still re-run below */ }
+  // Bail if the user navigated during the awaited storage I/O — otherwise we'd
+  // tear down the freshly-injected panel for the NEW video (LESSONS_LEARNED #9).
+  if (navEpoch !== startEpoch) return;
+  // Allow this deliberate re-run to fire a fresh ASK: on an auto-run channel the
+  // per-visit dedup already marked this video, which would otherwise swallow the
+  // re-run and leave the loading panel spinning. Reset to null so sendAutoAsk can
+  // fire exactly once (no double-count — it re-marks the video immediately).
+  if (vid && autoAskedVid === vid) autoAskedVid = null;
+  removeSummaryPanel();
+  // forceRun makes maybeStartDirectApiRun re-run even on a non-auto channel, so the
+  // run decision lives in one place (no post-hoc panel-state inspection here).
+  await maybeStartDirectApiRun({ forceRun });
+}
+
+// --- tags row (F6-UI) building blocks ----------------------------------------
+
+/** A small round glyph button (× remove, ↑ promote) used inside tag chips. */
+function iconBtn(glyph: string, title: string, color: string): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.textContent = glyph;
+  b.title = title;
+  Object.assign(b.style, {
+    display: "inline-flex", alignItems: "center", justifyContent: "center",
+    width: "18px", height: "18px", borderRadius: "50%",
+    background: "transparent", border: "none", color,
+    cursor: "pointer", fontSize: "13px", lineHeight: "1", padding: "0", flexShrink: "0",
+  });
+  b.addEventListener("mouseenter", () => { b.style.background = "rgba(127,127,127,0.25)"; });
+  b.addEventListener("mouseleave", () => { b.style.background = "transparent"; });
+  return b;
+}
+
+/** Uppercase section heading inside the tag picker popover. */
+function tagSectionLabel(t: ReturnType<typeof theme>, text: string): HTMLElement {
+  const el = document.createElement("div");
+  el.textContent = text;
+  Object.assign(el.style, {
+    fontSize: "11px", fontWeight: "700", letterSpacing: "0.04em",
+    textTransform: "uppercase", color: t.sub, margin: "0 0 6px",
+  });
+  return el;
+}
+
+/** A text input styled for the tag picker; stops clicks from toggling the panel. */
+function tagInput(t: ReturnType<typeof theme>, placeholder: string): HTMLInputElement {
+  const inp = document.createElement("input");
+  inp.type = "text";
+  inp.placeholder = placeholder;
+  Object.assign(inp.style, {
+    width: "100%", boxSizing: "border-box", marginBottom: "6px",
+    padding: "7px 9px", borderRadius: "7px", border: `1px solid ${t.border}`,
+    background: t.bg, color: t.text, fontSize: "12px",
+  });
+  inp.addEventListener("input", () => { inp.style.borderColor = t.border; });
+  inp.addEventListener("click", (e) => e.stopPropagation());
+  return inp;
+}
+
+/** One active tag chip with scope marker, optional promote (↑), and remove (×). */
+function buildTagChip(
+  t: ReturnType<typeof theme>,
+  tag: Tag,
+  origin: "channel" | "video",
+  vid: string | null,
+  chKey: string | null,
+  rebuild: () => void,
+): HTMLElement {
+  const chip = document.createElement("span");
+  Object.assign(chip.style, {
+    display: "inline-flex", alignItems: "center", gap: "5px",
+    background: t.border, color: t.text, borderRadius: "999px",
+    padding: "2px 4px 2px 10px", whiteSpace: "nowrap", fontSize: "12px", fontWeight: "600",
+  });
+
+  const labelEl = document.createElement("span");
+  labelEl.textContent = tag.label;
+  if (tag.prompt) chip.title = tag.prompt;
+  chip.append(labelEl);
+
+  const scope = document.createElement("span");
+  scope.textContent = origin === "channel" ? "· channel" : "· video";
+  Object.assign(scope.style, { color: t.sub, fontSize: "10px", fontWeight: "700", letterSpacing: "0.03em" });
+  chip.append(scope);
+
+  // Promote (this-video → channel) — only meaningful for a video-only tag.
+  if (origin === "video" && vid && chKey) {
+    const promote = iconBtn("↑", `Apply "${tag.label}" to all future videos of this channel`, t.sub);
+    promote.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void promoteVideoTags(vid, chKey, [tag.id]).then(rebuild);
+    });
+    chip.append(promote);
+  }
+
+  const remove = iconBtn("×", `Remove "${tag.label}"`, t.sub);
+  remove.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const mapKey = origin === "channel" ? CHANNEL_TAGS_KEY : VIDEO_TAGS_KEY;
+    const key = origin === "channel" ? chKey : vid;
+    if (!key) return;
+    void removeTagAssignment(mapKey, key, tag.id).then(rebuild);
+  });
+  chip.append(remove);
+
+  return chip;
+}
+
+/** The "+ add" control: a popover to pick a library tag or quick-create one,
+ *  scoped to this channel or this video only. */
+function buildTagAddControl(
+  t: ReturnType<typeof theme>,
+  library: Tag[],
+  vid: string,
+  channelInfo: ChannelInfo,
+  cleanups: Array<() => void>,
+  rebuild: () => void,
+): HTMLElement {
+  const addBtn = document.createElement("button");
+  addBtn.textContent = "+ add";
+  addBtn.title = "Add a tag for this channel or just this video";
+  Object.assign(addBtn.style, {
+    background: "transparent", border: `1px dashed ${t.sub}`, color: t.sub,
+    cursor: "pointer", fontWeight: "700", fontSize: "12px",
+    borderRadius: "999px", padding: "2px 10px", flexShrink: "0",
+  });
+  addBtn.addEventListener("mouseenter", () => { addBtn.style.color = t.text; addBtn.style.borderColor = t.text; });
+  addBtn.addEventListener("mouseleave", () => { addBtn.style.color = t.sub; addBtn.style.borderColor = t.sub; });
+
+  const chKey = channelTagKey(channelInfo);
+  const { wrap, panel, close, toggle } = buildPopoverMenu(addBtn, t, cleanups, "left");
+  Object.assign(panel.style, { minWidth: "260px", gap: "0", padding: "10px" });
+
+  let scopeSel: "channel" | "video" = "video";
+  const assign = (tagId: string) => {
+    const mapKey = scopeSel === "channel" ? CHANNEL_TAGS_KEY : VIDEO_TAGS_KEY;
+    const key = scopeSel === "channel" ? chKey : vid;
+    void addTagAssignment(mapKey, key, tagId).then(() => { close(); rebuild(); });
+  };
+
+  // Scope toggle: this video only vs the whole channel.
+  const scopeWrap = document.createElement("div");
+  Object.assign(scopeWrap.style, { display: "flex", gap: "6px", marginBottom: "10px" });
+  const mkScope = (text: string): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.textContent = text;
+    Object.assign(b.style, {
+      flex: "1", padding: "6px 8px", borderRadius: "7px", cursor: "pointer",
+      border: `1px solid ${t.border}`, fontSize: "12px", fontWeight: "700",
+      background: "transparent", color: t.sub,
+    });
+    return b;
+  };
+  const videoScopeBtn = mkScope("This video only");
+  const channelScopeBtn = mkScope("For this channel");
+  const paintScope = () => {
+    const paint = (b: HTMLButtonElement, on: boolean) => {
+      b.style.background = on ? "#1a73e8" : "transparent";
+      b.style.color = on ? "#fff" : t.sub;
+      b.style.borderColor = on ? "#1a73e8" : t.border;
+    };
+    paint(videoScopeBtn, scopeSel === "video");
+    paint(channelScopeBtn, scopeSel === "channel");
+  };
+  videoScopeBtn.addEventListener("click", (e) => { e.stopPropagation(); scopeSel = "video"; paintScope(); });
+  channelScopeBtn.addEventListener("click", (e) => { e.stopPropagation(); scopeSel = "channel"; paintScope(); });
+  paintScope();
+  scopeWrap.append(videoScopeBtn, channelScopeBtn);
+  panel.append(scopeWrap);
+
+  // Existing library tags.
+  if (library.length) {
+    panel.append(tagSectionLabel(t, "From your library"));
+    const list = document.createElement("div");
+    Object.assign(list.style, {
+      display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px",
+      maxHeight: "120px", overflowY: "auto",
+    });
+    for (const tag of library) {
+      const b = document.createElement("button");
+      b.textContent = tag.label;
+      if (tag.prompt) b.title = tag.prompt;
+      Object.assign(b.style, {
+        background: t.border, color: t.text, border: "none", borderRadius: "999px",
+        padding: "4px 10px", cursor: "pointer", fontSize: "12px", fontWeight: "600", whiteSpace: "nowrap",
+      });
+      b.addEventListener("mouseenter", () => { b.style.background = "#1a73e8"; b.style.color = "#fff"; });
+      b.addEventListener("mouseleave", () => { b.style.background = t.border; b.style.color = t.text; });
+      b.addEventListener("click", (e) => { e.stopPropagation(); assign(tag.id); });
+      list.append(b);
+    }
+    panel.append(list);
+  }
+
+  // Quick-create a new tag (label + prompt) and assign it in the chosen scope.
+  panel.append(tagSectionLabel(t, "Quick-create"));
+  const labelInput = tagInput(t, "Label (e.g. Citations)");
+  const promptInput = tagInput(t, "Prompt woven into the summary");
+  panel.append(labelInput, promptInput);
+
+  const createBtn = document.createElement("button");
+  createBtn.textContent = "Create & add";
+  Object.assign(createBtn.style, {
+    width: "100%", marginTop: "4px", padding: "8px", borderRadius: "8px",
+    background: "#1a73e8", color: "#fff", border: "none", cursor: "pointer",
+    fontSize: "13px", fontWeight: "700",
+  });
+  let creating = false;
+  const submitCreate = () => {
+    if (creating) return; // guard against a double-click creating two library tags
+    const label = labelInput.value.trim();
+    const prompt = promptInput.value.trim();
+    if (!label) labelInput.style.borderColor = "#dc2626";
+    if (!prompt) promptInput.style.borderColor = "#dc2626";
+    if (!label || !prompt) return;
+    creating = true;
+    void createLibraryTag(label, prompt)
+      .then((tag) => assign(tag.id))
+      .finally(() => { creating = false; });
+  };
+  createBtn.addEventListener("click", (e) => { e.stopPropagation(); submitCreate(); });
+  promptInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submitCreate(); }
+  });
+  panel.append(createBtn);
+
+  addBtn.addEventListener("click", (e) => { e.stopPropagation(); toggle(); });
+  return wrap;
+}
+
+/** F8 tie-in banner: "Save these tags for future videos of this channel?" */
+function buildPromoteAllBanner(
+  t: ReturnType<typeof theme>,
+  vid: string,
+  chKey: string,
+  tagIds: string[],
+  rebuild: () => void,
+): HTMLElement {
+  const banner = document.createElement("span");
+  Object.assign(banner.style, {
+    display: "inline-flex", alignItems: "center", gap: "8px",
+    background: t.hover, borderRadius: "8px", padding: "4px 6px 4px 10px",
+    fontSize: "12px", color: t.text, flexShrink: "0",
+  });
+  const msg = document.createElement("span");
+  msg.textContent = "Save these tags for future videos of this channel?";
+
+  const save = document.createElement("button");
+  save.textContent = "Save";
+  Object.assign(save.style, {
+    background: "#1a73e8", color: "#fff", border: "none", borderRadius: "999px",
+    padding: "3px 12px", cursor: "pointer", fontWeight: "700", fontSize: "12px", flexShrink: "0",
+  });
+  save.addEventListener("click", (e) => {
+    e.stopPropagation();
+    pendingTagPromptVid = null;
+    void promoteVideoTags(vid, chKey, tagIds).then(rebuild);
+  });
+
+  const dismiss = iconBtn("×", "Dismiss", t.sub);
+  dismiss.addEventListener("click", (e) => {
+    e.stopPropagation();
+    pendingTagPromptVid = null;
+    rebuild();
+  });
+
+  banner.append(msg, save, dismiss);
+  return banner;
+}
+
+/**
+ * F6-UI — the bottom "Tags:" row of a loaded summary. Shows the tags active for
+ * this video (channel tags ∪ video tags, resolved against the library), with
+ * add / remove / promote controls, a "↻ Regenerate" action, and an "Edit tags →"
+ * deep link. Re-reads storage and re-renders itself after every change so it
+ * always reflects what's persisted (and what Agent A weaves into the prompt).
+ */
+function buildTagsRow(
+  t: ReturnType<typeof theme>,
+  vid: string | null,
+  cleanups: Array<() => void>,
+): HTMLElement {
+  const row = document.createElement("div");
+  Object.assign(row.style, {
+    borderTop: `1px solid ${t.border}`,
+    marginTop: "8px", paddingTop: "7px",
+    fontSize: "12px", color: t.sub,
+    display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center",
+  });
+
+  const channelInfo = currentChannelInfo;
+  const chKey = channelInfo ? channelTagKey(channelInfo) : null;
+
+  // Each rebuild() recreates the "+ add" popover, so its teardown is kept in a
+  // single-slot list (drained + replaced per rebuild) rather than pushed onto the
+  // panel-wide `cleanups` — otherwise that array would grow one stale closure per
+  // tag edit for the panel's lifetime. One panel-level cleanup closes whatever the
+  // current popover is.
+  const addControlCleanups: Array<() => void> = [];
+  cleanups.push(() => { for (const fn of addControlCleanups.splice(0)) fn(); });
+
+  const rebuild = async () => {
+    // Guard against a late rebuild landing on a different video after navigation.
+    if (vid && currentVideoId() !== vid) return;
+    // Close + forget the previous rebuild's add-control popover before rebuilding.
+    for (const fn of addControlCleanups.splice(0)) fn();
+    const [library, chMap, vidMap] = await Promise.all([
+      readTagLibrary(), readChannelTagMap(), readVideoTagMap(),
+    ]);
+    if (vid && currentVideoId() !== vid) return;
+
+    const byId = new Map(library.map((tag) => [tag.id, tag]));
+    const channelIds = chKey ? chMap[chKey] ?? [] : [];
+    const videoIds = vid ? vidMap[vid] ?? [] : [];
+
+    const children: HTMLElement[] = [];
+
+    const label = document.createElement("span");
+    label.textContent = "Tags:";
+    Object.assign(label.style, { fontWeight: "700", flexShrink: "0" });
+    children.push(label);
+
+    const seen = new Set<string>();
+    const addChip = (id: string, origin: "channel" | "video") => {
+      if (seen.has(id)) return;
+      const tag = byId.get(id);
+      if (!tag) return; // assignment references a deleted library tag — skip it
+      seen.add(id);
+      children.push(buildTagChip(t, tag, origin, vid, chKey, rebuild));
+    };
+    for (const id of channelIds) addChip(id, "channel");
+    for (const id of videoIds) if (!channelIds.includes(id)) addChip(id, "video");
+
+    if (seen.size === 0) {
+      const none = document.createElement("span");
+      none.textContent = "none yet";
+      none.style.opacity = "0.7";
+      children.push(none);
+    }
+
+    if (vid && channelInfo) {
+      children.push(buildTagAddControl(t, library, vid, channelInfo, addControlCleanups, rebuild));
+    }
+
+    // ↻ Regenerate (F8) — force a fresh run that picks up any tags just added.
+    if (vid) {
+      const regen = document.createElement("button");
+      regen.textContent = "↻ Regenerate";
+      regen.title = "Re-run the summary now (counts as a Gemini request). Uses any tags you've added.";
+      Object.assign(regen.style, {
+        background: "transparent", border: `1px solid ${t.border}`, color: t.sub,
+        cursor: "pointer", fontWeight: "700", fontSize: "12px",
+        borderRadius: "999px", padding: "2px 10px", flexShrink: "0",
+      });
+      regen.addEventListener("mouseenter", () => { regen.style.background = "#1a73e8"; regen.style.color = "#fff"; regen.style.borderColor = "#1a73e8"; });
+      regen.addEventListener("mouseleave", () => { regen.style.background = "transparent"; regen.style.color = t.sub; regen.style.borderColor = t.border; });
+      regen.addEventListener("click", (e) => { e.stopPropagation(); void regenerateSummary(vid, { promote: true, forceRun: true }); });
+      children.push(regen);
+    }
+
+    const edit = document.createElement("button");
+    edit.textContent = "Edit tags →";
+    edit.title = "Open the Tags section in TL;DW options";
+    Object.assign(edit.style, {
+      background: "transparent", border: "none", color: "#3ea6ff",
+      cursor: "pointer", fontWeight: "700", fontSize: "12px", padding: "0",
+      marginLeft: "2px", flexShrink: "0",
+    });
+    edit.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "tags" });
+    });
+    children.push(edit);
+
+    // F8: after a regen with video-only tags active, offer to save them channel-wide.
+    if (pendingTagPromptVid && pendingTagPromptVid === vid && chKey) {
+      const videoOnly = videoIds.filter((id) => !channelIds.includes(id) && byId.has(id));
+      if (videoOnly.length) children.push(buildPromoteAllBanner(t, vid, chKey, videoOnly, rebuild));
+      else pendingTagPromptVid = null;
+    }
+
+    row.replaceChildren(...children);
+  };
+
+  void rebuild();
+  return row;
+}
+
 function buildSummaryPanel(
   tldw: TldwSummary,
   channelStats?: ChannelComparison,
@@ -1146,6 +1841,11 @@ function buildSummaryPanel(
   toggles: RatingToggles = DEFAULT_RATING_TOGGLES,
 ): HTMLElement {
   const t = theme();
+  const vid = videoId ?? currentVideoId();
+  // Teardown fns (popover document listeners) run from removeSummaryPanel via
+  // __tldwCleanup, so a panel rebuild never leaks listeners.
+  const cleanups: Array<() => void> = [];
+
   const panel = document.createElement("div");
   panel.id = "tldw-summary";
   Object.assign(panel.style, {
@@ -1154,7 +1854,7 @@ function buildSummaryPanel(
     font: "14px/1.4 Roboto, system-ui, sans-serif", color: t.text,
   });
 
-  // --- header: AI verdict pill + source ---
+  // --- header: AI verdict pill (inline) + "⋯" overflow menu (F1) ---
   // AI dimension collect/show gate: when off, omit the verdict pill entirely
   // (the one-line summary stands alone). No numeric score is shown anywhere.
   const headerControls: HTMLElement[] = [];
@@ -1169,85 +1869,53 @@ function buildSummaryPanel(
     headerControls.push(pill(tldw.verdict, verdictColor(tldw.verdict), "#fff"));
   }
 
-  // Prominent action pills on the LEFT (after the verdict): New tab · Clear
-  // cache · Cached/source badge. Gray pills with a colored outline on hover —
-  // bigger and easier to hit than the old tiny text links.
-  const actionPill = (
-    label: string,
-    title: string,
-    hoverColor: string,
-    onClick: (b: HTMLButtonElement) => void,
-  ): HTMLButtonElement => {
-    const b = document.createElement("button");
-    b.textContent = label;
-    b.title = title;
-    Object.assign(b.style, {
-      fontSize: "13px", fontWeight: "700", padding: "0 12px", borderRadius: "999px",
-      border: "2px solid transparent", background: t.border, color: t.sub,
-      cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
-      transition: "border-color 0.15s, color 0.15s", ...pillGeom,
-    });
-    b.addEventListener("mouseenter", () => { b.style.borderColor = hoverColor; b.style.color = hoverColor; });
-    b.addEventListener("mouseleave", () => { b.style.borderColor = "transparent"; b.style.color = t.sub; });
-    b.addEventListener("click", (e) => { e.stopPropagation(); onClick(b); });
-    return b;
-  };
+  // F1: collapse the secondary actions (Open tab / Clear cache / source badge)
+  // into a right-aligned "⋯" popover. The primary controls (verdict, plus the
+  // Auto-summarize and Skip-channel channel toggles added by buildPanelHead)
+  // stay inline; the Tags row lives at the bottom of the panel, not here.
+  const menuItems: Array<{ label: string; title?: string; danger?: boolean; onClick: () => void }> = [];
 
-  // ↗ Open tab — jump to the AI destination tab. If we already scraped one for
-  // this video and it's still open, focus it; otherwise open (and focus) a fresh
-  // one. No "opening…" state — clicking just takes you there.
-  const newTabBtn = actionPill(
-    "↗ Open tab",
-    "Go to the AI destination tab (reuses the one we scraped if it's still open)",
-    t.text,
-    () => void chrome.runtime.sendMessage({ type: "OPEN_OR_FOCUS_DESTINATION" }),
-  );
+  // ↗ Open tab — jump to the AI destination tab (reuses the scraped one if open).
+  menuItems.push({
+    label: "↗ Open tab",
+    title: "Go to the AI destination tab (reuses the one we scraped if it's still open)",
+    onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OR_FOCUS_DESTINATION" }),
+  });
 
   // 🧹 Clear cache — drop THIS video's cached summary and start fresh.
-  const clearBtn = actionPill(
-    "🧹 Clear cache",
-    "Remove this video's cached summary and start fresh",
-    "#dc2626",
-    () => {
-      const vid = videoId ?? currentVideoId();
-      void chrome.storage.local.get("tldwSummaryCache").then((r) => {
-        const cache = (r["tldwSummaryCache"] as Record<string, unknown>) ?? {};
-        if (vid && cache[vid]) {
-          delete cache[vid];
-          return chrome.storage.local.set({ tldwSummaryCache: cache });
-        }
-      }).finally(() => {
-        removeSummaryPanel();
-        void maybeStartDirectApiRun();
-      });
-    },
-  );
+  menuItems.push({
+    label: "🧹 Clear cache",
+    title: "Remove this video's cached summary and start fresh",
+    danger: true,
+    onClick: () => { void regenerateSummary(vid, {}); },
+  });
 
-  // Source / Cached badge — honest about origin, pointing where it makes sense.
-  // When Direct API isn't set up, show the "Get instant results" CTA instead, to
-  // encourage the free headless path (no tab, no wait).
-  let sourceBadge: HTMLElement | null = null;
+  // Source / Cached badge as a menu row — honest about origin, pointing where it
+  // makes sense. When Direct API isn't set up, offer the "Get instant results"
+  // setup nudge instead (the free headless path: no tab, no wait).
   if (tldw.source === "cached") {
-    sourceBadge = actionPill(
-      "💾 Cached",
-      "Served from your saved cache (a stored earlier result — not a fresh call). Click to manage cached summaries.",
-      t.text,
-      () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "settings" }),
-    );
+    menuItems.push({
+      label: "💾 Cached — manage",
+      title: "Served from your saved cache (a stored earlier result — not a fresh call). Click to manage cached summaries.",
+      onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "settings" }),
+    });
   } else if (tldw.source) {
-    sourceBadge = actionPill(
-      `⚡ ${tldw.source}`,
-      "This summary came straight from the Gemini API — instant, no tab. Click for Direct API settings.",
-      t.text,
-      () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" }),
-    );
+    menuItems.push({
+      label: `⚡ ${tldw.source}`,
+      title: "This summary came straight from the Gemini API — instant, no tab. Click for Direct API settings.",
+      onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" }),
+    });
   } else if (!currentDirectApiEnabled) {
-    sourceBadge = buildGeminiLink(t);
+    menuItems.push({
+      label: "⚡ Get instant results",
+      title: "Get summaries instantly from the free Gemini API — no tab opens, no waiting. Click to set it up.",
+      onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" }),
+    });
   }
 
-  headerControls.push(newTabBtn, clearBtn, ...(sourceBadge ? [sourceBadge] : []));
+  const overflowMenu = buildOverflowMenu(t, menuItems, cleanups);
 
-  const head = buildPanelHead(t, headerControls, currentChannelInfo, true, true, true, []);
+  const head = buildPanelHead(t, headerControls, currentChannelInfo, true, true, true, [], [overflowMenu]);
   Object.assign(head.style, { marginBottom: "8px" });
 
   // --- body: summary always visible; clicking the panel toggles details ---
@@ -1362,52 +2030,40 @@ function buildSummaryPanel(
   channelRow.replaceChildren(...dimEls);
   const showChannelRow = dimEls.length > 1; // more than just the header
 
-  // --- engagement status cue ---
-  // A passive, muted pill showing live watch-time progress. Updates via the
-  // "tldw-watch-update" CustomEvent fired by watchtime.ts. Hidden when
-  // showEngagementStatus is off.
+  // --- tags row (F6-UI): active channel+video tags + add / remove / promote ---
+  const tagsRow = buildTagsRow(t, vid, cleanups);
+
+  // --- engagement status cue (F2): channel-average sentence only ---
+  // The live "% watched" is background-only now (watchtime.ts still tracks it for
+  // the history average); the widget shows only how the user usually engages with
+  // THIS channel, and only when history exists. No __tldwWatch read, no live
+  // listener — the average doesn't change while the page is open.
   const engagementCue = document.createElement("div");
   Object.assign(engagementCue.style, {
     borderTop: `1px solid ${t.border}`,
     marginTop: "6px", paddingTop: "6px",
     fontSize: "12px", color: t.sub,
-    display: toggles.showEngagementStatus ? "block" : "none",
+    display: "none",
   });
-
-  const renderEngagementCue = () => {
-    const api = (window as unknown as { __tldwWatch?: { getState: () => { videoId: string; watchedSeconds: number; durationSeconds: number; verdict: string | null } } }).__tldwWatch;
-    if (!api || !toggles.showEngagementStatus) {
-      engagementCue.style.display = "none";
-      return;
-    }
-    const state = api.getState();
-    if (!state.durationSeconds || state.videoId !== (videoId ?? currentVideoId())) {
-      engagementCue.style.display = "none";
-      return;
-    }
-    const pct = Math.round((state.watchedSeconds / state.durationSeconds) * 100);
-    const verdictLabel = state.verdict === "watch"
-      ? " · Engaged" : state.verdict === "skim"
-      ? " · Skimmed" : state.verdict === "skip"
-      ? " · Skipped" : "";
-    engagementCue.textContent = `👁 ${pct}% watched${verdictLabel}`;
+  if (
+    toggles.showEngagementStatus &&
+    channelStats &&
+    channelStats.count >= 1 &&
+    channelStats.avgUserRating !== null
+  ) {
+    engagementCue.textContent = `👁 ${channelEngagementSentence(channelStats.avgUserRating)}`;
     engagementCue.style.display = "block";
-  };
+  }
 
-  renderEngagementCue();
-  const onWatchUpdate = () => renderEngagementCue();
-  document.addEventListener("tldw-watch-update", onWatchUpdate);
-  // Clean up the listener when the panel goes away. removeSummaryPanel() is the
-  // single removal path, so store the teardown on the element and let it run
-  // there — far cheaper than a per-panel MutationObserver watching the whole
-  // document subtree just to notice this one node leave.
-  (panel as CleanablePanel).__tldwCleanup = () => {
-    document.removeEventListener("tldw-watch-update", onWatchUpdate);
-  };
+  // removeSummaryPanel() is the single removal path, so aggregate every teardown
+  // (popover document listeners) onto the element and run them there — cheaper
+  // than a per-panel MutationObserver just to notice this node leave.
+  (panel as CleanablePanel).__tldwCleanup = () => { for (const fn of cleanups) fn(); };
 
   panel.append(
     head, body,
     ...(showChannelRow ? [channelRow] : []),
+    tagsRow,
     engagementCue,
   );
   return panel;
@@ -1762,8 +2418,12 @@ function sendAutoAsk(vid: string): boolean {
  *   the Gemini API call automatically.
  * - Otherwise: show an idle panel with a "Get Summary" button and a per-channel
  *   auto-run toggle so the user can opt in for future visits.
+ *
+ * `forceRun` (F8 Regenerate) makes the non-auto branch run immediately instead of
+ * landing the idle CTA, so the run decision lives here rather than being re-derived
+ * by the caller from the resulting panel state.
  */
-async function maybeStartDirectApiRun(): Promise<void> {
+async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promise<void> {
   const vid = currentVideoId();
   if (!vid) return;
   // Capture the nav epoch: if the user navigates away during any await below,
@@ -1878,6 +2538,13 @@ async function maybeStartDirectApiRun(): Promise<void> {
     return;
   }
 
+  // F8 Regenerate: re-run now even though this channel isn't auto-summarize,
+  // instead of dropping the user back to the idle CTA.
+  if (opts.forceRun) {
+    await startApiCall(false);
+    return;
+  }
+
   // Show idle panel with the manual "TL;DW" + "Skip channel" buttons. Clicking
   // runs the configured backend (headless Gemini, or the tab-scrape flow).
   showIdlePanel(() => { void startApiCall(); });
@@ -1927,6 +2594,8 @@ function onNavigate(): void {
   // Reset the per-visit auto-ASK dedup so the new video can auto-summarize (and a
   // failed run on a previous visit doesn't block this one).
   autoAskedVid = null;
+  // The "save these tags for the channel?" offer is per-video; drop it on nav.
+  pendingTagPromptVid = null;
   removeSummaryPanel();
   activeTranscriptFetch = null;
   currentChannelInfo = null;
