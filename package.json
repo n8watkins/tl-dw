@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build": "node scripts/build-release.mjs"
+    "build": "node scripts/build-release.mjs",
+    "package": "node scripts/package-store.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

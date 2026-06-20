@@ -39,7 +39,6 @@ export default defineManifest({
       matches: [
         "https://gemini.google.com/*",
         "https://chatgpt.com/*",
-        "https://chat.openai.com/*",
         "https://claude.ai/*",
         "https://notebooklm.google.com/*",
       ],
@@ -91,7 +90,6 @@ export default defineManifest({
     "https://m.youtube.com/*",
     "https://gemini.google.com/*",
     "https://chatgpt.com/*",
-    "https://chat.openai.com/*",
     "https://claude.ai/*",
     "https://notebooklm.google.com/*",
     "https://generativelanguage.googleapis.com/*",

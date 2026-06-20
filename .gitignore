@@ -1,5 +1,6 @@
 node_modules/
 dist/
+web-store/
 spike-gemini.js
 .DS_Store
 *.local

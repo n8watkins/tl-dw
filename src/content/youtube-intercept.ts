@@ -21,7 +21,9 @@ function relay(
   body: unknown,
   videoId: string | undefined,
 ): void {
-  window.postMessage({ __tldw: true, kind, body, videoId }, "*");
+  // Target our own origin (not "*") so a same-page cross-origin iframe can't read
+  // the relayed transcript; the isolated-world listener also checks event.source.
+  window.postMessage({ __tldw: true, kind, body, videoId }, location.origin);
 }
 
 /** The watch video id from the current URL (the page being viewed when the

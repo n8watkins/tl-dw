@@ -50,7 +50,7 @@ function configForHost(host: string): SiteConfig | null {
       ],
     };
   }
-  if (host.endsWith("chatgpt.com") || host.endsWith("chat.openai.com")) {
+  if (host.endsWith("chatgpt.com")) {
     return {
       name: "ChatGPT",
       editorSelectors: [

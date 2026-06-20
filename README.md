@@ -113,6 +113,8 @@ number should match the latest build.
 - [`PRIVACY.md`](PRIVACY.md) — the privacy policy (what's stored, what leaves your
   device, and to whom).
 - [`CHANGELOG.md`](CHANGELOG.md) — notable feature milestones.
+- [`docs/STORE_SUBMISSION.md`](docs/STORE_SUBMISSION.md) — Chrome Web Store listing
+  copy, permission justifications, data-use disclosures, and the submission checklist.
 - [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) — the manual in-Chrome smoke-test
   checklist.
 - [`docs/archive/`](docs/archive/) — completed planning / sprint docs, kept for
