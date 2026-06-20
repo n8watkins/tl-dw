@@ -101,10 +101,11 @@ write the assignments.)
    `VIDEO_TAGS_KEY[videoId]` into `CHANNEL_TAGS_KEY[channelKey]`.
 3. Persist via direct `chrome.storage.local.get/set` on `TAGS_KEY`,
    `CHANNEL_TAGS_KEY`, `VIDEO_TAGS_KEY` (same pattern this file uses for
-   `autoRunChannels`). **Key channel tags by the channel DISPLAY NAME**
-   (`currentChannelInfo.name`) — NOT the `/@handle` id — because Agent A's
-   background resolves them by `video.channel` (the name), which is all it has.
-   Key video tags by `currentVideoId()`.
+   `autoRunChannels`). **Key channel tags by `getChannelInfo().id` falling back to
+   the name** (`info.id || info.name`) and key video tags by `currentVideoId()`.
+   Agent A resolves channel tags by id OR name (getVideoMeta returns the channelId
+   so the background has it), so the id key lines up. _(Done — both sides
+   reconciled at integration.)_
 4. Add an **"Edit tags →"** link in the row that opens the options Tags section:
    `chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "tags" })` (the
    handler already exists; Agent A renders the `"tags"` section).
