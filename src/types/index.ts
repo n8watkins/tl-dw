@@ -126,6 +126,22 @@ export type AutoRunChannel = {
   autoRunSummary: boolean;
 };
 
+/**
+ * A reusable summary modifier the user attaches to channels (or one-off videos).
+ * `prompt` is the instruction woven into the summary prompt (like userCuriosity),
+ * so e.g. a "Citations" tag makes the summary surface the video's sources.
+ *
+ * Assignments live in two maps (see CHANNEL_TAGS_KEY / VIDEO_TAGS_KEY):
+ * channel tags auto-apply to every video from that channel; video tags are
+ * one-off. "Apply to all future videos of this channel" promotes a video tag
+ * into the channel map.
+ */
+export type Tag = {
+  id: string;
+  label: string;   // shown on the widget chip + picker, e.g. "Citations"
+  prompt: string;  // e.g. "Include the specific sources/citations the video relies on."
+};
+
 /** Cached summary result keyed by video ID in chrome.storage.local. */
 export type CachedSummary = {
   tldw: TldwSummary;

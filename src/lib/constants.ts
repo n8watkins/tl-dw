@@ -125,6 +125,16 @@ export const GEMINI_CALL_LOG_KEY = "geminiCallLog";
 /** chrome.storage.local key for lifetime usage stats (never pruned). */
 export const TLDW_STATS_KEY = "tldwStats";
 
+/** chrome.storage.local key for the user's tag library (Tag[]). */
+export const TAGS_KEY = "tldwTags";
+/** chrome.storage.local key mapping channel key -> tag ids (Record<string, string[]>).
+ *  Channel tags auto-apply to every video from that channel. The channel key is
+ *  the same one used for auto-run/blocked lookups (getChannelInfo().id, else name). */
+export const CHANNEL_TAGS_KEY = "tldwChannelTags";
+/** chrome.storage.local key mapping videoId -> tag ids (Record<string, string[]>).
+ *  Video tags are one-off; "apply to all future" promotes them into CHANNEL_TAGS_KEY. */
+export const VIDEO_TAGS_KEY = "tldwVideoTags";
+
 export const DEFAULT_SETTINGS: Settings = {
   autoSubmit: true,
   saveHistoryOnSearch: true,
