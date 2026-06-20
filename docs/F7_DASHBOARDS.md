@@ -2,6 +2,13 @@
 
 _Planning doc. Status: PARKED (deferred from the 2026-06-19 sprint). This expands F7 from the one-paragraph backlog stub into a concrete, phased plan._
 
+> **⚠️ Superseded on monetization.** This doc's lean toward "the analytics are the
+> natural thing to charge for" (§1) and the "local-license unlock" (§3a) are **wrong** —
+> see [`F7_PHASE1_PLAN.md`](F7_PHASE1_PLAN.md) §0. Short version: never charge for the
+> user's own local data; ship Phase 1 free; the only real paid lever is **managed AI**
+> (no BYO key), a separate product — not a gate on Phase 1. The Phase-1 engineering
+> details below remain good.
+
 ## 1. What it IS (and what the "more than a Chrome extension" question means)
 
 In the user's words: **"week / month / year dashboards of what they watched."** Today the Stats page (`StatsSection.tsx`) shows only **lifetime totals** + a rolling **12-week heatmap**. There is no "this week vs last week," no "what did June look like," no "2026 in review." F7 adds **time-windowed rollups**.
