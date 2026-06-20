@@ -55,15 +55,18 @@ describe("buildDestinationPrompt", () => {
     expect(out).not.toContain("TRANSCRIPT");
   });
 
-  it("a non-watch chat destination appends the transcript when given", () => {
+  it("a non-watch chat destination appends the transcript (fenced) when given", () => {
     const out = buildDestinationPrompt(
       profile,
       video,
       dest({ payload: "prompt", canWatch: false }),
       "TRANSCRIPT",
     );
-    expect(out).toContain("Video transcript (verbatim):");
+    expect(out).toContain("<<<TRANSCRIPT START>>>");
+    expect(out).toContain("<<<TRANSCRIPT END>>>");
     expect(out).toContain("TRANSCRIPT");
+    // The binding output-format block comes AFTER the untrusted transcript.
+    expect(out.indexOf("<<<TRANSCRIPT END>>>")).toBeLessThan(out.indexOf("---TLDW---"));
   });
 
   it("a non-watch chat destination omits the transcript section when null", () => {
@@ -73,7 +76,7 @@ describe("buildDestinationPrompt", () => {
       dest({ payload: "prompt", canWatch: false }),
       null,
     );
-    expect(out).not.toContain("Video transcript");
+    expect(out).not.toContain("<<<TRANSCRIPT START>>>");
   });
 
   it("substitutes the curiosity into a template that has the placeholder", () => {
