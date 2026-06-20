@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { HistoryExpiryDays, HistoryLimit, SearchHistoryEntry, Settings } from "../../types";
 import { getHistory, getSettings, setHistory, setSettings } from "../../lib/storage";
-import { HISTORY_EXPIRY_OPTIONS } from "../../lib/constants";
+import { DEFAULT_SETTINGS, HISTORY_EXPIRY_OPTIONS, STORAGE_KEYS } from "../../lib/constants";
 import { expireOldEntries, trimToLimit } from "../../lib/history";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
@@ -48,29 +48,45 @@ export function HistorySection() {
     })();
   }, []);
 
+  // Keep in sync with the background while this tab is open: it adds new history
+  // entries and updates watch-progress/ratings as the user watches. Without this
+  // the page held a stale snapshot and any write below would clobber those
+  // changes (real data loss). Mirror settings changes too.
+  useEffect(() => {
+    const onChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area !== "local") return;
+      if (changes[STORAGE_KEYS.history]) {
+        setEntries((changes[STORAGE_KEYS.history].newValue as SearchHistoryEntry[]) ?? []);
+      }
+      if (changes[STORAGE_KEYS.settings]?.newValue) {
+        setSettingsState({ ...DEFAULT_SETTINGS, ...(changes[STORAGE_KEYS.settings].newValue as Settings) });
+      }
+    };
+    chrome.storage.onChanged.addListener(onChange);
+    return () => chrome.storage.onChanged.removeListener(onChange);
+  }, []);
+
   async function updateSettings(patch: Partial<Settings>) {
     if (!settings) return;
     const next = { ...settings, ...patch };
     setSettingsState(next);
     await setSettings(next);
-    // Re-apply expiry and the limit right away so the list and stored data
-    // reflect the change instead of waiting for the next saved entry.
-    const pruned = trimToLimit(expireOldEntries(entries, next), next.historyLimit);
-    if (pruned.length !== entries.length) {
-      setEntries(pruned);
-      await setHistory(pruned);
-    }
+    // Re-apply expiry and the limit against the CURRENT stored history (not the
+    // in-memory snapshot, which may be missing entries the background just added)
+    // so this write can't drop them. The onChanged listener refreshes the list.
+    const stored = await getHistory();
+    const pruned = trimToLimit(expireOldEntries(stored, next), next.historyLimit);
+    if (pruned.length !== stored.length) await setHistory(pruned);
   }
 
   async function deleteEntry(id: string) {
-    const next = entries.filter((e) => e.id !== id);
-    setEntries(next);
-    await setHistory(next);
+    // Recompute from stored history so a concurrent background write isn't lost.
+    const stored = await getHistory();
+    await setHistory(stored.filter((e) => e.id !== id));
     setDeleteId(null);
   }
 
   async function clearAll() {
-    setEntries([]);
     await setHistory([]);
     setConfirmClear(false);
   }

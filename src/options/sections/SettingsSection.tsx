@@ -17,6 +17,13 @@ export function SettingsSection() {
   const [saved, setSaved] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [cacheCount, setCacheCount] = useState(0);
+  // Transient text for the inputs that shouldn't persist on every keystroke: the
+  // % fields (so clearing them to retype doesn't snap to the clamp minimum) and
+  // the trusted-terms textarea (so it doesn't rewrite the whole settings object
+  // per character). null = not editing; show the persisted value.
+  const [engagedDraft, setEngagedDraft] = useState<string | null>(null);
+  const [skimmedDraft, setSkimmedDraft] = useState<string | null>(null);
+  const [bypassDraft, setBypassDraft] = useState<string | null>(null);
 
   function refreshCacheCount() {
     void chrome.storage.local.get("tldwSummaryCache").then((r) => {
@@ -287,8 +294,14 @@ export function SettingsSection() {
           <div style={{ width: "100%" }}>
             <textarea
               rows={4}
-              value={settings.gateBypassTerms}
-              onChange={(e) => void update({ gateBypassTerms: e.target.value })}
+              value={bypassDraft ?? settings.gateBypassTerms}
+              onChange={(e) => setBypassDraft(e.target.value)}
+              onBlur={() => {
+                if (bypassDraft !== null && bypassDraft !== settings.gateBypassTerms) {
+                  void update({ gateBypassTerms: bypassDraft });
+                }
+                setBypassDraft(null);
+              }}
               placeholder={"Veritasium\n3blue1brown\nlecture"}
               style={{ width: "100%", minHeight: 90, resize: "vertical", fontFamily: "inherit", fontSize: 14 }}
             />
@@ -367,10 +380,16 @@ export function SettingsSection() {
               min={5}
               max={100}
               disabled={!settings.trackEngagement}
-              value={settings.engagedPct}
-              onChange={(e) => {
-                const v = Math.min(100, Math.max(5, Number(e.target.value)));
+              value={engagedDraft ?? String(settings.engagedPct)}
+              onChange={(e) => setEngagedDraft(e.target.value)}
+              onBlur={() => {
+                if (engagedDraft === null) { return; }
+                const n = Number(engagedDraft);
+                const v = engagedDraft.trim() && Number.isFinite(n)
+                  ? Math.min(100, Math.max(5, n))
+                  : settings.engagedPct;
                 void update({ engagedPct: v, skimmedPct: Math.min(settings.skimmedPct, v - 1) });
+                setEngagedDraft(null);
               }}
               style={{ width: 70, textAlign: "center" }}
             />
@@ -391,10 +410,16 @@ export function SettingsSection() {
               min={1}
               max={95}
               disabled={!settings.trackEngagement}
-              value={settings.skimmedPct}
-              onChange={(e) => {
-                const v = Math.min(95, Math.max(1, Number(e.target.value)));
+              value={skimmedDraft ?? String(settings.skimmedPct)}
+              onChange={(e) => setSkimmedDraft(e.target.value)}
+              onBlur={() => {
+                if (skimmedDraft === null) { return; }
+                const n = Number(skimmedDraft);
+                const v = skimmedDraft.trim() && Number.isFinite(n)
+                  ? Math.min(95, Math.max(1, n))
+                  : settings.skimmedPct;
                 void update({ skimmedPct: v, engagedPct: Math.max(settings.engagedPct, v + 1) });
+                setSkimmedDraft(null);
               }}
               style={{ width: 70, textAlign: "center" }}
             />

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   ChannelStatusResponse,
   DeliveryStatus,
@@ -98,6 +98,11 @@ export function App() {
   const [statuses, setStatuses] = useState<DeliveryStatus[]>([]);
   const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({ totalCalls: 0, allTimeCalls: 0, todayCalls: 0 });
   const [channelStatus, setChannelStatus] = useState<ChannelStatusResponse | null>(null);
+  // Whether the user has made an in-popup choice this session. Once they have,
+  // a settings write (e.g. ticking Direct API) must NOT revert it back to the
+  // saved default via the storage.onChanged listener below.
+  const destOverridden = useRef(false);
+  const gateOverridden = useRef(false);
 
   useEffect(() => {
     void (async () => {
@@ -145,8 +150,12 @@ export function App() {
       if (changes[STORAGE_KEYS.settings]?.newValue) {
         const fresh: Settings = { ...DEFAULT_SETTINGS, ...(changes[STORAGE_KEYS.settings].newValue as Settings) };
         setSettings(fresh);
-        setGate(fresh.worthWatchingGate ?? false);
-        setDestinationId(fresh.destinationId ?? "gemini");
+        // Only sync gate/destination from storage if the user hasn't overridden
+        // them in this popup session — otherwise ticking "Direct API" (which
+        // writes settings, firing this listener) would silently reset their
+        // just-picked destination and gate choice.
+        if (!gateOverridden.current) setGate(fresh.worthWatchingGate ?? false);
+        if (!destOverridden.current) setDestinationId(fresh.destinationId ?? "gemini");
       }
     };
     chrome.storage.onChanged.addListener(handleChange);
@@ -181,6 +190,7 @@ export function App() {
   // Per-session override only: changing the destination here does NOT touch the
   // saved default (set in Settings). Reopening the popup reverts to the default.
   function changeDestination(id: string) {
+    destOverridden.current = true;
     setDestinationId(id);
     setCopyStatus("");
   }
@@ -463,7 +473,7 @@ export function App() {
                   <input
                     type="checkbox"
                     checked={gate}
-                    onChange={(e) => setGate(e.target.checked)}
+                    onChange={(e) => { gateOverridden.current = true; setGate(e.target.checked); }}
                   />
                   <span>Worth-watching verdict first (long videos)</span>
                 </label>

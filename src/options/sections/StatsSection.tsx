@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { LifetimeStats, GeminiUsage, SearchHistoryEntry } from "../../types";
 import { getLifetimeStats, getGeminiUsage, getHistory } from "../../lib/storage";
 import { computeChannelStats } from "../../lib/history";
+import { GEMINI_USAGE_KEY, localDateKey, STORAGE_KEYS, TLDW_STATS_KEY } from "../../lib/constants";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -46,18 +47,20 @@ function computeStreak(activity: Record<string, number>): number {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // Check whether the streak starts from today or yesterday
-  const todayStr = today.toISOString().slice(0, 10);
+  // Use LOCAL date keys to match the writer (localDateKey): slicing the UTC ISO
+  // string here would land on the wrong calendar day in negative-UTC zones and
+  // read a real streak as broken.
+  const todayStr = localDateKey(today);
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().slice(0, 10);
+  const yesterdayStr = localDateKey(yesterday);
 
   if (!activity[todayStr] && !activity[yesterdayStr]) return 0;
 
   let streak = 0;
   const cursor = activity[todayStr] ? new Date(today) : new Date(yesterday);
   while (true) {
-    const key = cursor.toISOString().slice(0, 10);
+    const key = localDateKey(cursor);
     if (!activity[key]) break;
     streak++;
     cursor.setDate(cursor.getDate() - 1);
@@ -99,7 +102,7 @@ function buildHeatmapGrid(activity: Record<string, number>): { date: string; cou
     for (let row = 0; row < 7; row++) {
       const d = new Date(startDay);
       d.setDate(d.getDate() + col * 7 + row);
-      const key = d.toISOString().slice(0, 10);
+      const key = localDateKey(d); // match the writer's local-date keys
       week.push({ date: key, count: activity[key] ?? 0 });
     }
     cols.push(week);
@@ -184,9 +187,22 @@ export function StatsSection() {
   useEffect(() => {
     void loadAll();
 
-    const onChange = () => void loadAll();
+    // Only reload for the keys this page renders, and debounce: watch-time fires
+    // frequent storage writes, and reloading everything (3 storage reads +
+    // channel-stat recompute) on each is wasteful.
+    const RELEVANT = new Set<string>([TLDW_STATS_KEY, GEMINI_USAGE_KEY, STORAGE_KEYS.history]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area !== "local") return;
+      if (!Object.keys(changes).some((k) => RELEVANT.has(k))) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => void loadAll(), 300);
+    };
     chrome.storage.onChanged.addListener(onChange);
-    return () => chrome.storage.onChanged.removeListener(onChange);
+    return () => {
+      clearTimeout(timer);
+      chrome.storage.onChanged.removeListener(onChange);
+    };
   }, []);
 
   if (!stats || !usage) {
