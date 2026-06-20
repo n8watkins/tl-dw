@@ -51,6 +51,9 @@ const REPORT_INTERVAL_S = 10;
 
 let video: HTMLVideoElement | null = null;
 let lastTime = 0;
+/** Wall-clock ms of the last timeupdate, to bound how far content can have
+ *  legitimately advanced since (continuous playback vs. a seek). */
+let lastTickAt = 0;
 /** Last totalWatched value at which we fired a tldw-watch-update event. */
 let lastNotifiedAt = 0;
 
@@ -203,14 +206,19 @@ async function reportProgress(forced = false): Promise<void> {
 
 function onTimeUpdate(): void {
   if (!trackEngagement || !video) return;
+  const now = Date.now();
+  const wallElapsed = lastTickAt ? (now - lastTickAt) / 1000 : 0;
+  lastTickAt = now;
   const t = video.currentTime;
   const delta = t - lastTime;
   lastTime = t;
-  // Only count forward motion within a reasonable range (filters seeks / stalls).
-  // Scale the cap by playbackRate: at 2x with a throttled (background-tab)
-  // timeupdate, a single tick can advance >2.5s of content and a fixed 2.5 cap
-  // would silently drop it. A real seek is far larger than one playback step.
-  const maxStep = 2.5 * (video.playbackRate || 1);
+  // Count forward motion consistent with continuous playback since the last
+  // tick. The expected content advance is wall-clock elapsed × playbackRate; a
+  // real seek jumps far beyond that and is rejected. This is rate-correct AND
+  // seek-rejecting at any speed — unlike a fixed (or rate-multiplied) cap, which
+  // either drops fast playback in a throttled tab or counts multi-second seeks.
+  const rate = video.playbackRate || 1;
+  const maxStep = wallElapsed > 0 ? wallElapsed * rate + 1 : 2.5;
   if (delta > 0 && delta <= maxStep) {
     totalWatched += delta;
     pendingDelta += delta;
@@ -286,6 +294,7 @@ async function handleNav(): Promise<void> {
   pendingDelta = 0;
   lastNotifiedAt = 0;
   lastTime = 0;
+  lastTickAt = 0;
   lastKnownDuration = 0;
   lastKnownSawSummary = false;
   lastKnownMeta = null;
