@@ -7,6 +7,7 @@ import {
   addOpenSearch,
   bumpLifetimeStats,
   ensureSeeded,
+  getActiveTags,
   getCachedSummary,
   getHistory,
   getOpenSearches,
@@ -318,27 +319,26 @@ async function runSummary(
     transcript = await getTranscriptFromTab(activeTab.id);
   }
 
-  // Always fetch video metadata for headless runs so we can store the channel
-  // name and avatar for channel-tracking stats, even when the gate is off.
-  // Also capture the duration for lifetime stats (durationSummarizedSeconds).
+  // Fetch video metadata ONCE for any non-thumbnail prompt destination — used for
+  // channel-tracking stats, the worth-watching gate, the duration stat, AND tag
+  // resolution. It must run on EVERY prompt path (not just Direct-API/gate) so
+  // channel tags resolve even on the plain tab-flow. Consolidated from the two
+  // separate fetches this had before.
   let videoDurationSeconds = 0;
-  if (willUseDirectApi && !isThumbnail && activeTab?.id !== undefined) {
+  if (isPromptDest && !isThumbnail && activeTab?.id !== undefined) {
     const meta = await getVideoMeta(activeTab.id);
     if (meta?.channel) video.channel = meta.channel;
+    if (meta?.channelId) video.channelId = meta.channelId;
     if (meta?.avatarUrl) video.avatarUrl = meta.avatarUrl;
     if (meta?.durationSeconds) videoDurationSeconds = meta.durationSeconds;
   }
 
   // Worth-watching gate: for chat destinations (a "prompt" payload), on videos
-  // over the threshold whose channel/title isn't trusted, ask for a verdict
-  // first. The meta fetch also enriches the prompt's {{channel}}.
+  // over the threshold whose channel/title isn't trusted, ask for a verdict first.
   const gateEnabled = gateOverride ?? settings.worthWatchingGate;
   let gateMinutes = 0;
   if (gateEnabled && isPromptDest && !isThumbnail && activeTab?.id !== undefined) {
-    const meta = await getVideoMeta(activeTab.id);
-    if (meta?.channel) video.channel = meta.channel;
-    if (meta?.avatarUrl) video.avatarUrl = meta.avatarUrl;
-    const minutes = (meta?.durationSeconds ?? 0) / 60;
+    const minutes = videoDurationSeconds / 60;
     // Record the duration read as a "gate" status every run: a failed read
     // surfaces a notice (the selector may need a look), and a later good read
     // clears that stale notice rather than letting it stick around.
@@ -354,18 +354,28 @@ async function runSummary(
     });
     if (
       minutes >= settings.worthWatchingMinutes &&
-      !isTrusted(settings.gateBypassTerms, meta?.channel ?? "", title)
+      !isTrusted(settings.gateBypassTerms, video.channel ?? "", title)
     ) {
       gateMinutes = minutes;
     }
   }
+
+  // Resolve the user's active tags for this video (F6): channel tags ∪ video
+  // tags. Channel tags are matched by id OR name (the widget keys by id with name
+  // fallback). Woven into every prompt build below so tagged asks (e.g. citations)
+  // shape both the Direct-API and tab-flow summaries.
+  const activeTags = await getActiveTags({
+    channelId: video.channelId,
+    channelName: video.channel,
+    videoId: extractVideoId(url) ?? undefined,
+  });
 
   // Whenever we actually have a transcript, append it to the prompt (treat the
   // destination as non-watching) rather than relying on the AI to open the URL.
   // This covers both the headless REST path and the tab flow (incl. Gemini).
   const promptDest =
     willUseDirectApi || transcript ? { ...destination, canWatch: false } : destination;
-  let prompt = buildDestinationPrompt(profile, video, promptDest, transcript, userCuriosity);
+  let prompt = buildDestinationPrompt(profile, video, promptDest, transcript, userCuriosity, activeTags);
   if (gateMinutes > 0) {
     prompt = prependWorthWatchingGate(prompt, gateMinutes);
   }
@@ -378,7 +388,7 @@ async function runSummary(
   // --- headless path: call Gemini API directly (no tab) -------------------
   if (willUseDirectApi) {
     // Build the transcript-free prompt once for both the call log and history.
-    let logPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity);
+    let logPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity, activeTags);
     if (gateMinutes > 0) logPrompt = prependWorthWatchingGate(logPrompt, gateMinutes);
 
     const videoId = extractVideoId(url);
@@ -538,7 +548,7 @@ async function runSummary(
     // KB, and persisting it per entry would bloat chrome.storage.local toward
     // its ~10 MB quota (and means "Copy prompt" wouldn't quietly drag the whole
     // transcript along). Rebuild the prompt with no transcript for the log.
-    let historyPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity);
+    let historyPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity, activeTags);
     if (gateMinutes > 0) {
       historyPrompt = prependWorthWatchingGate(historyPrompt, gateMinutes);
     }

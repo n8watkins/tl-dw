@@ -1,4 +1,4 @@
-import type { Destination, PromptProfile, VideoContext } from "../types";
+import type { Destination, PromptProfile, Tag, VideoContext } from "../types";
 
 const FALLBACKS = {
   title: "Current YouTube video",
@@ -100,13 +100,31 @@ export function appendTldwBlock(prompt: string): string {
     prompt +
     "\n\nEnd your response with this block, formatted EXACTLY as shown — keep the " +
     "field labels and the `---` lines literally:\n\n" +
+    "Write the SUMMARY and DETAILS as direct statements of what the video actually " +
+    "says — its claims, findings, and advice. Do NOT describe the video or narrate " +
+    "what it 'does': never use framing like \"the video provides / covers / explains " +
+    "/ highlights / discusses / walks through\" or \"this is a masterclass in\". " +
+    "Speak as if stating the substance yourself. For example, write \"Fix conversion " +
+    "bottlenecks before scaling ad spend\" — not \"The video provides a masterclass in " +
+    "incremental improvement, focusing on fixing conversion bottlenecks.\"\n\n" +
     "---TLDW---\n" +
     "VERDICT: WATCH, SKIM, or SKIP\n" +
     "RATING: a single whole number from 1 to 10 for how worth-watching the video is\n" +
-    "SUMMARY: [one sentence — the video's actual conclusion or argument, stated directly, not a description of what it covers]\n" +
-    "DETAILS: [2-4 sentences: the key support, notable caveats, or what's skippable]\n" +
+    "SUMMARY: [one sentence stating the video's actual conclusion or claim directly]\n" +
+    "DETAILS: [2-4 sentences of the actual substance, stated directly as claims/advice — no meta-framing about 'the video']\n" +
     "---END TLDW---"
   );
+}
+
+/**
+ * Append the user's active tag instructions (F6) — each tag's `prompt` fragment —
+ * so the summary also addresses what they want from this channel/video (e.g.
+ * citations, tutorial framing). Woven before the TLDW block, like curiosity.
+ */
+export function appendTags(prompt: string, tags?: Tag[] | null): string {
+  if (!tags || tags.length === 0) return prompt;
+  const lines = tags.map((t) => `- ${t.prompt}`).join("\n");
+  return `${prompt}\n\nAlso specifically address each of the following, weaving them into the DETAILS:\n${lines}`;
 }
 
 /**
@@ -121,6 +139,7 @@ export function buildDestinationPrompt(
   destination: Destination,
   transcript?: string | null,
   userCuriosity?: string | null,
+  tags?: Tag[] | null,
 ): string {
   // Link-style destinations get just the video URL (e.g. NotebookLM ingesting
   // the YouTube link directly via its "Websites" source).
@@ -150,11 +169,12 @@ export function buildDestinationPrompt(
     curiosity && !hasCuriosityVar
       ? `${prompt}\n\nIn particular, address this: ${curiosity}`
       : prompt;
+  const withTags = appendTags(withCuriosity, tags);
   // Order: instructions → transcript (fenced as data) → the binding output-format
   // block LAST. Keeping the format directive after the untrusted transcript makes
   // it the most salient instruction and harder for transcript content to override.
   const withTranscript = destination.canWatch
-    ? withCuriosity
-    : appendTranscript(withCuriosity, transcript);
+    ? withTags
+    : appendTranscript(withTags, transcript);
   return appendTldwBlock(withTranscript);
 }

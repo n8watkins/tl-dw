@@ -1,5 +1,46 @@
 import { describe, expect, it } from "vitest";
-import { trimActivity, verdictCounterDelta } from "./storage";
+import { trimActivity, verdictCounterDelta, watchedSecondsFromHistory } from "./storage";
+import type { SearchHistoryEntry } from "../types";
+
+// ---------------------------------------------------------------------------
+// watchedSecondsFromHistory (F3 — restore watch progress on reload)
+// ---------------------------------------------------------------------------
+
+function hist(videoId: string, watchedSeconds?: number): SearchHistoryEntry {
+  return {
+    id: videoId,
+    videoUrl: `https://youtube.com/watch?v=${videoId}`,
+    profileId: "p",
+    profileName: "P",
+    prompt: "",
+    watchedSeconds,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+describe("watchedSecondsFromHistory", () => {
+  it("returns 0 when the video has no history entry", () => {
+    expect(watchedSecondsFromHistory([hist("aaa", 120)], "zzz")).toBe(0);
+  });
+
+  it("returns 0 when the entry has no watchedSeconds", () => {
+    expect(watchedSecondsFromHistory([hist("aaa")], "aaa")).toBe(0);
+  });
+
+  it("returns the matching entry's watchedSeconds", () => {
+    expect(watchedSecondsFromHistory([hist("aaa", 137)], "aaa")).toBe(137);
+  });
+
+  it("takes the max over all matching entries", () => {
+    expect(watchedSecondsFromHistory([hist("aaa", 200), hist("aaa", 50)], "aaa")).toBe(200);
+  });
+
+  it("isn't shadowed by a newer summary entry that has no watchedSeconds", () => {
+    // addHistoryEntry prepends a summary row (no watchedSeconds) over the stub
+    // that holds the accumulated total — first-match would wrongly return 0.
+    expect(watchedSecondsFromHistory([hist("aaa"), hist("aaa", 120)], "aaa")).toBe(120);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // trimActivity
