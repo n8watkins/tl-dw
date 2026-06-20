@@ -35,11 +35,11 @@ TL;DW only sends data to the service you ask it to use. There are exactly three
 outbound paths:
 
 1. **Open-in-a-tab mode.** When you send a video to Gemini, ChatGPT, Claude, or
-   NotebookLM, TL;DW fills that site's composer with the prompt — and, for AIs that
-   can't watch the video (ChatGPT, Claude), the extracted **transcript** — and
-   submits it. This goes to the AI site under **your own signed-in account**, exactly
-   like any message you type there yourself. That service's own privacy policy
-   applies.
+   NotebookLM, TL;DW fills that site's composer with the prompt and submits it —
+   attaching the extracted **transcript** whenever one is available (this can include
+   Gemini, not only the AIs that can't watch the video). This goes to the AI site
+   under **your own signed-in account**, exactly like any message you type there
+   yourself. That service's own privacy policy applies.
 2. **Direct API mode (optional).** If you enable it and supply your own Gemini API
    key, TL;DW calls Google's Generative Language API
    (`generativelanguage.googleapis.com`) directly. The request contains your

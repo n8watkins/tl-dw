@@ -37,8 +37,11 @@ before packaging a new revision.
 ## 2. Developer account (one-time)
 
 Register at <https://chrome.google.com/webstore/devconsole> and pay the one-time
-**$5** registration fee. Verify your contact email in the dashboard (required
-before publishing).
+**$5** registration fee. Two hard requirements before you can publish: (1) **enable
+2-Step Verification** on the Google account you publish from — Google enforces this
+for all publishers, and the dashboard blocks publishing without it; and (2) **verify
+your contact email** in the dashboard. Note the account email can't be changed later,
+so choose deliberately.
 
 ## 3. Store listing fields
 
@@ -64,25 +67,27 @@ WHY YOU'LL LIKE IT
 
 - Decide before you watch. A short summary and an honest verdict mean no more 20-minute videos that could have been a paragraph.
 - Zero new tabs (Direct API mode). With your own free Google Gemini key, the summary appears right on the YouTube page in a tidy widget - nothing else opens.
-- Use the AI you already pay for (open-in-a-tab mode). No key? TL;DW opens Gemini, ChatGPT, Claude, or NotebookLM with the prompt already typed and submitted, reads the finished answer back, and drops the summary onto the video page for you. For AIs that can't watch video, it attaches the full transcript automatically.
+- Use the AI you already pay for (open-in-a-tab mode). No key? TL;DW opens Gemini, ChatGPT, or Claude with the prompt already typed and submitted, reads the finished answer back, and drops the summary onto the video page for you - attaching the full transcript automatically for AIs that can't watch the video. NotebookLM is supported too: TL;DW adds the video as a source for you (no on-page summary in that mode).
 - Skip the sponsor pitch. Built-in SponsorBlock auto-skips in-video sponsored segments (with one-tap Undo), using the free community database.
 - See where your time really goes. TL;DW quietly measures how much of each video you watch and rates it Engaged / Skimmed / Skipped - then rolls it up into per-channel insights and week / month / year / all-time dashboards.
 
 WHAT YOU GET
 
 - Direct API mode: headless Gemini call on your own free key; verdict + summary inline on the page, no tab opens. Free tier covers roughly 500 videos a day, no credit card.
-- Open-in-a-tab mode: auto-fills and submits Gemini, ChatGPT, Claude, or NotebookLM; transcript attached for AIs that can't watch; graceful clipboard fallback if a site's composer changes.
+- Open-in-a-tab mode: auto-fills and submits Gemini, ChatGPT, or Claude (and adds the video as a source in NotebookLM); transcript attached for AIs that can't watch; graceful clipboard fallback if a site's composer changes.
 - Worth-watching verdict gate for long videos, plus optional auto-summarize for anything over a length you choose.
 - SponsorBlock auto-skip with inline timestamps, a one-tap Undo, and lifetime time-saved tracking.
 - Engagement auto-rating (Engaged / Skimmed / Skipped) - no manual buttons to tap.
 - Per-channel stats with avatar cards, average AI score, and a "vs this channel" cue on the video; block or auto-run any channel.
 - Dashboards: time given back, finish-rate donut, activity heatmap, day streak, and vs-previous-period delta chips across week, month, year, and all-time.
 - Editable prompt profiles (TL;DW, Research, Learning, Tutorial, or your own), an optional "ask something specific" field, searchable history, tags, a right-click menu, and the Alt+Shift+G keyboard shortcut.
-- Works on standard YouTube watch pages and Shorts.
+- Works on standard YouTube watch pages; Shorts are supported via the popup (sent to Gemini, which watches the video directly).
 
 PRIVACY
 
 Everything stays on your machine. No backend, no accounts, no analytics - all data lives in Chrome's local storage, your Gemini key is used only to call Google's API, and TL;DW never stores the full transcript.
+
+TL;DW is not affiliated with, endorsed by, or sponsored by YouTube, Google, OpenAI, or Anthropic. YouTube, Gemini, and NotebookLM are trademarks of Google LLC; ChatGPT is a trademark of OpenAI; Claude is a trademark of Anthropic.
 ```
 
 ## 4. Privacy practices tab
@@ -125,8 +130,14 @@ There is **no developer-owned backend**; the extension collects nothing for itse
 
 ## 5. Graphics
 
-- **Store icon 128×128:** already in `public/icons/tl-dw-128.png`.
-- **Screenshots (1280×800, 3–5):** capture in this order —
+**Required to submit** (the dashboard blocks review without them): the 128×128 icon
+(✅ have it), **≥1 screenshot at 1280×800**, and the **440×280 small promo tile**.
+Only the 1400×560 marquee tile is optional. The screenshots and the promo tile **do
+not exist yet — you must create them** (briefs below); these are the only two hard
+blockers left before submission.
+
+- **Store icon 128×128:** ✅ already in `public/icons/tl-dw-128.png`.
+- **Screenshots (1280×800 — REQUIRED, at least 1, up to 5):** capture in this order —
   1. **On-page summary + verdict (the money shot).** A real watch page with the
      TL;DW widget populated in Direct API mode: WATCH/SKIM/SKIP badge, summary, AI
      rating, "📊 vs channel" row. Pick a recognizable long talk/tutorial.
@@ -140,7 +151,7 @@ There is **no developer-owned backend**; the extension collects nothing for itse
      and the "skipped — Undo" state; lifetime sponsor-time-saved nearby.
   5. **All-time stats — engagement + heatmap.** Hero row, engagement donut, the
      12-week activity heatmap with the day-streak badge and "Tracking since".
-- **Small promo tile 440×280:** Split frame on the dark neon-purple bg. Left (~55%):
+- **Small promo tile 440×280 (REQUIRED):** Split frame on the dark neon-purple bg. Left (~55%):
   a faux YouTube title bar with a long duration chip (e.g. "27:41") dimmed. Right
   (~45%): the TL;DW widget card with a bright green WATCH badge + two summary lines.
   Top-left "TL;DW" wordmark + "Too Long; Didn't Watch" tagline. Headline: **"Know it
@@ -148,8 +159,10 @@ There is **no developer-owned backend**; the extension collects nothing for itse
 
 ## 6. Submit — and the two reviewer questions to expect
 
-Upload the zip, fill the above, submit for review. If a reviewer asks about the
-two "magnets," reply with:
+Upload the zip and fill the above. In the **Distribution** tab, set visibility to
+**Public** (or **Unlisted** for a soft launch you share by link before going fully
+public), leave region defaults (all regions), then submit for review. If a reviewer
+asks about the two "magnets," reply with:
 
 **MAIN-world fetch interception:**
 > A MAIN-world script wraps `window.fetch` ONLY to read YouTube's own transcript
