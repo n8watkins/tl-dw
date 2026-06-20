@@ -391,7 +391,7 @@ function isUnsummarizableLive(): boolean {
 }
 
 /** Read the current video's duration (seconds), channel name, and channel avatar URL. */
-function getVideoMeta(): { durationSeconds: number; channel: string; avatarUrl?: string } {
+function getVideoMeta(): { durationSeconds: number; channel: string; channelId?: string; avatarUrl?: string } {
   const video = document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
   let durationSeconds =
     video && Number.isFinite(video.duration) ? video.duration : 0;
@@ -410,7 +410,10 @@ function getVideoMeta(): { durationSeconds: number; channel: string; avatarUrl?:
     document.querySelector<HTMLImageElement>(
       "ytd-video-owner-renderer #avatar img, #owner yt-img-shadow img, ytd-video-owner-renderer yt-img-shadow img",
     )?.src ?? undefined;
-  return { durationSeconds, channel, avatarUrl };
+  // The channel id/href so the background can resolve channel tags by id (the key
+  // the tag row writes under), not just the display name.
+  const channelId = getChannelInfo()?.id;
+  return { durationSeconds, channel, channelId, avatarUrl };
 }
 
 // --- auto-run / blocked channel helpers (direct storage; no lib imports in content script) --
