@@ -304,6 +304,10 @@ export type VideoContext = {
   url: string;
   title?: string;
   channel?: string;
+  /** Channel id/href (e.g. "/@Handle" or "/channel/UC…") from getChannelInfo().id.
+   *  Used to resolve channel tags by id (with name fallback), matching the
+   *  widget's writer and the auto-run/blocked channel lookups. */
+  channelId?: string;
   avatarUrl?: string;
 };
 
@@ -311,6 +315,8 @@ export type VideoContext = {
 export type VideoMeta = {
   durationSeconds: number;
   channel: string;
+  /** Channel id/href (getChannelInfo().id) — for channel-tag resolution. */
+  channelId?: string;
   avatarUrl?: string;
 };
 
