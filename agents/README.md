@@ -6,9 +6,11 @@ ownership (zero merge conflicts by construction).
 
 | Brief | Role | Owns | Features |
 |---|---|---|---|
-| [PHASE_0.md](PHASE_0.md) | Prerequisite (run first, on `master`) | `types/index.ts`, `constants.ts` (shared contracts) | tag types + storage keys |
-| [AGENT_A.md](AGENT_A.md) | Data / Prompt | `watchtime.ts`, `storage.ts`, `promptBuilder.ts`, `profiles.ts`, `background/`, `options/` | F3 persist watch %, F5 prose, F6-data tags, F7-local dashboards |
-| [AGENT_B.md](AGENT_B.md) | Widget UI | `content/youtube.ts` **only** | F1 overflow menu, F2 engagement cue, F4 fill hover, F6-UI tags picker |
+| [PHASE_0.md](PHASE_0.md) | Prerequisite (run first, on `master`) | `types/index.ts`, `constants.ts` (shared contracts) | `Tag` type + tag storage keys (channel + video) |
+| [AGENT_A.md](AGENT_A.md) | Data / Prompt | `watchtime.ts`, `storage.ts`, `promptBuilder.ts`, `profiles.ts`, `background/`, `options/` | F3 persist tracking, F5 prose, F6-data tags (channel+video weaving + library) |
+| [AGENT_B.md](AGENT_B.md) | Widget UI | `content/youtube.ts` **only** | F1 ⋯ menu, F2 average-only cue, F4 fill hover, F6-UI bottom Tags row |
+
+> F7 (dashboards/paid) is **parked** — not in this sprint.
 
 ## How to use
 1. Land **Phase 0** on `master` first (`PHASE_0.md`).

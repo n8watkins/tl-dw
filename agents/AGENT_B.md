@@ -42,31 +42,33 @@ npm install   # if needed
 
 ## Your tasks (all in `youtube.ts`)
 
-### F1 — Overflow ("⋯") menu for secondary actions
+### F1 — Overflow ("⋯") menu for the secondary ACTION pills
 **Problem.** The header has too many always-visible pills.
-**Do.** Collapse the secondary actions — **Clear cache**, **⚡ Gemini / source
-badge**, **↗ Open tab**, and the **Skip-channel** / **Auto-summarize** toggles —
-into a right-aligned kebab ("⋯") button that opens a small popover. Keep the
-verdict pill + one-line summary inline. Build a small reusable menu (a positioned
-`div` with the action buttons; close on outside-click and Esc).
-**AC.** Header = verdict + summary + "⋯". Menu opens/closes correctly, works
-light/dark, no overflow on narrow widths, no duplicate nodes on re-render
-(stable id, remove-before-insert). The Tags button (F6-UI) lives here too.
+**Do.** Collapse the secondary **action pills** — **Clear cache**, **⚡ Gemini /
+source badge**, **↗ Open tab** — into a right-aligned kebab ("⋯") that opens a
+small popover. **Keep inline:** verdict pill + one-line summary + the
+**Auto-summarize** and **Skip-channel** channel toggles (primary channel
+controls). Build a small reusable menu (positioned `div`; close on outside-click +
+Esc). **Tags are NOT in this menu** — they're a bottom row (F6-UI).
+**AC.** Header = verdict + summary + Auto-summarize + Skip-channel + "⋯". The "⋯"
+menu holds Clear cache / Gemini-source / Open tab. Opens/closes correctly,
+light/dark, no overflow on narrow widths, no duplicate nodes on re-render (stable
+id, remove-before-insert).
 
-### F2 — Engagement cue: hide raw "% watched" by default; show average; detail on click
-**Problem.** `renderEngagementCue` shows `👁 0% watched · Skimming` on load — noise.
+### F2 — Engagement cue: show the channel AVERAGE only (drop the live "% watched")
+**Problem.** `renderEngagementCue` shows `👁 0% watched · Skimming` on load. The
+live this-video % is just background tracking — the user doesn't want it shown.
 **Do.**
-- **Default (collapsed):** do NOT render the live "0% watched". If the channel has
-  history, show a muted **average** line from `channelStats.avgUserRating` (map via
-  the existing `userAvgToLabel`), e.g. "You usually engage with this channel". If
-  no history, show nothing.
-- **Expanded (one click / chevron):** reveal the live this-video detail — the
-  current `👁 X% watched · <verdict>` from `__tldwWatch.getState()`.
+- Show a muted **channel-average** line from `channelStats.avgUserRating` (map via
+  the existing `userAvgToLabel`), e.g. "You usually skim this channel", **only when
+  history exists**. With no history, show nothing.
+- **Do NOT render the live "% watched"** at all (not on load, not on click) — it's
+  background-only now. You can drop the `__tldwWatch.getState()` read and the
+  `tldw-watch-update` listener from this cue (and its `__tldwCleanup`), since the
+  average doesn't change live.
 - Keep respecting `toggles.showEngagementStatus` (off → nothing at all).
-**AC.** Fresh load never shows "0% watched". Average line appears only with
-history. Clicking reveals the live %/verdict. Updates live on the
-`tldw-watch-update` event when expanded (keep the existing listener + the
-`__tldwCleanup` teardown pattern so it doesn't leak).
+**AC.** Fresh load never shows "0% watched" (nor on click). Average line appears
+only with history; nothing otherwise. No leaked listeners.
 
 ### F4 — Consistent fill-on-hover button styling
 **Problem.** `actionPill` (clear-cache / source / open-tab), `buildAutoToggle`,
@@ -81,25 +83,33 @@ clear), Clear cache → red fill, Open-tab / Gemini-source → neutral-dark fill
 look, back to neutral on leave. No regression to the auto-toggle ON/OFF state
 semantics.
 
-### F6-UI — Tags button + picker (writes channel assignments)
-**Problem.** Users want to attach reusable tags to a channel from the widget.
-(Agent A owns the prompt weaving + options management; you build the on-widget
-picker + write the assignments.)
+### F6-UI — Bottom "Tags:" row on the loaded summary (show / add / remove / promote)
+**Problem.** Users want to see and manage tags on the summary itself.
+(Agent A owns the prompt weaving + options library; you build the on-widget row +
+write the assignments.)
 **Do.**
-1. Add a **"🏷 Tags"** entry in the "⋯" menu (F1) that opens a picker popover.
-2. The picker lists the tag library (read `TAGS_KEY` → `Tag[]` via direct
-   `chrome.storage.local.get`, same pattern this file already uses for
-   `autoRunChannels`), lets the user **toggle which tags apply to this channel**,
-   and lets them **create** a quick tag (label + prompt) if needed.
-3. Persist channel assignments to `CHANNEL_TAGS_KEY` →
-   `Record<channelKey, string[]>` using `chrome.storage.local.set` (direct, like
-   the auto-run writes). Use the SAME channel key the file already derives
-   (`currentChannelInfo.id` / name) so Agent A's background lookup matches.
-**AC.** From the widget you can tag the current channel; the assignment persists
-and (once Agent A's weaving is merged) shapes that channel's future summaries.
-Picker is light/dark-correct, idempotent, closes cleanly. **Seam:** the storage
-shapes are fixed in `agents/PHASE_0.md` — do not invent a different shape; Agent
-A reads exactly these.
+1. Add a **"Tags:" row at the BOTTOM of the loaded summary panel** (below the
+   summary/details, alongside the existing channel/engagement rows — NOT in the
+   "⋯" menu). It renders the **currently-active tags** for this video as chips:
+   the channel's tags (`CHANNEL_TAGS_KEY[channelKey]`) ∪ this video's tags
+   (`VIDEO_TAGS_KEY[videoId]`), resolved against the library (`TAGS_KEY` → `Tag[]`).
+   Nothing is auto-added — just show what's already assigned.
+2. An **"+ add"** affordance opens a small picker to: pick from the library (or
+   quick-create a tag = label + prompt), and choose **for this channel** or **for
+   this video only**. Each active chip has a **remove** (×) and, for a video tag, a
+   **"apply to all future" (promote)** control that moves its id from
+   `VIDEO_TAGS_KEY[videoId]` into `CHANNEL_TAGS_KEY[channelKey]`.
+3. Persist via direct `chrome.storage.local.get/set` on `TAGS_KEY`,
+   `CHANNEL_TAGS_KEY`, `VIDEO_TAGS_KEY` (same pattern this file uses for
+   `autoRunChannels`). Use the SAME channel key the file derives
+   (`currentChannelInfo.id` / name) and `currentVideoId()` so Agent A's background
+   lookup matches.
+**AC.** On a loaded summary you can see active channel+video tags; add a tag for
+the channel or just this video; remove one; promote a video tag to the channel
+("apply to all future"). Persists; (once Agent A's weaving merges) channel tags
+shape future summaries from that channel. Light/dark-correct, idempotent, closes
+cleanly. **Seam:** use the EXACT storage shapes from `agents/PHASE_0.md` — Agent A
+reads them verbatim.
 
 ---
 

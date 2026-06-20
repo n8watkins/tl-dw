@@ -30,12 +30,18 @@ export type Tag = {
 ```ts
 /** chrome.storage.local key for the user's tag library (Tag[]). */
 export const TAGS_KEY = "tldwTags";
-/** chrome.storage.local key mapping channel key -> tag ids (Record<string, string[]>). */
+/** chrome.storage.local key mapping channel key -> tag ids (Record<string, string[]>).
+ *  Channel tags auto-apply to every video from that channel. */
 export const CHANNEL_TAGS_KEY = "tldwChannelTags";
+/** chrome.storage.local key mapping videoId -> tag ids (Record<string, string[]>).
+ *  Video tags are one-off, for a single video. "Apply to all future videos of this
+ *  channel" promotes a video tag into CHANNEL_TAGS_KEY for that channel. */
+export const VIDEO_TAGS_KEY = "tldwVideoTags";
 ```
 > The channel key matches what the widget/auto-run code already uses for a channel
 > (the `id` from `getChannelInfo()`, e.g. `/@Handle`, falling back to name). Reuse
-> the SAME key so tags line up with auto-run/blocked channel lookups.
+> the SAME key so tags line up with auto-run/blocked channel lookups. videoId comes
+> from `extractVideoId(url)`.
 
 ### 3. Gate + land
 ```bash

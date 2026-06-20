@@ -44,58 +44,54 @@ analytics dashboards) is a separate product bet at ~35%.
 
 ## 2. Immediate features (requested)
 
-Each: **what**, **acceptance criteria (AC)**, **touchpoints**, **open decisions**.
+Each: **what**, **acceptance criteria (AC)**, **touchpoints**. _Decisions resolved
+2026-06-19 — see the ✅ DECIDED lines._
 
 ### F1 — Overflow ("⋯") menu for secondary widget actions
 **What.** The widget header has too many always-visible pills. Collapse the
-secondary actions — **Clear cache**, **⚡ Gemini API / source badge**, **↗ Open
-tab** (and likely Skip-channel / Auto-summarize) — into a right-aligned hamburger
-/ kebab ("⋯") menu. Primary info (verdict + summary) stays; the rest is one click
-away.
-**AC.** Header shows verdict pill + summary + a single "⋯" button on the right.
-Clicking opens a small popover with the secondary actions. Closes on outside-click
-/ Esc. Works in light/dark. No layout shift / overflow on narrow widths.
+secondary **action pills** — **Clear cache**, **⚡ Gemini API / source badge**,
+**↗ Open tab** — into a right-aligned kebab ("⋯") menu. Verdict + summary stay
+inline. The **Auto-summarize** and **Skip-channel** channel toggles stay visible
+(they're primary channel controls). Tags are NOT in this menu — they get their
+own bottom row (see F6).
+**✅ DECIDED.** Inline: verdict + summary + Auto-summarize + Skip-channel. In "⋯":
+Clear cache, Gemini/source, Open tab. (Default; easy to move an item later.)
+**AC.** Header shows verdict + summary + the two channel toggles + a single "⋯".
+Clicking "⋯" opens a small popover with the action items. Closes on outside-click
+/ Esc. Light/dark correct, no overflow on narrow widths, idempotent (stable id).
 **Touchpoints.** `src/content/youtube.ts` — `buildPanelHead`, `buildSummaryPanel`
-header cluster (`newTabBtn`, `clearBtn`, `sourceBadge`, block/auto toggles).
-**Decisions.** Which actions live in the menu vs stay inline? (Proposal: keep only
-the verdict + summary inline; everything else in "⋯".)
+header cluster (`newTabBtn`, `clearBtn`, `sourceBadge`).
 
-### F2 — Engagement cue: hide raw "% watched" by default; show average; detail on click
-**What.** Today the panel shows `👁 0% watched · Skimming` on load — noise while
-you're still deciding. Instead:
-- **Default (collapsed):** do **not** show the live "0% watched". Show the
-  **per-channel average** engagement if history exists (e.g. "You usually engage
-  with this channel"), or nothing if no history.
-- **Detailed (one click):** expands to the live this-video detail — "0% watched ·
-  Skimming", progress, verdict — i.e. the current cue moves behind a click.
-- Tracking still runs in the background regardless of display.
-**AC.** Fresh load never shows "0% watched". If the channel has history, a muted
-average line shows. Clicking the cue (or a chevron) reveals the live %/verdict.
-Respects `showEngagementStatus` (off = nothing).
-**Touchpoints.** `src/content/youtube.ts` — `renderEngagementCue` (~1369–1392),
-the `engagementCue` element, reads existing `channelStats.avgUserRating` +
-`__tldwWatch.getState()`. (Average already flows in via `channelStats` — no new
-data needed.)
-**Decisions.** Exact default copy for the average line. Is the toggle its own
-chevron or does clicking the panel body reveal it?
+### F2 — Engagement cue: show the channel AVERAGE only (drop the live "% watched")
+**What.** Today the panel shows `👁 0% watched · Skimming` on load. The live
+this-video % is just background tracking — **don't display it at all**. Instead
+show the **per-channel engagement average** ("what you usually do with this
+channel") when history exists; nothing when there's no history.
+**✅ DECIDED.** No live "% watched" display anywhere (background-only). Show the
+channel average from `channelStats.avgUserRating` (via `userAvgToLabel`), e.g.
+"You usually skim this channel". Respect `showEngagementStatus` (off = nothing).
+**AC.** Fresh load never shows "0% watched" (nor on click). With history, a muted
+average line shows; without history, nothing. Background verdict tracking still
+runs (feeds the average + history) — see F3.
+**Touchpoints.** `src/content/youtube.ts` — `renderEngagementCue` (~1377), the
+`engagementCue` element. Reads existing `channelStats.avgUserRating` (already
+passed in). The live-`__tldwWatch.getState()` read for display can be removed; the
+window bridge stays for background tracking.
 
-### F3 — Persist watch progress across refresh (don't reset to 0%)
-**What.** The live "% watched" resets on page refresh because `watchtime.ts`
-starts `totalWatched = 0` every load (`watchtime.ts:297`) and never restores the
-already-accumulated `history[videoId].watchedSeconds`. Persist + restore so a
-reload (or returning to a partly-watched video) resumes the real %.
-**AC.** Reload a video you've watched 40% of → the cue (when expanded) shows ~40%,
-not 0%. Watching more accumulates from there (no double-count with the existing
-delta reporting). Rewatching across sessions keeps accumulating toward the same
-video's total.
-**Touchpoints.** `src/content/watchtime.ts` (`handleNav` — seed `totalWatched`
-from stored value for the new vid), `src/lib/storage.ts` (a read accessor for a
-video's `watchedSeconds`), `src/types/index.ts` if a furthest-position field is
-added. The accumulator already persists in `history.watchedSeconds`; this is
-about **restoring it on load**.
-**Decisions.** Restore from `history[vid].watchedSeconds` (simplest, reuses
-existing data) vs a dedicated per-video position store. Cap at duration so a
-re-watch can't exceed 100%? (Proposal: restore from history, clamp to duration.)
+### F3 — Persist watch tracking across refresh (don't reset to 0)
+**What.** `watchtime.ts` starts `totalWatched = 0` every load (`watchtime.ts:297`)
+and never restores the accumulated `history[videoId].watchedSeconds`, so a refresh
+resets the in-page engagement measurement (and the verdict recomputes from 0).
+Even though we no longer DISPLAY the live % (F2), this tracking feeds the
+**average** the user does want, so it must survive a refresh. Seed `totalWatched`
+from the stored value on load.
+**✅ DECIDED.** Restore from `history[vid].watchedSeconds`, clamped to duration.
+**AC.** Reload a video you've watched ~40% of → background state resumes at ~40%
+(verdict not reset to "skip"); continued watching accumulates from there without
+double-counting the lifetime `secondsWatched`. Across sessions the same video
+keeps building toward its total.
+**Touchpoints.** `src/content/watchtime.ts` (`handleNav` — seed `totalWatched`),
+`src/lib/storage.ts` (a read accessor for a video's stored `watchedSeconds`).
 
 ### F4 — Consistent fill-on-hover button styling
 **What.** The **Skip-channel** button (`buildBlockButton`, fills solid red + white
@@ -128,41 +124,48 @@ the one-sentence core conclusion (already good). Verified on a few real videos.
 **Touchpoints.** `src/lib/promptBuilder.ts` (`appendTldwBlock` DETAILS/SUMMARY
 instructions), possibly `src/lib/profiles.ts` (default templates). Add/adjust a
 test in `promptBuilder.test.ts` asserting the directive wording.
-**Decisions.** How strict? (Proposal: instruct "state findings directly as
-claims; do not describe the video or use phrases like 'the video provides/covers/
-is a masterclass'.")
+**✅ DECIDED.** Instruct: "state findings directly as claims; do NOT describe the
+video or use phrases like 'the video provides / covers / highlights / is a
+masterclass'."
 
-### F6 — Per-channel tags (saved prompt modifiers)
-**What.** Let the user attach **tags** to a channel (or a one-off video) that
-shape the summary — e.g. "citations", "tutorial format", "pricing details". Better
-than the existing right-click-profile flow because a tag **saved to a channel**
-auto-applies on every video from that channel, making the detail view far more
-useful. A **Tags button** lives on the widget.
-**AC.**
-- A "🏷 Tags" control on the widget opens a picker: choose/create tags, toggle
-  which apply to **this channel** (persisted).
-- Active tags are woven into the summary prompt (each tag carries a prompt
-  fragment, like `userCuriosity`), so the summary/details reflect them.
-- Per-channel assignments persist and re-apply automatically; optional per-video
-  one-off application.
-- Tags are manageable in the options page (create/edit/delete the tag library).
+### F6 — Tags (channel + per-video saved prompt modifiers)
+**What.** Reusable **tags** that shape the summary — e.g. "citations", "tutorial
+format", "pricing details". A tag carries a prompt fragment woven into the summary
+(like `userCuriosity`), so the summary/details reflect what you actually want from
+that creator. Far more useful than the right-click flow because tags persist.
+**✅ DECIDED — model & UX:**
+- **Channel tags** auto-apply to every video from that channel.
+- **Video tags** are one-off, for a single video.
+- An **"Apply to all future videos of this channel"** action promotes a video tag
+  into a channel tag.
+- **Display:** a **"Tags:" row at the BOTTOM of the loaded summary** (below the
+  one-line summary / details), shown once the summary is loaded. It renders the
+  currently-active tags (channel + video) as chips; nothing is auto-added — but
+  the user can **add a tag (for this channel / for this video)** from that row, and
+  remove one. The ⋯ menu does NOT contain tags.
+- Tags affect **both** the Direct-API and the tab-flow prompt (it's a prompt
+  change). Tag library (create/edit/delete) is also managed in the options page.
+**AC.** From the bottom row you can: see active channel+video tags on a loaded
+summary; add a tag for the channel or just this video; promote a video tag to the
+channel ("apply to all future"); remove a tag. Channel tags re-apply automatically
+to future videos and measurably change those summaries. Persists across reloads.
 **Touchpoints (spans UI + data — see seam in §4):**
-- UI: `src/content/youtube.ts` (Tags button + picker popover; writes channel→tag
-  assignments to storage).
-- Data: `src/types/index.ts` (`Tag`, channel-tags), `src/lib/storage.ts`
-  (tag library + channel assignments accessors), `src/background/index.ts`
-  (resolve a channel's active tags when building the prompt),
-  `src/lib/promptBuilder.ts` (append tag fragments), `src/options/` (a Tags
-  management section).
-**Decisions.** Tag model: `{ id, label, prompt }` (a tag = label + the instruction
-it injects). Channel-scoped only, or also global/per-video? (Proposal: a global
-tag **library** + per-channel **assignments**, with optional per-summary toggle.)
-Do tags affect Direct-API only or also the tab-flow prompt? (Proposal: both — it's
-a prompt change.)
+- UI: `src/content/youtube.ts` (bottom "Tags:" row + add/remove/promote controls;
+  writes channel→tag and video→tag assignments to storage).
+- Data: `src/types/index.ts` (`Tag`), `src/lib/storage.ts` (tag library + channel
+  + video assignment accessors, incl. a promote helper),
+  `src/background/index.ts` (resolve a video's active tags = channel tags ∪ video
+  tags when building the prompt), `src/lib/promptBuilder.ts` (append tag
+  fragments), `src/options/` (Tags library management).
+**Storage (Phase 0):** `TAGS_KEY: Tag[]`, `CHANNEL_TAGS_KEY: Record<channelKey,
+string[]>`, `VIDEO_TAGS_KEY: Record<videoId, string[]>`.
 
 ---
 
-## 3. Bigger bet (future, separate epic)
+## 3. Bigger bet (PARKED — revisit later)
+
+> **✅ DECIDED (2026-06-19): not this sprint.** F7 is deferred — a "follow up
+> later" item. Not in the Agent A/B scope below. Captured here so we don't lose it.
 
 ### F7 — Weekly / monthly / yearly dashboards + paid analytics ("beyond the extension")
 **What.** Rich time-windowed dashboards of what you watched (week/month/year),
@@ -202,35 +205,32 @@ and agree the cross-file **contracts up front** so the two streams never touch t
 same files.
 
 ### Phase 0 — Shared contracts (do FIRST, single small commit on `master`)
-Land the types/keys/settings **both** streams reference, so Phase 1 worktrees only
-*read* them and never edit the same shared files:
-- `src/types/index.ts`: `Tag = { id; label; prompt }`; channel-tags shape;
-  optional watched-position field.
-- `src/lib/constants.ts`: new storage keys (`TAGS_KEY`, `CHANNEL_TAGS_KEY`), any
-  new `DEFAULT_SETTINGS` flags (e.g. engagement-cue default mode).
-- A short `CONTRACTS` note in this file (below) documenting: the tags storage
-  shape, how the widget triggers a tag-aware summary, and that
-  `__tldwWatch.getState().watchedSeconds` will be **restored** on load (F3) so the
-  cue "just works" once A lands it.
-Both worktrees branch from this commit.
+See [`agents/PHASE_0.md`](agents/PHASE_0.md). Lands the types/keys **both** streams
+reference: `Tag = { id; label; prompt }` and the storage keys `TAGS_KEY`,
+`CHANNEL_TAGS_KEY` (channel→tag ids), `VIDEO_TAGS_KEY` (videoId→tag ids). Both
+worktrees branch from this commit; Phase 1 only *reads* these.
 
 ### Phase 1 — Two parallel worktrees
 | Stream | Owner files | Features |
 |---|---|---|
-| **A — Data / Prompt** | `watchtime.ts`, `storage.ts`, `promptBuilder.ts`, `profiles.ts`, `background/index.ts`, `options/sections/*`, tests | F3 (persist watch %), F5 (prose), F6-data (tags storage + prompt weaving + options mgmt), F7-local (week/month/year aggregation) |
-| **B — Widget UI** | `content/youtube.ts` **only** | F1 (overflow menu), F2 (engagement cue redesign), F4 (fill hover), F6-UI (tags button + picker) |
+| **A — Data / Prompt** | `watchtime.ts`, `storage.ts`, `promptBuilder.ts`, `profiles.ts`, `background/index.ts`, `options/sections/*`, tests | F3 (persist tracking), F5 (prose), F6-data (tags storage + channel/video resolve + prompt weaving + options mgmt) |
+| **B — Widget UI** | `content/youtube.ts` **only** | F1 (⋯ menu), F2 (average-only cue), F4 (fill hover), F6-UI (bottom Tags row: show/add/remove/promote) |
+
+_F7 (dashboards) is PARKED — not in this sprint._
 
 **Why this is conflict-free:** disjoint file ownership. B reads contracts +
-existing `channelStats` and `__tldwWatch`; A provides the data behind them. B
-writes channel-tag assignments using the Phase-0 storage key directly (same
-pattern youtube.ts already uses for `autoRunChannels`), which A's background reads.
-No shared file is edited by both in Phase 1.
+existing `channelStats`; A provides the data behind them. B writes channel/video
+tag assignments using the Phase-0 storage keys directly (same pattern youtube.ts
+already uses for `autoRunChannels`), which A's background reads. No shared file is
+edited by both in Phase 1.
 
 **Seams (the only coordination points):**
-1. **F3:** A makes `watchtime.ts` restore `totalWatched` on load → B's cue shows
-   the real % with zero B-side change.
-2. **F6:** Phase-0 defines the channel-tags storage shape. B's picker writes it; A's
-   background reads + weaves it. Neither touches the other's file.
+1. **F3:** A restores `totalWatched` on load → the background engagement tracking
+   (which feeds B's average) resumes correctly; no B-side change.
+2. **F6:** Phase-0 fixes the channel/video tag storage shapes. B's bottom row
+   writes them (incl. the promote = move a video tag into `CHANNEL_TAGS_KEY`); A's
+   background reads `channel tags ∪ video tags` and weaves them. Neither edits the
+   other's file.
 3. **F2:** uses existing `channelStats.avgUserRating` (already passed to the
    widget) — no A dependency for the average display.
 
@@ -241,36 +241,45 @@ build`. Smoke-test the seams (reload-resumes-%, tag-changes-summary, cue default
 Then a manual Chrome pass (see §5).
 
 ### Sequencing notes / can't-fully-parallelize
-- **F7 paid/hosted** is NOT in this sprint — it needs product decisions (§3). Only
-  F7-local aggregation (Stream A) is in scope.
-- If a 3rd agent is available, split Stream A further: A1 = `watchtime`+`storage`+
-  `promptBuilder` (F3/F5/F6-data), A2 = `options/sections` (F6 management UI +
-  F7-local) — these own disjoint files too.
+- **F7 (dashboards/paid)** is PARKED — not in this sprint (§3).
+- If a 3rd agent is available, split Stream A: A1 = `watchtime`+`storage`+
+  `promptBuilder`+`background` (F3/F5/F6-data), A2 = `options/sections` (F6
+  library management) — disjoint files.
 
 ---
 
-## CONTRACTS (fill in during Phase 0)
+## CONTRACTS (land in Phase 0)
 
 ```
 Tag:            { id: string; label: string; prompt: string }
-Tag library:    chrome.storage.local["tldwTags"]: Tag[]
-Channel tags:   chrome.storage.local["tldwChannelTags"]: Record<channelKey, string[]>  // tag ids
-Prompt weaving: background resolves active tag ids for the video's channel and
-                appends each tag.prompt to the summary prompt (like userCuriosity).
-Watch %:        watchtime.handleNav seeds totalWatched from stored watchedSeconds
-                for the new videoId (clamped to duration); __tldwWatch.getState()
-                then returns the restored value — widget cue unchanged.
-Engagement cue: default = average (from channelStats.avgUserRating) or nothing;
-                live this-video % shown only when expanded.
+Tag library:    chrome.storage.local["tldwTags"]:        Tag[]
+Channel tags:   chrome.storage.local["tldwChannelTags"]: Record<channelKey, string[]>  // tag ids, auto-apply
+Video tags:     chrome.storage.local["tldwVideoTags"]:   Record<videoId, string[]>     // tag ids, one-off
+Promote:        "apply to all future videos of this channel" moves a video tag id
+                from tldwVideoTags[videoId] into tldwChannelTags[channelKey].
+Prompt weaving: background resolves (channel tags ∪ video tags) for the current
+                video and appends each tag.prompt to the prompt (like userCuriosity),
+                on BOTH the Direct-API and tab-flow paths.
+Watch tracking: watchtime.handleNav seeds totalWatched from the stored
+                history[videoId].watchedSeconds (clamped to duration) so background
+                engagement tracking survives a refresh.
+Engagement cue: show the channel average (channelStats.avgUserRating via
+                userAvgToLabel) if history exists, else nothing. The live "%
+                watched" is NOT displayed (background-only).
+Tags row:       a "Tags:" row at the bottom of the loaded summary shows active
+                channel+video tags as chips, with add (channel/video), remove, and
+                promote controls. Nothing is auto-added.
 ```
 
 ---
 
-## Open decisions to confirm before building
-1. **F1:** which actions go in "⋯" vs stay inline?
-2. **F2:** default copy for the average line; chevron vs panel-click to expand.
-3. **F3:** restore from `history.watchedSeconds` (reuse) vs dedicated position store.
-4. **F6:** tag model (global library + per-channel assignments?) and whether tags
-   apply to the tab-flow prompt too.
-5. **F7:** local-only first? what gates behind paid? backend or not? (decide
-   separately from the §2 sprint.)
+## Decisions — RESOLVED 2026-06-19
+1. **F1:** Inline = verdict + summary + Auto-summarize + Skip-channel. In "⋯" =
+   Clear cache, Gemini/source, Open tab. Tags are NOT in the menu.
+2. **F2:** No live "% watched" anywhere — show the channel **average** only (or
+   nothing when no history). It's background tracking; "we already know it".
+3. **F3:** Restore from `history.watchedSeconds`, clamped to duration.
+4. **F6:** Channel tags (auto-apply) **+** per-video tags **+** an "apply to all
+   future videos of this channel" promote action. Shown as a bottom "Tags:" row on
+   the loaded summary; add/remove/promote there. Affects both prompt paths.
+5. **F7:** Parked — revisit later (no backend/paid decision now).
