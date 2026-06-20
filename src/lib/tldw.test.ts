@@ -85,4 +85,20 @@ describe("parseTldwBlock", () => {
   it("ignores a bare 'TLDW' mention in the prose", () => {
     expect(parseTldwBlock("I'll give you the TLDW shortly. SUMMARY: not a real block")).toBeNull();
   });
+
+  // Re-verify #7 follow-up — a value that STARTS with a markdown span (no bolded
+  // label) must survive without a dangling delimiter.
+  it("preserves a value that begins with a code/emph span (plain label)", () => {
+    expect(parseTldwBlock(block("VERDICT: WATCH\nSUMMARY: `useEffect` is the focus here."))?.summary)
+      .toBe("`useEffect` is the focus here.");
+    expect(parseTldwBlock(block("VERDICT: WATCH\nSUMMARY: *Crucially*, the demo fails at 4:00."))?.summary)
+      .toBe("*Crucially*, the demo fails at 4:00.");
+  });
+
+  // A bolded label whose value also starts with a span: strip only the label's
+  // closing delimiter, keep the value's own markup.
+  it("strips the bolded label's closing delimiter but keeps the value's span", () => {
+    expect(parseTldwBlock("---TLDW---\n**SUMMARY:** `useEffect` matters.\n---END TLDW---")?.summary)
+      .toBe("`useEffect` matters.");
+  });
 });

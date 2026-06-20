@@ -14,15 +14,20 @@ function parseFields(inner: string): TldwSummary | null {
   const fields: Record<string, string> = {};
   let key = "";
   for (const rawLine of inner.split("\n")) {
-    // Detect the label on a copy with leading list/quote/markdown markers
-    // removed, but take the VALUE from this same copy's capture group — markup is
-    // only stripped from the START, not globally, so an emphasized phrase or an
-    // identifier with underscores inside the value survives intact.
-    const probe = rawLine.replace(/^[\s>+•-]*[*_`]*\s*/, "");
-    const m = probe.match(/^([A-Z]+)[*_`]*\s*:\s*([\s\S]*)$/);
-    if (m && TLDW_FIELDS.has(m[1])) {
-      key = m[1];
-      fields[key] = m[2].replace(/^[\s*_`]+/, "").trim();
+    // Capture: [leading list/quote markers][markdown around label] LABEL : value.
+    // m[2] is the markdown that WRAPPED the label (e.g. the ** of "**SUMMARY:**").
+    const m = rawLine.match(/^[\s>+•-]*([*_`]*)\s*([A-Z]+)[*_`]*\s*:\s*([\s\S]*)$/);
+    const label = m?.[2];
+    if (m && label && TLDW_FIELDS.has(label)) {
+      key = label;
+      let value = m[3];
+      // Only when the label was itself wrapped in markdown does its CLOSING
+      // delimiter leak into the value capture ("**SUMMARY:** x" → value "** x").
+      // Strip just that leading run then. When the label was NOT wrapped, leave
+      // the value untouched so a value that legitimately starts with `code` or
+      // *emph* survives verbatim (the old global/leading strip mangled those).
+      if (m[1]) value = value.replace(/^[*_`]+\s*/, "");
+      fields[key] = value.trim();
     } else if (key && rawLine.trim() && !/^[\s*_`>+•-]+$/.test(rawLine)) {
       // Continuation line (not a new field, and not a bare markup/divider line
       // like "**" or "---" left over from a rendered block).

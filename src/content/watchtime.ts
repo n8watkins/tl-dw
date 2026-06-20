@@ -213,12 +213,16 @@ function onTimeUpdate(): void {
   const delta = t - lastTime;
   lastTime = t;
   // Count forward motion consistent with continuous playback since the last
-  // tick. The expected content advance is wall-clock elapsed × playbackRate; a
-  // real seek jumps far beyond that and is rejected. This is rate-correct AND
-  // seek-rejecting at any speed — unlike a fixed (or rate-multiplied) cap, which
-  // either drops fast playback in a throttled tab or counts multi-second seeks.
+  // tick. The expected content advance is (wall-clock elapsed × playbackRate); a
+  // real seek jumps far beyond that and is rejected — rate-correct AND
+  // seek-rejecting at any speed. CLAMP the gap: while paused/buffering/suspended
+  // ticks stop, so an un-clamped wallElapsed (seconds–minutes) would inflate the
+  // window and let a subsequent seek through. Normal playback ticks every
+  // ~0.25–1s, so 4s covers even a throttled background tab; the first tick (no
+  // prior timestamp) uses a 1s baseline.
   const rate = video.playbackRate || 1;
-  const maxStep = wallElapsed > 0 ? wallElapsed * rate + 1 : 2.5;
+  const gap = wallElapsed > 0 ? Math.min(wallElapsed, 4) : 1;
+  const maxStep = gap * rate + 1;
   if (delta > 0 && delta <= maxStep) {
     totalWatched += delta;
     pendingDelta += delta;
