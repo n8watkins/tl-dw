@@ -190,6 +190,9 @@ an explicit, tag-aware version). Usage increment is automatic in
 
 > **✅ DECIDED (2026-06-19): not this sprint.** F7 is deferred — a "follow up
 > later" item. Not in the Agent A/B scope below. Captured here so we don't lose it.
+> **Full phased outline:** [`docs/F7_DASHBOARDS.md`](docs/F7_DASHBOARDS.md)
+> (Phase 1 = local week/month/year rollups, ships free now; Phase 2 = the paid /
+> "beyond the extension" bet).
 
 ### F7 — Weekly / monthly / yearly dashboards + paid analytics ("beyond the extension")
 **What.** Rich time-windowed dashboards of what you watched (week/month/year),

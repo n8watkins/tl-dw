@@ -28,8 +28,7 @@
  *
  * Window bridge:
  *  - `window.__tldwWatch.getState()` returns { videoId, watchedSeconds, durationSeconds, verdict }.
- *  - Fires `new CustomEvent("tldw-watch-update")` on document when accumulated
- *    seconds change by ≥1s, so the on-page cue in youtube.ts can update live.
+ *  - `window.__tldwWatch.markSeek()` lets sponsorblock.ts resync after a skip.
  */
 
 import { computeEngagementVerdict } from "../lib/engagement";
@@ -55,8 +54,6 @@ let lastTime = 0;
 /** Wall-clock ms of the last timeupdate, to bound how far content can have
  *  legitimately advanced since (continuous playback vs. a seek). */
 let lastTickAt = 0;
-/** Last totalWatched value at which we fired a tldw-watch-update event. */
-let lastNotifiedAt = 0;
 
 let trackEngagement = true;
 
@@ -73,7 +70,6 @@ let lastMetaRefresh = 0;
 /** Cached settings thresholds used for the live verdict calculation. */
 let engagedPct = 60;
 let skimmedPct = 15;
-let showEngagementStatus = true;
 
 // ---- window bridge ----------------------------------------------------------
 
@@ -128,14 +124,6 @@ function markSeek(): void {
   getState,
   markSeek,
 };
-
-function notifyPanel(): void {
-  if (!showEngagementStatus) return;
-  if (totalWatched - lastNotifiedAt >= 1) {
-    lastNotifiedAt = totalWatched;
-    document.dispatchEvent(new CustomEvent("tldw-watch-update"));
-  }
-}
 
 // ---- reporting --------------------------------------------------------------
 
@@ -235,7 +223,6 @@ function onTimeUpdate(): void {
       lastMetaRefresh = Date.now();
       lastKnownMeta = currentVideoMeta();
     }
-    notifyPanel();
     if (pendingDelta >= REPORT_INTERVAL_S) {
       void reportProgress();
     }
@@ -274,12 +261,10 @@ async function loadSettings(): Promise<void> {
     trackEngagement?: boolean;
     engagedPct?: number;
     skimmedPct?: number;
-    showEngagementStatus?: boolean;
   } | undefined;
   trackEngagement = s?.trackEngagement !== false;
   engagedPct = s?.engagedPct ?? 60;
   skimmedPct = s?.skimmedPct ?? 15;
-  showEngagementStatus = s?.showEngagementStatus !== false;
 }
 
 async function handleNav(): Promise<void> {
@@ -297,7 +282,6 @@ async function handleNav(): Promise<void> {
   currentVid = vid;
   totalWatched = 0;
   pendingDelta = 0;
-  lastNotifiedAt = 0;
   lastTime = 0;
   lastTickAt = 0;
   lastKnownDuration = 0;
@@ -327,7 +311,6 @@ async function handleNav(): Promise<void> {
       const dur = currentDuration();
       const base = stored + totalWatched;
       totalWatched = dur > 0 ? Math.min(base, dur) : base;
-      lastNotifiedAt = totalWatched;
     }
   } catch {
     /* best effort — start from 0 if the read fails */
@@ -356,20 +339,16 @@ chrome.storage.onChanged.addListener((changes, area) => {
     trackEngagement?: boolean;
     engagedPct?: number;
     skimmedPct?: number;
-    showEngagementStatus?: boolean;
   } | undefined;
   const wasTracking = trackEngagement;
   trackEngagement = next?.trackEngagement !== false;
   engagedPct = next?.engagedPct ?? 60;
   skimmedPct = next?.skimmedPct ?? 15;
-  showEngagementStatus = next?.showEngagementStatus !== false;
 
   if (!trackEngagement && wasTracking && pendingDelta > 0) {
     // Flush on disable so we don't lose data already accumulated.
     void reportProgress(true);
   }
-  // Notify panel in case showEngagementStatus changed.
-  document.dispatchEvent(new CustomEvent("tldw-watch-update"));
 });
 
 // ---- three-layer SPA strategy (mirrors sponsorblock.ts) --------------------

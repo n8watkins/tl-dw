@@ -715,20 +715,22 @@ export async function removeBlockedChannel(channelId: string): Promise<void> {
 // name, but it now also threads the channel id (VideoMeta.channelId), so
 // getActiveTags matches channel tags by id OR name — the same belt-and-suspenders
 // every other channel-scoped feature uses (auto-run, blocked). videoId =
-// extractVideoId(url). The widget writes directly; these helpers serve the
-// background (resolve/weave) and the options Tags-library section.
+// extractVideoId(url).
+//
+// OWNERSHIP: the on-page widget (content script, youtube.ts) is the SOLE writer of
+// channel/video ASSIGNMENTS (via its own inline helpers). These storage helpers
+// cover only what runs in the extension realm: getActiveTags (background resolve)
+// and the tag-LIBRARY surface getTags/mutateTags/deleteTagEverywhere (options
+// page). Caveat: the widget's content-script writes and these extension-realm
+// writes use different lock scopes (Web Locks is per-origin), so a tag edited in
+// the options page concurrently with a widget write could race — rare and
+// low-stakes (a single dropped edit), accepted for now.
 
 type TagAssignments = Record<string, string[]>;
 
 export async function getTags(): Promise<Tag[]> {
   const r = await chrome.storage.local.get(TAGS_KEY);
   return (r[TAGS_KEY] as Tag[]) ?? [];
-}
-
-export async function setTags(tags: Tag[]): Promise<void> {
-  await withWriteLock(TAGS_KEY, async () => {
-    await chrome.storage.local.set({ [TAGS_KEY]: tags });
-  });
 }
 
 /** Serialized read-modify-write of the tag library — use this for edits so a
@@ -744,14 +746,6 @@ export async function mutateTags(fn: (tags: Tag[]) => Tag[]): Promise<void> {
 async function readAssignments(key: string): Promise<TagAssignments> {
   const r = await chrome.storage.local.get(key);
   return (r[key] as TagAssignments) ?? {};
-}
-
-export async function getChannelTagIds(channelKey: string): Promise<string[]> {
-  return (await readAssignments(CHANNEL_TAGS_KEY))[channelKey] ?? [];
-}
-
-export async function getVideoTagIds(videoId: string): Promise<string[]> {
-  return (await readAssignments(VIDEO_TAGS_KEY))[videoId] ?? [];
 }
 
 /**
@@ -776,53 +770,6 @@ export async function getActiveTags(args: {
     ...(args.videoId ? videoMap[args.videoId] ?? [] : []),
   ]);
   return library.filter((t) => ids.has(t.id));
-}
-
-async function mutateAssignment(
-  key: string,
-  bucket: string,
-  fn: (ids: string[]) => string[],
-): Promise<void> {
-  await withWriteLock(key, async () => {
-    const map = await readAssignments(key);
-    const next = fn(map[bucket] ?? []);
-    if (next.length) map[bucket] = next;
-    else delete map[bucket];
-    await chrome.storage.local.set({ [key]: map });
-  });
-}
-
-export async function addChannelTag(channelKey: string, tagId: string): Promise<void> {
-  await mutateAssignment(CHANNEL_TAGS_KEY, channelKey, (ids) =>
-    ids.includes(tagId) ? ids : [...ids, tagId],
-  );
-}
-
-export async function removeChannelTag(channelKey: string, tagId: string): Promise<void> {
-  await mutateAssignment(CHANNEL_TAGS_KEY, channelKey, (ids) => ids.filter((id) => id !== tagId));
-}
-
-export async function addVideoTag(videoId: string, tagId: string): Promise<void> {
-  await mutateAssignment(VIDEO_TAGS_KEY, videoId, (ids) =>
-    ids.includes(tagId) ? ids : [...ids, tagId],
-  );
-}
-
-export async function removeVideoTag(videoId: string, tagId: string): Promise<void> {
-  await mutateAssignment(VIDEO_TAGS_KEY, videoId, (ids) => ids.filter((id) => id !== tagId));
-}
-
-/** "Apply to all future videos of this channel": move a tag from the video's
- *  one-off list into the channel's auto-apply list. Add to the channel FIRST,
- *  then remove from the video — so a mid-operation failure leaves the tag in BOTH
- *  buckets (getActiveTags dedups) rather than neither. */
-export async function promoteVideoTagToChannel(
-  videoId: string,
-  channelKey: string,
-  tagId: string,
-): Promise<void> {
-  await addChannelTag(channelKey, tagId);
-  await removeVideoTag(videoId, tagId);
 }
 
 /** Delete a tag from the library AND strip its id from every channel/video
