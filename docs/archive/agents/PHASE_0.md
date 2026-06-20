@@ -1,5 +1,9 @@
 # Phase 0 — Shared contracts (do this FIRST, before Agent A or B start)
 
+> **📦 ARCHIVED — completed & merged (`3fc36a2`), kept for history.** The imperative
+> "do this FIRST" framing is historical; the Tag type + tag storage keys it lands
+> already exist on `master`. Live status: [`STATUS.md`](../../../STATUS.md).
+
 **Why this exists.** Agent A and Agent B work in parallel on separate worktrees
 with **disjoint file ownership** so they never conflict. The only files both
 streams depend on are `src/types/index.ts` and `src/lib/constants.ts`. Phase 0

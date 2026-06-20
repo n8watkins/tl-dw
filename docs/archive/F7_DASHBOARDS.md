@@ -1,5 +1,12 @@
 # F7 — Weekly / Monthly / Yearly Dashboards + Paid Analytics
 
+> **📦 ARCHIVED — Phase 1 shipped, kept for history.** Phase 1 was implemented and
+> merged in PR #2 as `src/lib/dashboards.ts` (not the `statsRollup.ts` this doc
+> proposes) with a `WindowKind`/`compareWindows` API and 14 passing tests. The live
+> status doc is [`STATUS.md`](../../STATUS.md). The still-open part is **Phase 2 —
+> paid / hosted analytics** (the canonical reasoning is in
+> [`F7_PHASE1_PLAN.md`](F7_PHASE1_PLAN.md) §0). Line-number citations below are stale.
+
 _Planning doc. Status: PARKED (deferred from the 2026-06-19 sprint). This expands F7 from the one-paragraph backlog stub into a concrete, phased plan._
 
 > **⚠️ Superseded on monetization.** This doc's lean toward "the analytics are the

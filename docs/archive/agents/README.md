@@ -1,5 +1,11 @@
 # Agent briefs — parallel feature sprint
 
+> **📦 ARCHIVED — sprint complete, kept for history.** This sprint was executed and
+> merged (Phase 0 = `3fc36a2`; Agent A = `cf86bf0`; Agent B = `71d7a56`; integrated
+> via PR #1). The "F7 parked" note below is also out of date — F7 Phase 1 later
+> shipped via PR #2. These are spent task briefs, not live instructions. The live
+> status doc is [`STATUS.md`](../../../STATUS.md).
+
 Self-contained execution briefs for running the [FEATURES.md](../FEATURES.md)
 sprint as **two parallel agents on separate git worktrees** with disjoint file
 ownership (zero merge conflicts by construction).

@@ -1,5 +1,11 @@
 # TL;DW — Code Review & Next Steps
 
+> **📦 ARCHIVED — historical snapshot (v0.1.47), kept for history.** The product is
+> now v0.1.156; the live status doc is [`STATUS.md`](../../STATUS.md). The "Tests"
+> section below is stale (it cites a removed `moments.test.ts` / `deriveMoments` and
+> "34 cases"; the real suite is 101 tests across 7 files). The "Declined" decisions
+> are preserved in [`PLAN.md`](../../PLAN.md) §5.
+
 _Originally reviewed 2026-06-06 after shipping the destination system, NotebookLM
 automation, auto-pause, the worth-watching verdict gate, and open-search/history in
 the popup. Last updated 2026-06-06 (v0.1.47)._

@@ -1,7 +1,7 @@
 # TL;DW Extension — Status
 
 **Version:** 0.1.156
-**Last updated:** 2026-06-19
+**Last updated:** 2026-06-20
 
 ---
 
@@ -38,7 +38,11 @@
 ### 5. Stats dashboard (neon)
 - Lifetime counters (`tldwStats`, never pruned): summaries, cache hits, watch time,
   sponsor skips + seconds saved, Engaged/Skimmed/Skipped totals.
-- Activity heatmap from daily summary counts (most recent 366 days).
+- Activity heatmap (last 12 weeks / 84 days) from daily summary counts; the daily
+  activity map is retained for up to 366 days in storage.
+- **Week/month/year/all-time dashboards** (`src/lib/dashboards.ts`, F7 Phase 1,
+  merged in PR #2): a window toggle on the Stats page with vs-previous-window delta
+  chips, finish-rate donut, time-given-back, and a block-nudge card.
 
 ### 6. Channel tracking + comparison
 - `channel` and `channelAvatarUrl` stored on every `SearchHistoryEntry`.
@@ -90,8 +94,8 @@ Locks, `src/lib/storage.ts`), SPA nav-epoch / videoId staleness (stale summaries
 and panels for the video you left), Direct-API parser robustness (bold labels,
 truncation, multi-block, value mangling), the dead AI RATING cue (revived),
 transcript prompt-injection (fenced), watch-time double-count + seek-counting,
-and assorted React state bugs. Gated by typecheck + 79 unit tests + production
-build. Forward-looking work is now tracked in `FEATURES.md`.
+and assorted React state bugs. Gated by typecheck + 101 unit tests + production
+build.
 
 ## Architecture notes
 
@@ -99,16 +103,17 @@ build. Forward-looking work is now tracked in `FEATURES.md`.
 |---|---|
 | Types | `src/types/index.ts` |
 | Background orchestrator | `src/background/index.ts` |
-| YouTube content script (1.9k LOC) | `src/content/youtube.ts` |
+| YouTube content script (~2.7k LOC) | `src/content/youtube.ts` |
 | MAIN-world fetch interceptor | `src/content/youtube-intercept.ts` |
 | Watch-time engine | `src/content/watchtime.ts` |
 | SponsorBlock | `src/content/sponsorblock.ts` |
 | Destination auto-fill | `src/content/inject.ts` |
-| Library helpers | `src/lib/` (history, storage, profiles, engagement, stats, promptBuilder) |
+| Library helpers | `src/lib/` (history, storage, profiles, engagement, promptBuilder, tldw, dashboards, constants) |
 | Options UI | `src/options/sections/` |
 
-Tests: 79 Vitest cases over the pure helpers (engagement, promptBuilder, profiles,
-history, stats, tldw). DOM/content-script and React UI remain untested.
+Tests: 101 Vitest cases over the pure helpers (engagement 21, stats 18, dashboards 14,
+history 13, promptBuilder 13, tldw 12, profiles 10 — the stats suite imports its
+helpers from `storage.ts`). DOM/content-script and React UI remain untested.
 
 See `LESSONS_LEARNED.md` for the hard-won Chrome-extension patterns this project
 established.
@@ -127,11 +132,12 @@ established.
 
 1. Avatar URL de-duplication / refresh strategy.
 2. Popup channel context card.
-3. Chrome Web Store prep (privacy policy, store listing, manifest audit).
-4. Consider splitting `youtube.ts` (~2k LOC) into panel / nav-mount / scrape modules.
+3. Chrome Web Store prep (LICENSE, privacy policy, store listing, manifest audit).
+4. Consider splitting `youtube.ts` (~2.7k LOC) into panel / nav-mount / scrape modules.
 
-Forward-looking feature work — widget UX polish, tags, week/month/year stat
-rollups, the paid-analytics question — now lives in `FEATURES.md`, broken into a
-parallel 2-agent / worktree plan: `agents/PHASE_0.md` (shared types/keys),
-`agents/AGENT_A.md` (data/prompt layer), `agents/AGENT_B.md` (widget UI in
-`youtube.ts`, which subsumes the split above).
+The F1–F8 feature sprint (overflow menu, channel-average cue, persisted watch
+tracking, fill-hover, prose tightening, tags, regenerate) and F7 Phase 1
+(week/month/year dashboards) have all shipped and merged; their plans are archived
+under `docs/archive/`. The one genuinely open bet is **F7 Phase 2 — paid / hosted
+analytics**, still undecided (see `docs/archive/F7_PHASE1_PLAN.md` §0 for the
+"don't charge for local data" reasoning).

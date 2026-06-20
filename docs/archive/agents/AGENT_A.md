@@ -1,5 +1,11 @@
 # Agent A — Data / Prompt stream
 
+> **📦 ARCHIVED — work merged (`cf86bf0`, via PR #1), kept for history.** This is a
+> completed brief, not live work. The "F7 dashboards is PARKED — do NOT build it"
+> instruction is now false (F7 Phase 1 shipped in PR #2), and some symbol names /
+> line numbers below drifted from the shipped code. Live status:
+> [`STATUS.md`](../../../STATUS.md).
+
 > **You are Agent A.** You own the data + prompt layer. Work on your own git
 > worktree on branch `feat/data-prompt`. Do **NOT** edit `src/content/youtube.ts`
 > — that's Agent B's file and editing it will cause a merge conflict. Phase 0

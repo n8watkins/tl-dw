@@ -1,5 +1,11 @@
 # Agent B — Widget UI stream
 
+> **📦 ARCHIVED — work merged (`7d7127b` / `71d7a56`, via PR #1), kept for history.**
+> This is a completed brief, not live work. The "read first" code map below cites two
+> functions that don't exist (`actionPill`, `renderEngagementCue`) and stale line
+> numbers — trust the source, not this map. Live status:
+> [`STATUS.md`](../../../STATUS.md).
+
 > **You are Agent B.** You own the on-page widget. You edit **exactly one source
 > file: `src/content/youtube.ts`** (plus this brief / docs if needed). Do **NOT**
 > edit any other `src/` file — the data layer is Agent A's, and editing shared

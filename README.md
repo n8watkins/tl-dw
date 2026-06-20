@@ -44,6 +44,9 @@ your time before you spend it.
 
 ## Local Setup
 
+Requires Node 18+ (the Vite toolchain and the ESM `.mjs` build scripts assume a
+modern Node).
+
 Install dependencies:
 
 ```bash
@@ -77,9 +80,10 @@ npm run build
 ```
 
 The version bumps on every build so the number in the popup always changes — a
-quick way to confirm a reload actually picked up the new build. If the build or
-Windows copy step fails, the package version files are restored to their previous
-contents.
+quick way to confirm a reload actually picked up the new build. If the build fails
+before `vite build` finishes, the version bump is rolled back; if the build
+succeeds but the Windows copy step fails, the bumped version is kept so
+`package.json` stays in sync with `dist/`.
 
 After a successful build, open `chrome://extensions` and click Reload on the
 unpacked TL;DW extension so Chrome picks up the copied files. The popup's version
@@ -94,18 +98,27 @@ number should match the latest build.
 5. Confirm or adjust the shortcut at `chrome://extensions/shortcuts`
    (default `Alt+Shift+G`).
 
+## Documentation
+
+- [`STATUS.md`](STATUS.md) — the live status: what's built, known bugs,
+  architecture map, and next steps.
+- [`PLAN.md`](PLAN.md) — the product thesis and how the core inject-and-submit
+  motion works.
+- [`LESSONS_LEARNED.md`](LESSONS_LEARNED.md) — hard-won MV3 / YouTube-SPA patterns,
+  each anchored to the code where it bites.
+- [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) — the manual in-Chrome smoke-test
+  checklist.
+- [`docs/archive/`](docs/archive/) — completed planning / sprint docs, kept for
+  history (the F1–F8 feature sprint, the F7 dashboards plans, the 2-agent worktree
+  briefs).
+
 ## Contributing
 
-The forward-looking feature backlog lives in [`FEATURES.md`](FEATURES.md) (the
-live status doc remains [`STATUS.md`](STATUS.md)). Larger feature work is split
-across two parallel streams using git worktrees with disjoint file ownership so
-they never conflict:
-
-- [`agents/PHASE_0.md`](agents/PHASE_0.md) — shared types/keys to land on `master`
-  first, before the streams branch off.
-- [`agents/AGENT_A.md`](agents/AGENT_A.md) — data/prompt layer (storage,
-  prompt builder, profiles, background, options sections).
-- [`agents/AGENT_B.md`](agents/AGENT_B.md) — widget UI in `src/content/youtube.ts`.
+[`STATUS.md`](STATUS.md) is the live status doc. Feature work lands on short-lived
+`feat/*` branches via PR. Larger efforts have used a two-parallel-agent worktree
+split (data/prompt layer vs the `src/content/youtube.ts` widget); those completed
+sprint briefs are archived under [`docs/archive/`](docs/archive/).
 
 Whatever you touch, gate every change with `npm run typecheck` and `npm test`
-(currently 79 passing unit tests) before committing.
+(currently 101 passing unit tests) and run through
+[`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) before committing.

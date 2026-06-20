@@ -1,5 +1,11 @@
 # F7 Phase 1 — Free Local Dashboards: the plan + "what would we actually charge for?"
 
+> **📦 ARCHIVED — Phase 1 IMPLEMENTED & MERGED (PR #2, 2026-06-20), kept for history.**
+> The "Nothing built yet" note below is obsolete — `src/lib/dashboards.ts`, its 14
+> tests, and the Stats-page window toggle all shipped. The live status doc is
+> [`STATUS.md`](../../STATUS.md). This doc is retained as the **monetization decision
+> record** (§0 "don't charge for local data") and for the still-open Phase 2 bet.
+
 _Plan for review (2026-06-20). Nothing built yet. Supersedes the monetization
 framing in [`F7_DASHBOARDS.md`](F7_DASHBOARDS.md) §1/§3a._
 

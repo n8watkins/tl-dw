@@ -1,5 +1,11 @@
 # TL;DW — Feature Backlog & Implementation Plan
 
+> **📦 ARCHIVED — fully delivered, kept for history.** Every item below shipped:
+> F1–F6/F8 merged in PR #1 and F7 Phase 1 (week/month/year dashboards) merged in
+> PR #2. The live status doc is [`STATUS.md`](../../STATUS.md). Line numbers, test
+> counts (this doc says "79"; the suite is now 101), and the "F7 PARKED" framing
+> below reflect authoring time, not current code.
+
 _Created 2026-06-19. Captures the feature requests from the planning session plus a
 parallelized (2-agent / worktree) implementation plan. Live status doc remains
 `STATUS.md`; this is the forward-looking backlog._

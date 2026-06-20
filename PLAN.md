@@ -6,9 +6,10 @@
 >
 > **Core promise:** It saves the *search*, not the *answer*. That keeps the extension simple, private, fast, and buildable.
 
-> _Refreshed 2026-06-06 to match the shipped product. The original plan was Gemini-only;
-> TL;DW now sends to several destinations and extracts the transcript. History below
-> is preserved where still accurate._
+> _Refreshed 2026-06-20 to match the shipped product. The original plan was Gemini-only;
+> TL;DW now sends to several destinations, extracts the transcript, calls Gemini
+> directly (headless on-page summaries), skips sponsors, and tracks engagement +
+> stats. History below is preserved where still accurate._
 
 ---
 
@@ -105,6 +106,27 @@ For destinations that can't watch the video, TL;DW extracts the transcript by in
 - [x] History hygiene — store a transcript-free prompt, opt-out auto-expiry
   (7/30/90/365 days), history settings live on the History page
 
+### Shipped — Direct API, sponsors, stats & tags era
+
+- [x] **Direct API mode** — headless Gemini REST call on navigation, verdict +
+  summary rendered in an on-page widget, no destination tab opened; daily quota
+  bar (~500 RPD free tier) and a metadata-only-by-default call log
+  (`DirectApiSection.tsx`, `background/index.ts`)
+- [x] **SponsorBlock auto-skip** — skip in-video sponsor segments from the free
+  community data, with inline timestamps + Undo and lifetime seconds-saved
+  (`content/sponsorblock.ts`, `sponsor.ajay.app`)
+- [x] **Engagement tracking** — watch-time engine auto-rates each video
+  Engaged / Skimmed / Skipped and rolls up per-channel averages
+  (`content/watchtime.ts`, `lib/engagement.ts`)
+- [x] **Stats dashboard** — lifetime counters, activity heatmap, and
+  week/month/year/all-time windowed rollups with delta chips (F7 Phase 1,
+  `lib/dashboards.ts`, `StatsSection.tsx`)
+- [x] **Channels + per-channel tags** — channel cards, block / auto-run lists,
+  and a tags layer (channel ∪ video tags) surfaced on the widget and the
+  options Tags page (`ChannelsSection.tsx`, `TagsSection.tsx`, `lib/storage.ts`)
+- [x] Widget polish — overflow (kebab) menu, channel-average cue, fill-on-hover
+  pills, force-rerun Regenerate (`content/youtube.ts`)
+
 ### Declined
 
 - Reuse an open destination tab instead of opening a new one
@@ -112,13 +134,15 @@ For destinations that can't watch the video, TL;DW extracts the transcript by in
 
 ### Next — the real depth
 
-The current forward-looking backlog (overflow menu, engagement-cue redesign,
-watch-% persistence, prose tightening, per-channel tags, time-windowed dashboards)
-and the parallelized 2-agent / worktree implementation plan now live in
-**[FEATURES.md](FEATURES.md)** (with `agents/PHASE_0.md`, `agents/AGENT_A.md`,
-`agents/AGENT_B.md`). The seek-links / key-moments line items that used to sit here
-were cut — that feature was removed and `SEEK_LINKS.md` deleted (see commit
-600e7e4) — and the two follow-ups below have since shipped:
+The F1–F8 feature sprint (overflow menu, engagement-cue redesign, watch-%
+persistence, prose tightening, per-channel tags) and F7 Phase 1 (time-windowed
+dashboards) shipped via PRs #1 and #2; the original backlog and the parallelized
+2-agent / worktree plan are archived under
+**[docs/archive/](docs/archive/)**. The one genuinely open bet is **F7 Phase 2 —
+paid / hosted analytics** (see `docs/archive/F7_PHASE1_PLAN.md` §0). The
+seek-links / key-moments line items that used to sit here were cut — that feature
+was removed and `SEEK_LINKS.md` deleted (see commit 600e7e4) — and the two
+follow-ups below have since shipped:
 
 - [x] Import / export profiles as JSON (validation, name-conflict "Copy") —
   `options/sections/ProfilesSection.tsx`
@@ -135,7 +159,7 @@ Current (`manifest.config.ts`):
 - `tabs` — open destinations + read the active tab URL
 - `contextMenus` — the right-click entry
 - `clipboardWrite` — the auto-fill-failed clipboard fallback (runs without a user gesture, so the permission is required)
-- host permissions for `youtube.com` and each destination site (the injection content scripts)
+- host permissions for `youtube.com` (incl. `m.youtube.com`) and each destination site (the injection content scripts), plus `generativelanguage.googleapis.com` (the Direct API Gemini REST call) and `sponsor.ajay.app` (SponsorBlock segment lookups)
 
 `commands` is declared via the manifest `commands` key (the shortcut), not a permission.
 
