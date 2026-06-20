@@ -159,6 +159,30 @@ to future videos and measurably change those summaries. Persists across reloads.
   fragments), `src/options/` (Tags library management).
 **Storage (Phase 0):** `TAGS_KEY: Tag[]`, `CHANNEL_TAGS_KEY: Record<channelKey,
 string[]>`, `VIDEO_TAGS_KEY: Record<videoId, string[]>`.
+**Edit-tags link.** The Tags row includes an **"Edit tags →"** link that
+deep-links to the options **Tags** section (via the existing `OPEN_OPTIONS`
+message with `section: "tags"`), where the user edits each tag's prompt fragment.
+Editing a tag's `prompt` changes what future summaries produce (e.g. citations).
+
+### F8 — Regenerate / refresh button (re-run the summary fresh)
+**What.** There's no way to re-run a summary today (only "Clear cache" indirectly).
+Add an explicit **"↻ Regenerate"** button that force-re-runs the summary for the
+current video, **bypassing the cache** — the primary use is "I just added a tag,
+re-summarize with it". A fresh run is a real Gemini call, so it **increments the
+usage counter** (already automatic on a real Direct-API call) — surface the count
+if shown.
+**✅ DECIDED — tie-in with tags.** After a regenerate that used **video-only**
+tags, offer a "**Save these tags for future videos of this channel?**" action (=
+the F6 promote: move the video tag ids into the channel). This is the natural
+"try a tag on one video, then keep it for the channel" loop.
+**AC.** Clicking "↻ Regenerate" drops this video's cached summary and re-runs
+(shows the loading state, then the new summary). It counts as a Gemini request
+(usage increments). If video-only tags were active, a "save for this channel"
+affordance appears after the new summary lands. No duplicate ASK / double count.
+**Touchpoints.** `src/content/youtube.ts` (Agent B) — clear this video's cache
+entry then re-run (the existing `clearBtn` already does cache-drop + re-run; F8 is
+an explicit, tag-aware version). Usage increment is automatic in
+`background/index.ts` on the real call — no Agent A change required.
 
 ---
 
@@ -213,8 +237,8 @@ worktrees branch from this commit; Phase 1 only *reads* these.
 ### Phase 1 — Two parallel worktrees
 | Stream | Owner files | Features |
 |---|---|---|
-| **A — Data / Prompt** | `watchtime.ts`, `storage.ts`, `promptBuilder.ts`, `profiles.ts`, `background/index.ts`, `options/sections/*`, tests | F3 (persist tracking), F5 (prose), F6-data (tags storage + channel/video resolve + prompt weaving + options mgmt) |
-| **B — Widget UI** | `content/youtube.ts` **only** | F1 (⋯ menu), F2 (average-only cue), F4 (fill hover), F6-UI (bottom Tags row: show/add/remove/promote) |
+| **A — Data / Prompt** | `watchtime.ts`, `storage.ts`, `promptBuilder.ts`, `profiles.ts`, `background/index.ts`, `options/sections/*`, tests | F3 (persist tracking), F5 (prose), F6-data (tags storage + channel/video resolve + prompt weaving + options **Tags** section reachable at `section:"tags"`) |
+| **B — Widget UI** | `content/youtube.ts` **only** | F1 (⋯ menu), F2 (average-only cue), F4 (fill hover), F6-UI (bottom Tags row: show/add/remove/promote + "Edit tags →" link), F8 (↻ Regenerate) |
 
 _F7 (dashboards) is PARKED — not in this sprint._
 
@@ -267,8 +291,13 @@ Engagement cue: show the channel average (channelStats.avgUserRating via
                 userAvgToLabel) if history exists, else nothing. The live "%
                 watched" is NOT displayed (background-only).
 Tags row:       a "Tags:" row at the bottom of the loaded summary shows active
-                channel+video tags as chips, with add (channel/video), remove, and
-                promote controls. Nothing is auto-added.
+                channel+video tags as chips, with add (channel/video), remove,
+                promote controls, and an "Edit tags →" link. Nothing is auto-added.
+Edit-tags link: OPEN_OPTIONS message with section:"tags" → Agent A renders an
+                options Tags section at that section id (deep-link).
+Regenerate:     F8 "↻ Regenerate" drops this video's cache entry then re-runs
+                (re-ASK) — a real Gemini call (usage increments). After a regen
+                that used video-only tags, offer "save for this channel" (promote).
 ```
 
 ---

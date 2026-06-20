@@ -8,7 +8,7 @@ ownership (zero merge conflicts by construction).
 |---|---|---|---|
 | [PHASE_0.md](PHASE_0.md) | Prerequisite (run first, on `master`) | `types/index.ts`, `constants.ts` (shared contracts) | `Tag` type + tag storage keys (channel + video) |
 | [AGENT_A.md](AGENT_A.md) | Data / Prompt | `watchtime.ts`, `storage.ts`, `promptBuilder.ts`, `profiles.ts`, `background/`, `options/` | F3 persist tracking, F5 prose, F6-data tags (channel+video weaving + library) |
-| [AGENT_B.md](AGENT_B.md) | Widget UI | `content/youtube.ts` **only** | F1 ⋯ menu, F2 average-only cue, F4 fill hover, F6-UI bottom Tags row |
+| [AGENT_B.md](AGENT_B.md) | Widget UI | `content/youtube.ts` **only** | F1 ⋯ menu, F2 average-only cue, F4 fill hover, F6-UI bottom Tags row + "Edit tags →", F8 ↻ Regenerate |
 
 > F7 (dashboards/paid) is **parked** — not in this sprint.
 

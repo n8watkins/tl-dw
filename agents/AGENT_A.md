@@ -95,7 +95,10 @@ library management.)
 3. `promptBuilder.ts`: a helper to append tag fragments (testable), e.g.
    `appendTags(prompt, tags)`. Add a test.
 4. `options/sections/`: a small **Tags** library section (create / edit / delete
-   the `Tag` definitions). Wire it into the options nav.
+   the `Tag` definitions — each tag's `label` + `prompt`). Wire it into the
+   options nav AND make it reachable at the section id **`"tags"`** (the options
+   app routes `OPEN_OPTIONS { section }` via the URL hash), because Agent B's
+   widget "Edit tags →" link deep-links to `section: "tags"`.
 **AC.** A channel tag measurably changes that channel's summaries and re-applies
 to every video; a video tag affects only that video; the prompt weaves channel ∪
 video tags on both paths; the options Tags section CRUDs the library. **Seam with

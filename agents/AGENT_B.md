@@ -104,17 +104,37 @@ write the assignments.)
    `autoRunChannels`). Use the SAME channel key the file derives
    (`currentChannelInfo.id` / name) and `currentVideoId()` so Agent A's background
    lookup matches.
+4. Add an **"Edit tags →"** link in the row that opens the options Tags section:
+   `chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "tags" })` (the
+   handler already exists; Agent A renders the `"tags"` section).
 **AC.** On a loaded summary you can see active channel+video tags; add a tag for
 the channel or just this video; remove one; promote a video tag to the channel
-("apply to all future"). Persists; (once Agent A's weaving merges) channel tags
-shape future summaries from that channel. Light/dark-correct, idempotent, closes
-cleanly. **Seam:** use the EXACT storage shapes from `agents/PHASE_0.md` — Agent A
-reads them verbatim.
+("apply to all future"); jump to options to edit a tag's prompt. Persists; (once
+Agent A's weaving merges) channel tags shape future summaries from that channel.
+Light/dark-correct, idempotent, closes cleanly. **Seam:** use the EXACT storage
+shapes from `agents/PHASE_0.md` — Agent A reads them verbatim.
+
+### F8 — Regenerate / refresh button
+**Problem.** There's no explicit way to re-run a summary (only the indirect "Clear
+cache"). After adding a tag, the user wants to re-summarize with it.
+**Do.** Add a **"↻ Regenerate"** action (in the "⋯" menu and/or near the Tags row)
+that **force re-runs** the current video's summary: drop this video's cache entry
+(`tldwSummaryCache[vid]`) then re-run — reuse the existing `clearBtn` mechanism
+(it already does cache-drop + `maybeStartDirectApiRun`). The fresh run is a real
+Gemini call so the usage counter increments automatically (no Agent A change).
+**Tag tie-in:** if **video-only** tags were active for this regen, after the new
+summary lands show a **"Save these tags for future videos of this channel?"**
+affordance that promotes them (move the ids from `VIDEO_TAGS_KEY[vid]` into
+`CHANNEL_TAGS_KEY[channelKey]`).
+**AC.** Clicking "↻ Regenerate" shows the loading state then a fresh summary; it
+counts as a Gemini request. No double-ASK / double count (respect the
+`autoAskedVid` / cache-skip flow already in the file). The "save for this channel"
+prompt appears only when video-only tags were in play.
 
 ---
 
 ## Definition of done (Agent B)
-- All four features meet their AC, all inside `youtube.ts`.
+- All five features (F1, F2, F4, F6-UI, F8) meet their AC, all inside `youtube.ts`.
 - `npx tsc --noEmit` clean, `npx vitest run` green, `npx vite build` succeeds, and
   a manual check in Chrome (load unpacked, open a watch page) looks right.
 - You did NOT edit any `src/` file other than `youtube.ts`.
