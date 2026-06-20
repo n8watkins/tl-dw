@@ -548,11 +548,25 @@ let navEpoch = 0;
 
 
 // --- tags: library + per-channel / per-video assignments (direct storage) ----
-// Same bare get→modify→set pattern as writeAutoRunChannel: tag writes are rare,
-// user-driven, and single-tab, so they don't need the worker's write lock. The
-// storage SHAPES are the Phase 0 contract Agent A reads verbatim for weaving.
+// chrome.storage has no atomic read-modify-write (LESSONS_LEARNED #13). Every tag
+// write here is funnelled through serializeTagWrite, an in-realm promise chain, so
+// two rapid clicks in this tab can't clobber each other's get→modify→set. Content
+// scripts run in the page origin — a separate lock scope from the worker — so this
+// chain is the available serializer (the worker/options coordinate via the storage
+// withWriteLock on the same keys). The storage SHAPES are the Phase 0 contract
+// Agent A reads verbatim for weaving.
 
 type TagMap = Record<string, string[]>;
+
+// Serialize tag writes within this tab: each runs after the previous one settles
+// (resolve OR reject, so one failure doesn't wedge the queue), still returning the
+// real result so callers see errors.
+let tagWriteChain: Promise<unknown> = Promise.resolve();
+function serializeTagWrite<T>(fn: () => Promise<T>): Promise<T> {
+  const run = tagWriteChain.then(fn, fn);
+  tagWriteChain = run.then(() => undefined, () => undefined);
+  return run;
+}
 
 /** The key a channel's tags live under — the SAME id auto-run/blocked lookups
  *  use (getChannelInfo().id, falling back to the display name) so Agent A's
@@ -577,47 +591,55 @@ async function readVideoTagMap(): Promise<TagMap> {
 }
 
 /** Append a tag id to one map entry (deduped) and persist. */
-async function addTagAssignment(mapKey: string, key: string, tagId: string): Promise<void> {
-  const r = await chrome.storage.local.get(mapKey);
-  const map = (r[mapKey] as TagMap) ?? {};
-  const ids = map[key] ?? [];
-  if (!ids.includes(tagId)) map[key] = [...ids, tagId];
-  await chrome.storage.local.set({ [mapKey]: map });
+function addTagAssignment(mapKey: string, key: string, tagId: string): Promise<void> {
+  return serializeTagWrite(async () => {
+    const r = await chrome.storage.local.get(mapKey);
+    const map = (r[mapKey] as TagMap) ?? {};
+    const ids = map[key] ?? [];
+    if (!ids.includes(tagId)) map[key] = [...ids, tagId];
+    await chrome.storage.local.set({ [mapKey]: map });
+  });
 }
 
 /** Remove a tag id from one map entry and persist (drop the entry if empty). */
-async function removeTagAssignment(mapKey: string, key: string, tagId: string): Promise<void> {
-  const r = await chrome.storage.local.get(mapKey);
-  const map = (r[mapKey] as TagMap) ?? {};
-  const ids = (map[key] ?? []).filter((id) => id !== tagId);
-  if (ids.length) map[key] = ids;
-  else delete map[key];
-  await chrome.storage.local.set({ [mapKey]: map });
+function removeTagAssignment(mapKey: string, key: string, tagId: string): Promise<void> {
+  return serializeTagWrite(async () => {
+    const r = await chrome.storage.local.get(mapKey);
+    const map = (r[mapKey] as TagMap) ?? {};
+    const ids = (map[key] ?? []).filter((id) => id !== tagId);
+    if (ids.length) map[key] = ids;
+    else delete map[key];
+    await chrome.storage.local.set({ [mapKey]: map });
+  });
 }
 
 /** Create a tag in the library and return it (no assignment yet). */
-async function createLibraryTag(label: string, prompt: string): Promise<Tag> {
-  const lib = await readTagLibrary();
-  const id =
-    typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `tag-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const tag: Tag = { id, label, prompt };
-  await chrome.storage.local.set({ [TAGS_KEY]: [...lib, tag] });
-  return tag;
+function createLibraryTag(label: string, prompt: string): Promise<Tag> {
+  return serializeTagWrite(async () => {
+    const lib = await readTagLibrary();
+    const id =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `tag-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tag: Tag = { id, label, prompt };
+    await chrome.storage.local.set({ [TAGS_KEY]: [...lib, tag] });
+    return tag;
+  });
 }
 
 /** "Apply to all future videos of this channel": move ids from VIDEO_TAGS_KEY[vid]
  *  into CHANNEL_TAGS_KEY[channelKey], deduping against what's already there. */
-async function promoteVideoTags(vid: string, channelKey: string, tagIds: string[]): Promise<void> {
-  const [chMap, vidMap] = await Promise.all([readChannelTagMap(), readVideoTagMap()]);
-  const merged = [...(chMap[channelKey] ?? [])];
-  for (const id of tagIds) if (!merged.includes(id)) merged.push(id);
-  chMap[channelKey] = merged;
-  const remaining = (vidMap[vid] ?? []).filter((id) => !tagIds.includes(id));
-  if (remaining.length) vidMap[vid] = remaining;
-  else delete vidMap[vid];
-  await chrome.storage.local.set({ [CHANNEL_TAGS_KEY]: chMap, [VIDEO_TAGS_KEY]: vidMap });
+function promoteVideoTags(vid: string, channelKey: string, tagIds: string[]): Promise<void> {
+  return serializeTagWrite(async () => {
+    const [chMap, vidMap] = await Promise.all([readChannelTagMap(), readVideoTagMap()]);
+    const merged = [...(chMap[channelKey] ?? [])];
+    for (const id of tagIds) if (!merged.includes(id)) merged.push(id);
+    chMap[channelKey] = merged;
+    const remaining = (vidMap[vid] ?? []).filter((id) => !tagIds.includes(id));
+    if (remaining.length) vidMap[vid] = remaining;
+    else delete vidMap[vid];
+    await chrome.storage.local.set({ [CHANNEL_TAGS_KEY]: chMap, [VIDEO_TAGS_KEY]: vidMap });
+  });
 }
 
 
@@ -792,6 +814,7 @@ function buildPopoverMenu(
   wrap.append(trigger, panel);
 
   let isOpen = false;
+  let armTimer: number | undefined;
   const onDocClick = (e: MouseEvent) => { if (!wrap.contains(e.target as Node)) close(); };
   const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
 
@@ -800,8 +823,12 @@ function buildPopoverMenu(
     isOpen = true;
     panel.style.display = "flex";
     // Defer registering the outside-click listener so the click that OPENED the
-    // popover doesn't immediately close it.
-    setTimeout(() => {
+    // popover doesn't immediately close it. Track the timer so close() can cancel
+    // it — otherwise a teardown (e.g. SPA nav) between open() and the timer firing
+    // would register document listeners that nothing ever removes.
+    armTimer = window.setTimeout(() => {
+      armTimer = undefined;
+      if (!isOpen) return;
       document.addEventListener("click", onDocClick, true);
       document.addEventListener("keydown", onKey, true);
     }, 0);
@@ -810,6 +837,7 @@ function buildPopoverMenu(
     if (!isOpen) return;
     isOpen = false;
     panel.style.display = "none";
+    if (armTimer !== undefined) { clearTimeout(armTimer); armTimer = undefined; }
     document.removeEventListener("click", onDocClick, true);
     document.removeEventListener("keydown", onKey, true);
   }
@@ -1377,34 +1405,54 @@ function channelEngagementSentence(avgUserRating: number): string {
 // tags for the whole channel. Cleared on navigation and once the offer is acted on.
 let pendingTagPromptVid: string | null = null;
 
+type RegenOpts = {
+  /** Arm the "save these tags for the channel?" offer for the fresh summary (F8). */
+  promote?: boolean;
+  /** Re-run even on a non-auto channel (Regenerate), vs. just dropping back to the
+   *  configured flow (Clear cache, which lands the idle CTA for manual channels). */
+  forceRun?: boolean;
+};
+
 /**
- * Force a fresh summary for the current video (F8). Reuses the Clear-cache
- * mechanism: drop this video's cache entry, then re-run via maybeStartDirectApiRun
- * (which shows the loading state and, for auto-run channels, fires a real Gemini
- * call so usage counts increment). The cache-skip + autoAskedVid dedup in that
- * flow prevents a double ASK. When `promptPromote` is set and video-only tags are
- * active, marks the video so the next summary offers to save them channel-wide.
+ * Drop this video's cache and re-run (F8 Regenerate / Clear cache). Reuses the
+ * existing flow: clear cache → maybeStartDirectApiRun. For an auto-run channel
+ * that fires a fresh Gemini call automatically; `forceRun` additionally kicks the
+ * run for a manual channel (which would otherwise just land the idle CTA), so
+ * "Regenerate" always re-summarizes. The cache-skip + autoAskedVid dedup keeps it
+ * to a single ASK / single count.
  */
-async function regenerateSummary(vid: string | null, promptPromote = false): Promise<void> {
-  if (promptPromote && vid && currentChannelInfo) {
-    const [chMap, vidMap] = await Promise.all([readChannelTagMap(), readVideoTagMap()]);
-    const channelIds = new Set(chMap[channelTagKey(currentChannelInfo)] ?? []);
-    const videoOnly = (vidMap[vid] ?? []).filter((id) => !channelIds.has(id));
-    pendingTagPromptVid = videoOnly.length ? vid : null;
-  }
+async function regenerateSummary(vid: string | null, opts: RegenOpts = {}): Promise<void> {
+  const { promote = false, forceRun = false } = opts;
+  const startEpoch = navEpoch;
+  // Arm (Regenerate) or clear (Clear cache) the promote offer. The rebuilt
+  // summary's tags row recomputes the actual video-only set and drops the flag if
+  // none remain, so we only need to flag the video here — no extra storage read.
+  pendingTagPromptVid = promote && vid ? vid : null;
+
   const r = await chrome.storage.local.get("tldwSummaryCache");
   const cache = (r["tldwSummaryCache"] as Record<string, unknown>) ?? {};
   if (vid && cache[vid]) {
     delete cache[vid];
     await chrome.storage.local.set({ tldwSummaryCache: cache });
   }
+  // Bail if the user navigated during the awaited storage I/O — otherwise we'd
+  // tear down the freshly-injected panel for the NEW video (LESSONS_LEARNED #9).
+  if (navEpoch !== startEpoch) return;
   // Allow this deliberate re-run to fire a fresh ASK: on an auto-run channel the
   // per-visit dedup already marked this video, which would otherwise swallow the
   // re-run and leave the loading panel spinning. Reset to null so sendAutoAsk can
   // fire exactly once (no double-count — it re-marks the video immediately).
   if (vid && autoAskedVid === vid) autoAskedVid = null;
   removeSummaryPanel();
-  void maybeStartDirectApiRun();
+  await maybeStartDirectApiRun();
+  // maybeStartDirectApiRun re-runs automatically only for auto-summarize channels;
+  // for a manual channel it lands the idle "Get Summary" panel. Regenerate promises
+  // an immediate re-run, so kick the configured run (startApiCall, captured as
+  // currentSummarizeAction) now — but only if we're still on this video and it
+  // actually landed the idle panel (so we don't double-run an auto channel).
+  if (forceRun && currentVideoId() === vid && summaryPanelKind === "idle" && currentSummarizeAction) {
+    void currentSummarizeAction();
+  }
 }
 
 // --- tags row (F6-UI) building blocks ----------------------------------------
@@ -1599,13 +1647,18 @@ function buildTagAddControl(
     background: "#1a73e8", color: "#fff", border: "none", cursor: "pointer",
     fontSize: "13px", fontWeight: "700",
   });
+  let creating = false;
   const submitCreate = () => {
+    if (creating) return; // guard against a double-click creating two library tags
     const label = labelInput.value.trim();
     const prompt = promptInput.value.trim();
     if (!label) labelInput.style.borderColor = "#dc2626";
     if (!prompt) promptInput.style.borderColor = "#dc2626";
     if (!label || !prompt) return;
-    void createLibraryTag(label, prompt).then((tag) => assign(tag.id));
+    creating = true;
+    void createLibraryTag(label, prompt)
+      .then((tag) => assign(tag.id))
+      .finally(() => { creating = false; });
   };
   createBtn.addEventListener("click", (e) => { e.stopPropagation(); submitCreate(); });
   promptInput.addEventListener("keydown", (e) => {
@@ -1733,7 +1786,7 @@ function buildTagsRow(
       });
       regen.addEventListener("mouseenter", () => { regen.style.background = "#1a73e8"; regen.style.color = "#fff"; regen.style.borderColor = "#1a73e8"; });
       regen.addEventListener("mouseleave", () => { regen.style.background = "transparent"; regen.style.color = t.sub; regen.style.borderColor = t.border; });
-      regen.addEventListener("click", (e) => { e.stopPropagation(); void regenerateSummary(vid, true); });
+      regen.addEventListener("click", (e) => { e.stopPropagation(); void regenerateSummary(vid, { promote: true, forceRun: true }); });
       children.push(regen);
     }
 
@@ -1819,7 +1872,7 @@ function buildSummaryPanel(
     label: "🧹 Clear cache",
     title: "Remove this video's cached summary and start fresh",
     danger: true,
-    onClick: () => { void regenerateSummary(vid, false); },
+    onClick: () => { void regenerateSummary(vid, {}); },
   });
 
   // Source / Cached badge as a menu row — honest about origin, pointing where it
