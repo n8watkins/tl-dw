@@ -36,7 +36,7 @@ That single motion *is* the product. Everything else is management UI layered on
 | Destination | Delivery | Content |
 |-------------|----------|---------|
 | **Gemini** | inject + submit | prompt only — Gemini watches the URL itself (`canWatch`) |
-| **ChatGPT / Claude / Perplexity** | inject + submit | prompt **with the transcript appended** (they can't watch the video) |
+| **ChatGPT / Claude** | inject + submit | prompt **with the transcript appended** (they can't watch the video) |
 | **NotebookLM** | inject into the "Websites" source | the YouTube link (`payload: "link"`) |
 
 Adding a destination is a one-line registry entry in `constants.ts` plus, if it auto-fills, a `configForHost` block in `inject.ts`.
@@ -94,7 +94,7 @@ For destinations that can't watch the video, TL;DW extracts the transcript by in
 
 ### Shipped — multi-destination & transcript era
 
-- [x] Multiple destinations (Gemini, ChatGPT, Claude, Perplexity, NotebookLM) with per-session override
+- [x] Multiple destinations (Gemini, ChatGPT, Claude, NotebookLM) with per-session override
 - [x] Transcript extraction (network interception + DOM fallback) appended for non-Gemini chats
 - [x] NotebookLM automation (drive the "Websites" source with the video link)
 - [x] Worth-watching verdict gate for long videos, with a trusted-channel bypass
@@ -104,8 +104,6 @@ For destinations that can't watch the video, TL;DW extracts the transcript by in
 - [x] Per-destination CTA verb ("Add to NotebookLM" vs "Ask ChatGPT")
 - [x] History hygiene — store a transcript-free prompt, opt-out auto-expiry
   (7/30/90/365 days), history settings live on the History page
-- [x] Key-moments panel matured — below the player, horizontal hover-timestamp
-  chips, persisted accordion, click-to-seek-and-play, auto-show-on-summarize
 
 ### Declined
 
@@ -114,13 +112,18 @@ For destinations that can't watch the video, TL;DW extracts the transcript by in
 
 ### Next — the real depth
 
-- [x] **Clickable seek links (v2)** — on-page key-moments panel derived from the
-  timestamped transcript, click-to-seek-and-play (see SEEK_LINKS.md)
-- [ ] **Progress-bar tick markers** on the YouTube scrubber (seek-links phase 4)
-- [ ] **Model-authored key moments** (seek-links phase 5) — current labels are a
-  frequency heuristic; parked pending a BYO-key vs. scrape vs. better-heuristic call
-- [ ] Import / export profiles as JSON (validation, name-conflict "Copy")
-- [ ] Per-search curiosity field in the popup (templates already support `{{userCuriosity}}`)
+The current forward-looking backlog (overflow menu, engagement-cue redesign,
+watch-% persistence, prose tightening, per-channel tags, time-windowed dashboards)
+and the parallelized 2-agent / worktree implementation plan now live in
+**[FEATURES.md](FEATURES.md)** (with `agents/PHASE_0.md`, `agents/AGENT_A.md`,
+`agents/AGENT_B.md`). The seek-links / key-moments line items that used to sit here
+were cut — that feature was removed and `SEEK_LINKS.md` deleted (see commit
+600e7e4) — and the two follow-ups below have since shipped:
+
+- [x] Import / export profiles as JSON (validation, name-conflict "Copy") —
+  `options/sections/ProfilesSection.tsx`
+- [x] Per-search curiosity field in the popup — `popup/App.tsx` wires
+  `userCuriosity` into the prompt
 
 ---
 

@@ -13,8 +13,8 @@ your time before you spend it.
   - **Direct API (recommended)** — calls Google's Gemini API directly with your
     own free key. The verdict and summary appear **right on the YouTube page** in
     an injected widget; no tab ever opens. The free tier covers ~500 videos/day.
-  - **Open in a tab** — opens your chosen AI (Gemini, ChatGPT, Claude,
-    Perplexity, NotebookLM) with the prompt already filled and submitted. TL;DW
+  - **Open in a tab** — opens your chosen AI (Gemini, ChatGPT, Claude, or
+    NotebookLM) with the prompt already filled and submitted. TL;DW
     reads the finished answer back out of the tab and drops the summary onto the
     YouTube page. Falls back to copying the prompt if the composer can't be filled.
 - For AIs that can't watch a video, TL;DW extracts the full transcript (from
@@ -93,3 +93,19 @@ number should match the latest build.
 4. Select `C:\Users\natha\Projects\Tools\tldw`.
 5. Confirm or adjust the shortcut at `chrome://extensions/shortcuts`
    (default `Alt+Shift+G`).
+
+## Contributing
+
+The forward-looking feature backlog lives in [`FEATURES.md`](FEATURES.md) (the
+live status doc remains [`STATUS.md`](STATUS.md)). Larger feature work is split
+across two parallel streams using git worktrees with disjoint file ownership so
+they never conflict:
+
+- [`agents/PHASE_0.md`](agents/PHASE_0.md) — shared types/keys to land on `master`
+  first, before the streams branch off.
+- [`agents/AGENT_A.md`](agents/AGENT_A.md) — data/prompt layer (storage,
+  prompt builder, profiles, background, options sections).
+- [`agents/AGENT_B.md`](agents/AGENT_B.md) — widget UI in `src/content/youtube.ts`.
+
+Whatever you touch, gate every change with `npm run typecheck` and `npm test`
+(currently 79 passing unit tests) before committing.

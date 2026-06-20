@@ -189,6 +189,12 @@ Backend or not? — recommend deciding this separately from the §2 sprint.
 
 ## 4. Parallelized implementation plan (2 agents, worktrees)
 
+> **Execution briefs live in [`agents/`](agents/README.md):** run
+> [`agents/PHASE_0.md`](agents/PHASE_0.md) first, then hand
+> [`agents/AGENT_A.md`](agents/AGENT_A.md) (data/prompt) and
+> [`agents/AGENT_B.md`](agents/AGENT_B.md) (widget UI) to two parallel agents.
+> The summary below is the rationale; the briefs are the step-by-step.
+
 **Constraint that drives the split:** `src/content/youtube.ts` (1.9k LOC) is the
 UI hotspot touched by F1, F2, F4, and F6-UI. Two agents editing it on separate
 worktrees would conflict badly. So we split by **file ownership**, not by feature,

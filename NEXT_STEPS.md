@@ -98,7 +98,9 @@ the popup. Last updated 2026-06-06 (v0.1.47)._
 ## Recommended next
 
 The Key-moments / seek-links roadmap that lived here has been dropped along with the
-feature. Current next steps live in `STATUS.md`.
+feature. Current status lives in `STATUS.md`; the forward-looking feature backlog and
+the parallelized (2-agent / worktree) implementation plan now live in `FEATURES.md`
+(see also `agents/PHASE_0.md`, `agents/AGENT_A.md`, `agents/AGENT_B.md`).
 
 ---
 

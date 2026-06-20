@@ -122,6 +122,36 @@ scrape-and-inject plumbing was independent of it. Keep "can we show UI here" and
 "which backend is configured" as **separate** decisions, or you'll gate features
 behind unrelated settings without realizing it.
 
+## 13. `chrome.storage` has no atomic read-modify-write — serialize your writers
+
+**The problem (lost history entries, undercounted stats).** `chrome.storage`
+offers no atomic read-modify-write, and the MV3 worker is **not** a single
+writer. Many concurrent `get → modify → set` sequences run over the *same* key:
+`WATCH_PROGRESS` fires from every open YouTube tab (all routed to the one
+worker), stats bumps come from the summary / cache-hit / sponsor paths, and the
+options page edits history. A bare `get→modify→set` interleaves, so the later
+`set()` clobbers the earlier one — dropped history entries, undercounted
+lifetime stats.
+
+**What to do:**
+- Funnel every read-modify-write of a key through a **per-key lock**
+  (`withWriteLock(key, fn)` in `storage.ts`). Wrap the *whole* `get→modify→set`,
+  not just the `set`.
+- Prefer the **Web Locks API** (`navigator.locks.request`): it serializes
+  across *all* same-origin realms, so a worker `WATCH_PROGRESS` write and an
+  options-page history edit (both the `chrome-extension://` origin) coordinate.
+  Keep an in-realm **promise-chain** as the fallback for contexts without
+  `navigator.locks`. (Content scripts run in the *page's* origin and share a
+  separate lock scope — unavoidable, but they write rarely.)
+- Give each shared structure one serialized mutator (e.g. `mutateHistory()`) so
+  every writer races on the same lock instead of inventing its own path.
+- In the fallback chain, run the next callback after the previous one *settles*
+  (resolve **or** reject) so one failed RMW doesn't wedge the queue — but still
+  return the real result so errors surface.
+- Related race: when you claim a pending delta (e.g. accumulated watch seconds)
+  before an `await`ed `sendMessage`, **claim it before the await** and restore on
+  failure, or an overlapping flush double-counts the same seconds.
+
 ---
 
 ### How to add to this file

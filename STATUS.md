@@ -1,7 +1,7 @@
 # TL;DW Extension — Status
 
 **Version:** 0.1.156
-**Last updated:** 2026-06-13
+**Last updated:** 2026-06-19
 
 ---
 
@@ -15,7 +15,7 @@
 - One Gemini API call per video — no secondary calls.
 
 ### 2. Open-in-a-tab flow (no API key)
-- Opens Gemini / ChatGPT / Claude / Perplexity / NotebookLM with the prompt filled
+- Opens Gemini / ChatGPT / Claude / NotebookLM with the prompt filled
   and submitted, using whatever account you're signed into.
 - For AIs that can't watch the video, the extracted transcript is attached.
 - TL;DW reads the finished answer back out of the tab and drops the summary onto
@@ -82,6 +82,17 @@ avg AI 7.2" line in the popup would close that gap.
 
 ---
 
+### Resolved (correctness campaign, 2026-06-19)
+
+The last ~11 commits closed a 56-issue correctness campaign — these classes are
+no longer open: chrome.storage read-modify-write races (now serialized via Web
+Locks, `src/lib/storage.ts`), SPA nav-epoch / videoId staleness (stale summaries
+and panels for the video you left), Direct-API parser robustness (bold labels,
+truncation, multi-block, value mangling), the dead AI RATING cue (revived),
+transcript prompt-injection (fenced), watch-time double-count + seek-counting,
+and assorted React state bugs. Gated by typecheck + 79 unit tests + production
+build. Forward-looking work is now tracked in `FEATURES.md`.
+
 ## Architecture notes
 
 | Layer | Key files |
@@ -96,8 +107,8 @@ avg AI 7.2" line in the popup would close that gap.
 | Library helpers | `src/lib/` (history, storage, profiles, engagement, stats, promptBuilder) |
 | Options UI | `src/options/sections/` |
 
-Tests: 67 Vitest cases over the pure helpers (engagement, promptBuilder, profiles,
-history, stats). DOM/content-script and React UI remain untested.
+Tests: 79 Vitest cases over the pure helpers (engagement, promptBuilder, profiles,
+history, stats, tldw). DOM/content-script and React UI remain untested.
 
 See `LESSONS_LEARNED.md` for the hard-won Chrome-extension patterns this project
 established.
@@ -117,4 +128,10 @@ established.
 1. Avatar URL de-duplication / refresh strategy.
 2. Popup channel context card.
 3. Chrome Web Store prep (privacy policy, store listing, manifest audit).
-4. Consider splitting `youtube.ts` (~1.9k LOC) into panel / nav-mount / scrape modules.
+4. Consider splitting `youtube.ts` (~2k LOC) into panel / nav-mount / scrape modules.
+
+Forward-looking feature work — widget UX polish, tags, week/month/year stat
+rollups, the paid-analytics question — now lives in `FEATURES.md`, broken into a
+parallel 2-agent / worktree plan: `agents/PHASE_0.md` (shared types/keys),
+`agents/AGENT_A.md` (data/prompt layer), `agents/AGENT_B.md` (widget UI in
+`youtube.ts`, which subsumes the split above).
