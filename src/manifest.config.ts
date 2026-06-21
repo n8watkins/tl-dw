@@ -46,23 +46,23 @@ export default defineManifest({
       run_at: "document_idle",
     },
     {
-      matches: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      matches: ["https://www.youtube.com/*"],
       js: ["src/content/youtube-intercept.ts"],
       run_at: "document_start",
       world: "MAIN",
     },
     {
-      matches: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      matches: ["https://www.youtube.com/*"],
       js: ["src/content/youtube.ts"],
       run_at: "document_idle",
     },
     {
-      matches: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      matches: ["https://www.youtube.com/*"],
       js: ["src/content/sponsorblock.ts"],
       run_at: "document_idle",
     },
     {
-      matches: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      matches: ["https://www.youtube.com/*"],
       js: ["src/content/watchtime.ts"],
       run_at: "document_idle",
     },
@@ -79,15 +79,12 @@ export default defineManifest({
   web_accessible_resources: [
     {
       resources: ["icons/*.png"],
-      matches: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      matches: ["https://www.youtube.com/*"],
     },
   ],
   permissions: ["storage", "tabs", "contextMenus", "clipboardWrite"],
   host_permissions: [
     "https://www.youtube.com/*",
-    // The content scripts also match m.youtube.com (mobile); the bare
-    // youtube.com host is unused (it 301s to www before any script runs).
-    "https://m.youtube.com/*",
     "https://gemini.google.com/*",
     "https://chatgpt.com/*",
     "https://claude.ai/*",

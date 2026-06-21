@@ -161,6 +161,7 @@ export const DEFAULT_SETTINGS: Settings = {
   trackMyAverage: true,
   skipSponsors: true,
   keepFullCallLog: false,
+  firstRunNoticeSeen: false,
 };
 
 /**

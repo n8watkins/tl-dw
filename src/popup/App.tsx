@@ -315,6 +315,32 @@ export function App() {
         </button>
       </header>
 
+      {settings && !settings.firstRunNoticeSeen && (
+        <div className="first-run-notice" role="note">
+          <p>
+            Heads up: TL;DW auto-skips sponsor segments — which sends the current
+            video&apos;s ID to the free SponsorBlock service — and measures your
+            watch-time locally to rate videos Engaged / Skimmed / Skipped.
+            Everything stays on your device; nothing is sent to us.
+          </p>
+          <div className="first-run-actions">
+            <button
+              className="first-run-ok"
+              onClick={() => {
+                const next = { ...settings, firstRunNoticeSeen: true };
+                setSettings(next);
+                void saveSettings(next);
+              }}
+            >
+              Got it
+            </button>
+            <button className="first-run-link" onClick={openOptions}>
+              Turn these off in Settings
+            </button>
+          </div>
+        </div>
+      )}
+
       {!ready ? (
         <p className="empty">Checking current tab...</p>
       ) : onVideo ? (

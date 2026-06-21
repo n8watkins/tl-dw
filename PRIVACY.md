@@ -43,9 +43,9 @@ outbound paths:
 2. **Direct API mode (optional).** If you enable it and supply your own Gemini API
    key, TL;DW calls Google's Generative Language API
    (`generativelanguage.googleapis.com`) directly. The request contains your
-   **prompt and the video transcript** in the body and **your API key** in the
-   request URL. This is a call to Google under your own key; Google's API terms and
-   privacy policy apply.
+   **prompt and the video transcript** in the body and **your API key** in a request
+   header (`x-goog-api-key`). This is a call to Google under your own key; Google's
+   API terms and privacy policy apply.
 3. **SponsorBlock (optional, on by default).** When sponsor-skip is enabled, TL;DW
    asks the public SponsorBlock community API (`sponsor.ajay.app`) for the sponsor
    segments of the video you're watching. To do this it sends the **YouTube video

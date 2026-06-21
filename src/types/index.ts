@@ -262,6 +262,8 @@ export type Settings = {
   geminiApiKeyName: string;
   /** Use the direct API path when a key is present (can be toggled off in the popup). */
   useDirectApi: boolean;
+  /** Whether the user has acknowledged the first-run privacy notice (SponsorBlock + engagement). */
+  firstRunNoticeSeen: boolean;
   /** Profile to use for Direct API auto-runs; falls back to the default profile if unset. */
   directApiProfileId?: string;
   /** AI dimension — collect/show: render the AI verdict + numeric score pills in the panel. */

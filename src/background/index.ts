@@ -189,7 +189,10 @@ function isTrusted(bypassTerms: string, channel: string, title?: string): boolea
 
 /** Call the Gemini REST API directly and return the response text. */
 async function callGeminiApi(prompt: string, apiKey: string): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${encodeURIComponent(apiKey)}`;
+  // The key goes in the x-goog-api-key header (not the URL) so it can't land in
+  // proxy/referrer logs. HTTPS encrypts both, but headers are the safer surface.
+  const url =
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent";
   // Bound the WHOLE request — connection AND body read — so a server that
   // returns headers then stalls the body can't leave the on-page skeleton
   // spinning to the 90s loading timeout. The signal stays armed until res.json()
@@ -199,7 +202,7 @@ async function callGeminiApi(prompt: string, apiKey: string): Promise<string> {
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0.4, maxOutputTokens: 4096 },

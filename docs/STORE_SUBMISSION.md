@@ -19,6 +19,12 @@ Dashboard.
   the legacy domain 301-redirects there anyway) — removes an "over-broad host"
   flag.
 - ✅ Tightened the transcript `postMessage` to `location.origin` (was `*`).
+- ✅ Moved the Gemini key out of the request URL into the `x-goog-api-key` header
+  (keeps it out of any proxy/referrer logs).
+- ✅ Dropped the `m.youtube.com` host (desktop selectors don't function on mobile) so
+  declared scope == working scope.
+- ✅ Added a first-run in-popup notice disclosing SponsorBlock (sends the video ID to
+  `sponsor.ajay.app`) and local engagement tracking, with a link to turn them off.
 - ✅ `npm run package` produces a clean, uploadable zip with `manifest.json` at the
   root.
 
@@ -108,7 +114,6 @@ TL;DW is not affiliated with, endorsed by, or sponsored by YouTube, Google, Open
 | `contextMenus` | Adds a "Send to <destination> with…" right-click submenu (scoped to youtube.com) listing the user's prompt profiles, so the current page or a right-clicked video thumbnail can be summarized in one click. |
 | `clipboardWrite` | Copies the generated prompt to the clipboard as a fallback when auto-filling the AI chat box fails, and powers the "Copy prompt" button in History. Used only on an explicit failure path or button click; nothing is read from the clipboard. |
 | `https://www.youtube.com/*` | Runs the content scripts that read the current video's transcript and channel/duration metadata, render the in-page TL;DW summary panel, auto-skip sponsor segments, and measure watch-time. This is the page being summarized. |
-| `https://m.youtube.com/*` | The same YouTube content scripts also need to run on the mobile m.youtube.com host. |
 | `https://gemini.google.com/*` | When Gemini is the chosen destination, a content script auto-fills the prompt into the Gemini composer and submits it. |
 | `https://chatgpt.com/*` | When ChatGPT is the chosen destination, a content script auto-fills the prompt into the ChatGPT composer and submits it. |
 | `https://claude.ai/*` | When Claude is the chosen destination, a content script auto-fills the prompt into the Claude composer and submits it. |
@@ -179,11 +184,12 @@ asks about the two "magnets," reply with:
 
 ## 7. Optional follow-ups (not blockers)
 
-- **Gemini key in the URL.** Direct API sends the key as `?key=…`. Google's API also
-  accepts `x-goog-api-key` as a header; moving it there keeps the key out of any
-  proxy/referrer logs. Reads better, not required. *(Needs a live-key test.)*
-- **`m.youtube.com`.** Declared, but the selectors are desktop-specific so the
-  scripts mostly no-op on mobile. Either verify the flow on mobile or drop the host
-  to keep declared scope == working scope.
+- **Brand logos.** The extension bundles real Gemini/ChatGPT/Claude/NotebookLM
+  marks (`src/assets/claude-icon.png`, `src/lib/DestinationIcon.tsx`). Trademark
+  owners can request removal on a public listing. Kept for now (used only to label
+  destinations, nominative) — to de-risk, swap to neutral monogram chips and never
+  put a third-party logo in the store screenshots/promo tile.
 - **Version.** `0.1.156` signals beta; consider bumping to `1.0.0` for the public
   listing (cosmetic, not a rejection issue).
+- **Live-key test.** The Gemini key now goes via the `x-goog-api-key` header — do a
+  30-second Direct-API summary with a real key to confirm the call still works.
