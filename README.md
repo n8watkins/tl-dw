@@ -113,6 +113,8 @@ number should match the latest build.
 - [`PRIVACY.md`](PRIVACY.md) — the privacy policy (what's stored, what leaves your
   device, and to whom).
 - [`CHANGELOG.md`](CHANGELOG.md) — notable feature milestones.
+- [`docs/HANDOFF.md`](docs/HANDOFF.md) — zero-context handoff: state, next steps,
+  conventions, and a file map for picking the project back up.
 - [`docs/PUBLISH_CHECKLIST.md`](docs/PUBLISH_CHECKLIST.md) — the actionable runway to
   a submitted Chrome Web Store listing (what's left + the steps).
 - [`docs/STORE_SUBMISSION.md`](docs/STORE_SUBMISSION.md) — Chrome Web Store listing
