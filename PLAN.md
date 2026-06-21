@@ -159,7 +159,7 @@ Current (`manifest.config.ts`):
 - `tabs` — open destinations + read the active tab URL
 - `contextMenus` — the right-click entry
 - `clipboardWrite` — the auto-fill-failed clipboard fallback (runs without a user gesture, so the permission is required)
-- host permissions for `youtube.com` (incl. `m.youtube.com`) and each destination site (the injection content scripts), plus `generativelanguage.googleapis.com` (the Direct API Gemini REST call) and `sponsor.ajay.app` (SponsorBlock segment lookups)
+- host permissions for `youtube.com` and each destination site (the injection content scripts), plus `generativelanguage.googleapis.com` (the Direct API Gemini REST call) and `sponsor.ajay.app` (SponsorBlock segment lookups)
 
 `commands` is declared via the manifest `commands` key (the shortcut), not a permission.
 

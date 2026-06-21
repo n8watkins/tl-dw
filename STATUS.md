@@ -128,11 +128,23 @@ established.
 
 ---
 
-## Potential next steps
+## Chrome Web Store launch
+
+Prep is well underway (see [`docs/PUBLISH_CHECKLIST.md`](docs/PUBLISH_CHECKLIST.md)
+for the live checklist and [`docs/STORE_SUBMISSION.md`](docs/STORE_SUBMISSION.md)
+for the paste-ready listing copy + permission justifications). **Done:** MIT
+`LICENSE`, `PRIVACY.md`, `NOTICE`, `CONTRIBUTING.md`, a full compliance audit
+(49 pass, 0 code/policy blockers), the rejection-risk hardenings (key→header,
+dropped `chat.openai.com` + `m.youtube.com`, first-run consent notice), and
+`npm run package`. **Remaining (hard blockers, user-made):** ≥1 screenshot
+(1280×800) + the 440×280 promo tile; then the $5 dev account + 2-Step Verification.
+
+## Other potential next steps
 
 1. Avatar URL de-duplication / refresh strategy.
 2. Popup channel context card.
-3. Chrome Web Store prep (LICENSE, privacy policy, store listing, manifest audit).
+3. Optional pre-launch polish: bump to `1.0.0`; neutralize the bundled third-party
+   brand logos; live-key test of the Direct-API header change.
 4. Consider splitting `youtube.ts` (~2.7k LOC) into panel / nav-mount / scrape modules.
 
 The F1–F8 feature sprint (overflow menu, channel-average cue, persisted watch

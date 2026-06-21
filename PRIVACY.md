@@ -70,7 +70,7 @@ reports, or usage data anywhere.
 - `contextMenus` — the right-click "Send to…" entry.
 - `clipboardWrite` — the fallback that copies the prompt to your clipboard when a
   site's composer can't be auto-filled.
-- Host access to `youtube.com` / `m.youtube.com` (read the page and transcript), the
+- Host access to `youtube.com` (read the page and transcript), the
   four AI destination sites (fill and submit the prompt),
   `generativelanguage.googleapis.com` (Direct API), and `sponsor.ajay.app`
   (SponsorBlock lookups).

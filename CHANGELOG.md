@@ -23,6 +23,16 @@ Notable changes to TL;DW. Format loosely follows
 - Added `LICENSE` (MIT), `NOTICE` (third-party attribution), `PRIVACY.md`, and this
   changelog.
 
+### Chrome Web Store readiness
+- Gemini API key now sent via the `x-goog-api-key` header instead of the URL.
+- Dropped the unused `chat.openai.com` and the desktop-only `m.youtube.com` hosts
+  (manifest now requests 7 host permissions, all exercised).
+- Tightened the transcript `postMessage` target to `location.origin`.
+- Added a first-run popup notice disclosing SponsorBlock + engagement tracking,
+  with a one-click path to turn them off.
+- Added `CONTRIBUTING.md`, `docs/STORE_SUBMISSION.md`, `docs/PUBLISH_CHECKLIST.md`,
+  and an `npm run package` step that builds the uploadable store zip.
+
 ## Earlier milestones
 
 (Version-by-version detail is in git history; these are the major eras.)

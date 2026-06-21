@@ -87,9 +87,10 @@ feature path · 🟢 nice-to-have.
       doesn't snap to the minimum mid-edit. The "Trusted channels" textarea types
       smoothly (no per-keystroke lag).
 
-### B10 — m.youtube.com
-- [ ] 🟢 Open a video on **m.youtube.com** (mobile) → the panel still injects
-      (host-permission fix).
+### B10 — mobile is out of scope
+- [ ] 🟢 Open a video on **m.youtube.com** (mobile) → TL;DW does **not** run there.
+      Mobile support was dropped (desktop-only selectors); `m.youtube.com` is no
+      longer in the manifest. This is expected, not a bug.
 
 ---
 
