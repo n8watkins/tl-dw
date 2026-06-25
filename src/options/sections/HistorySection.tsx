@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS, HISTORY_EXPIRY_OPTIONS, STORAGE_KEYS } from "../../li
 import { expireOldEntries, trimToLimit } from "../../lib/history";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
+import { VirtualList } from "../components/VirtualList";
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -228,17 +229,22 @@ export function HistorySection() {
         </p>
       )}
 
-      <div className="history-scroll">
-        {filtered.length === 0 ? (
+      {filtered.length === 0 ? (
+        <div className="history-scroll">
           <div className="empty-state">
             {entries.length === 0 ? "No search history yet. Run a search from a YouTube video." : "No results for that search."}
           </div>
-        ) : (
-          <div className="history-list">
-            {filtered.map((entry) => {
-              const isOpen = openId === entry.id;
-              return (
-                <div key={entry.id} className="history-card">
+        </div>
+      ) : (
+        <VirtualList
+          className="history-scroll"
+          items={filtered}
+          getKey={(entry) => entry.id}
+          estimateSize={64}
+          renderItem={(entry) => {
+            const isOpen = openId === entry.id;
+            return (
+                <div className="history-card">
                   <div className="history-row" onClick={() => setOpenId(isOpen ? null : entry.id)}>
                     <div className="history-main">
                       <div className="history-video">
@@ -296,11 +302,10 @@ export function HistorySection() {
                     </div>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+            );
+          }}
+        />
+      )}
 
       {confirmClear && (
         <ConfirmDialog

@@ -15,7 +15,10 @@
 > writers depend on). ③ 167 KB `claude-icon.png` — replaced with an inline brand
 > SVG; asset deleted. ④ Stale "~10 MB" comments — corrected to ~5 MB. The
 > `videosWatched` seen-set was **declined** per this audit (it would become the
-> storage risk it set out to fix). List virtualization (Med) remains deferred.
+> storage risk it set out to fix). **List virtualization (Med): done** — Channels
+> (both tabs) + History now window via `@tanstack/react-virtual` with measured
+> heights (`src/options/components/VirtualList.tsx`); search composes by passing
+> the filtered array as `items`.
 
 ---
 

@@ -5,6 +5,7 @@ import { CHANNEL_TAGS_KEY } from "../../lib/constants";
 import { computeChannelStats, type ChannelStats } from "../../lib/history";
 import { USER_RATING_LABELS, scoreToVerdict, userAvgToLabel } from "../../lib/constants";
 import { TierBadge } from "../components/TierBadge";
+import { VirtualList } from "../components/VirtualList";
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -725,18 +726,21 @@ export function ChannelsSection() {
               No channels match “{search}”.
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {visibleAll.map((ch) => (
+            <VirtualList
+              items={visibleAll}
+              getKey={(ch) => ch.channel}
+              estimateSize={72}
+              style={{ maxHeight: "calc(100vh - 280px)" }}
+              renderItem={(ch) => (
                 <ChannelCard
-                  key={ch.channel}
                   stats={ch}
                   isAutoRun={autoRunNames.has(ch.channel)}
                   onToggleAutoRun={(stats, enable) => void handleToggleAutoRun(stats, enable)}
                   trackMyAverage={trackMyAverage}
                   tags={tagsFor(ch.channel)}
                 />
-              ))}
-            </div>
+              )}
+            />
           )}
         </div>
       ) : (
@@ -760,15 +764,18 @@ export function ChannelsSection() {
                   No auto-summarize channels match “{search}”.
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {visibleAuto.map((ch) => (
+                <VirtualList
+                  items={visibleAuto}
+                  getKey={(ch) => ch.id}
+                  estimateSize={64}
+                  style={{ maxHeight: "calc(100vh - 280px)" }}
+                  renderItem={(ch) => (
                     <AutoRunCard
-                      key={ch.id}
                       channel={ch}
                       onRemove={(id) => void handleRemoveAutoRun(id)}
                     />
-                  ))}
-                </div>
+                  )}
+                />
               )}
             </>
           )}
