@@ -690,6 +690,7 @@ function removeSummaryPanel(): void {
   summaryPanel?.remove();
   summaryPanel = null;
   summaryPanelKind = null;
+  setWatchButtonState("idle");
 }
 
 function theme(): { bg: string; border: string; text: string; sub: string; hover: string } {
@@ -711,8 +712,8 @@ const NEUTRAL_FILL = "#3f3f3f";
 
 /**
  * Shared "fill on hover" treatment for header action pills (F4). On hover the
- * pill fills SOLID with `fillColor` and switches to white text — the
- * buildBlockButton pattern — then returns to its resting look on leave. The
+ * pill fills SOLID with `fillColor` and switches to white text, then returns to
+ * its resting look on leave. The
  * resting background/text/border are captured at call time, so callers just
  * style the resting pill and add this.
  */
@@ -782,6 +783,94 @@ function panelHost(): Element | null {
     document.querySelector("#secondary-inner") ??
     document.querySelector("#secondary")
   );
+}
+
+// --- inline "TL;DW" button in YouTube's subscribe row -------------------------
+
+// The persistent inline button mounted right of Subscribe (next to vidIQ). It's
+// the manual entry point for a summary on a cold video, and a live status cue
+// ("Analyzing…") while any run is in flight. Kept alive across YouTube's
+// owner-row re-renders by the onNavigate poll; suppressed for blocked channels
+// and non-summarizable live streams via watchButtonAllowed.
+const WATCH_BTN_ID = "tldw-watch-btn";
+let watchButton: HTMLButtonElement | null = null;
+let watchButtonAllowed = true;
+
+/** YouTube's owner/subscribe row — mirrors the selectors getChannelInfo() uses. */
+function ownerRow(): Element | null {
+  return (
+    document.querySelector("ytd-watch-metadata #owner") ??
+    document.querySelector("#owner") ??
+    document.querySelector("ytd-video-owner-renderer")?.parentElement ??
+    null
+  );
+}
+
+/** Reflect the current run state on the inline button (no-op if it isn't mounted). */
+function setWatchButtonState(state: "idle" | "analyzing" | "ready"): void {
+  const btn = watchButton;
+  if (!btn) return;
+  if (state === "analyzing") {
+    btn.textContent = "Analyzing…";
+    btn.style.opacity = "0.75";
+    btn.style.cursor = "default";
+    btn.style.animation = "tldw-shimmer 1.4s infinite";
+    btn.title = "Summarizing this video…";
+  } else {
+    btn.textContent = "TL;DW";
+    btn.style.opacity = "1";
+    btn.style.cursor = "pointer";
+    btn.style.animation = "";
+    btn.title = state === "ready"
+      ? "Summary ready — click to jump to it"
+      : "Summarize this video with TL;DW";
+  }
+}
+
+function removeWatchButton(): void {
+  document.getElementById(WATCH_BTN_ID)?.remove();
+  watchButton = null;
+}
+
+/** Mount (idempotently) the inline TL;DW button in the subscribe row. */
+function ensureWatchButton(): void {
+  // Watch pages only, and only when allowed (not blocked / not a live stream).
+  if (!currentVideoId() || !watchButtonAllowed) { removeWatchButton(); return; }
+
+  const existing = document.getElementById(WATCH_BTN_ID) as HTMLButtonElement | null;
+  if (existing) { watchButton = existing; return; }
+
+  const row = ownerRow();
+  if (!row) return; // owner row not rendered yet — the 500ms poll retries.
+
+  ensureShimmerStyle();
+  const btn = document.createElement("button");
+  btn.id = WATCH_BTN_ID;
+  Object.assign(btn.style, {
+    fontSize: "14px", fontWeight: "700", letterSpacing: "0.02em",
+    padding: "0 16px", borderRadius: "999px", marginLeft: "8px",
+    background: "#1a73e8", color: "#fff", border: "none",
+    cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
+    ...pillGeom,
+  });
+  btn.addEventListener("mouseenter", () => { if (btn.style.cursor === "pointer") btn.style.background = "#1557b0"; });
+  btn.addEventListener("mouseleave", () => { btn.style.background = "#1a73e8"; });
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    // A panel already up (loading / cached / summary): jump to it, don't re-run.
+    if (summaryPanel) { summaryPanel.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+    // forceRun serves cache first, then runs even on a non-auto channel.
+    void maybeStartDirectApiRun({ forceRun: true });
+  });
+
+  // Sit right of the Subscribe button (so we land next to vidIQ's button too).
+  const subscribe = row.querySelector("#subscribe-button, ytd-subscribe-button-renderer");
+  if (subscribe?.parentElement) subscribe.parentElement.insertBefore(btn, subscribe.nextSibling);
+  else row.appendChild(btn);
+
+  watchButton = btn;
+  // A mid-analysis re-render must keep the cue, so sync state on (re)mount.
+  setWatchButtonState(summaryPanelKind === "loading" ? "analyzing" : summaryPanel ? "ready" : "idle");
 }
 
 // --- popover menu primitive (overflow "⋯" menu + tag picker) ------------------
@@ -995,7 +1084,6 @@ function buildPanelHead(
   t: ReturnType<typeof theme>,
   controls: HTMLElement[],
   channelInfo: ChannelInfo | null,
-  showBlockBtn = true,
   showAutoRunToggle = true,
   showTitle = true,
   rightControls: HTMLElement[] = [],
@@ -1036,12 +1124,8 @@ function buildPanelHead(
     autoToggles.push(buildAutoToggle(channelInfo, currentAutoRunSummary, t));
   }
 
-  const blockBtn = (showBlockBtn && channelInfo) ? buildBlockButton(t, channelInfo) : null;
-  // Visually separate the destructive "Skip channel" from the ⚡ Gemini link
-  // beside it so they're not easy to mis-click.
-  if (blockBtn) blockBtn.style.marginLeft = "16px";
   closeBtn.style.marginLeft = "12px";
-  // Right cluster order: extra right controls · Skip channel · Auto-summarize ·
+  // Right cluster order: extra right controls · Auto-summarize ·
   // end controls (e.g. the "⋯" overflow menu) · ✕
   head.append(
     icon,
@@ -1049,7 +1133,6 @@ function buildPanelHead(
     ...controls,
     spacer,
     ...rightControls,
-    ...(blockBtn ? [blockBtn] : []),
     ...autoToggles,
     ...endControls,
     closeBtn,
@@ -1174,28 +1257,6 @@ function refreshSponsorPanel(): void {
 // sponsorblock.ts fires this whenever segments are fetched, skipped, or undone.
 window.addEventListener("tldw-sponsor-update", refreshSponsorPanel);
 
-/** Block button — hides the panel permanently for this channel on this and future visits. */
-function buildBlockButton(t: ReturnType<typeof theme>, info: ChannelInfo): HTMLButtonElement {
-  const btn = document.createElement("button");
-  btn.textContent = "⊘ Skip channel";
-  btn.title = `Never show TL;DW panel for ${info.name}`;
-  Object.assign(btn.style, {
-    fontSize: "13px", fontWeight: "700", letterSpacing: "0.04em",
-    padding: "0 12px", borderRadius: "999px", border: "none",
-    cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
-    transition: "background 0.15s, color 0.15s",
-    background: t.border, color: t.sub,
-    ...pillGeom,
-  });
-  btn.addEventListener("mouseenter", () => { btn.style.background = "#dc2626"; btn.style.color = "#fff"; });
-  btn.addEventListener("mouseleave", () => { btn.style.background = t.border; btn.style.color = t.sub; });
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    showSkipOverlay(info.name, info, () => { /* panel stays open */ });
-  });
-  return btn;
-}
-
 /** "⚡ Gemini" header link that deep-links to the Direct API options section. */
 /**
  * "Get instant results" CTA — shown while analyzing and on results when Direct
@@ -1246,7 +1307,7 @@ function showLoadingPanel(): void {
   // summary simply replaces this when it lands. The "Get instant results" CTA
   // shows only when Direct API isn't set up (encouraging the headless path).
   const head = buildPanelHead(
-    t, [analyzing], currentChannelInfo, true, false, true,
+    t, [analyzing], currentChannelInfo, false, true,
     currentDirectApiEnabled ? [] : [buildGeminiLink(t)],
   );
 
@@ -1255,6 +1316,7 @@ function showLoadingPanel(): void {
   summaryPanel = panel;
   summaryPanelKind = "loading";
   host.prepend(panel);
+  setWatchButtonState("analyzing");
   log("loading panel shown");
   refreshSponsorPanel();
 
@@ -1302,7 +1364,7 @@ function showSummaryErrorPanel(reason?: string): void {
     if (currentSummarizeAction) void currentSummarizeAction();
   });
 
-  const head = buildPanelHead(t, [], currentChannelInfo, false, false, true, [retryBtn]);
+  const head = buildPanelHead(t, [], currentChannelInfo, false, true, [retryBtn]);
   Object.assign(head.style, { marginBottom: "8px" });
 
   const msg = document.createElement("div");
@@ -1869,10 +1931,10 @@ function buildSummaryPanel(
     headerControls.push(pill(tldw.verdict, verdictColor(tldw.verdict), "#fff"));
   }
 
-  // F1: collapse the secondary actions (Open tab / Clear cache / source badge)
-  // into a right-aligned "⋯" popover. The primary controls (verdict, plus the
-  // Auto-summarize and Skip-channel channel toggles added by buildPanelHead)
-  // stay inline; the Tags row lives at the bottom of the panel, not here.
+  // F1: collapse the secondary actions (Open tab / Clear cache / Block channel /
+  // source badge) into a right-aligned "⋯" popover. The primary controls
+  // (verdict, plus the Auto-summarize toggle added by buildPanelHead) stay
+  // inline; the Tags row lives at the bottom of the panel, not here.
   const menuItems: Array<{ label: string; title?: string; danger?: boolean; onClick: () => void }> = [];
 
   // ↗ Open tab — jump to the AI destination tab (reuses the scraped one if open).
@@ -1889,6 +1951,19 @@ function buildSummaryPanel(
     danger: true,
     onClick: () => { void regenerateSummary(vid, {}); },
   });
+
+  // ⊘ Block channel — never show TL;DW for this channel again. Replaces the old
+  // "Skip channel" button; re-enable in Settings → Channels. Low-prominence by
+  // design (tucked in the menu, not a top-level pill).
+  if (currentChannelInfo) {
+    const blockInfo = currentChannelInfo;
+    menuItems.push({
+      label: "⊘ Block channel",
+      title: `Never show TL;DW for ${blockInfo.name}. Re-enable in Settings → Channels.`,
+      danger: true,
+      onClick: () => { void addBlockedChannelEntry(blockInfo).then(() => removeSummaryPanel()); },
+    });
+  }
 
   // Source / Cached badge as a menu row — honest about origin, pointing where it
   // makes sense. When Direct API isn't set up, offer the "Get instant results"
@@ -1915,7 +1990,7 @@ function buildSummaryPanel(
 
   const overflowMenu = buildOverflowMenu(t, menuItems, cleanups);
 
-  const head = buildPanelHead(t, headerControls, currentChannelInfo, true, true, true, [], [overflowMenu]);
+  const head = buildPanelHead(t, headerControls, currentChannelInfo, true, true, [], [overflowMenu]);
   Object.assign(head.style, { marginBottom: "8px" });
 
   // --- body: summary always visible; clicking the panel toggles details ---
@@ -2092,124 +2167,10 @@ function showSummaryPanel(
     summaryPanel = panel;
     summaryPanelKind = "summary";
     h.prepend(summaryPanel);
+    setWatchButtonState("ready");
     log("summary panel injected");
     refreshSponsorPanel();
   });
-}
-
-/** Full-page overlay confirmation before permanently skipping a channel. */
-function showSkipOverlay(
-  channelName: string,
-  info: ChannelInfo | null,
-  onCancel: () => void,
-): void {
-  document.getElementById("tldw-skip-overlay")?.remove();
-  const t = theme();
-
-  const overlay = document.createElement("div");
-  overlay.id = "tldw-skip-overlay";
-  Object.assign(overlay.style, {
-    position: "fixed", inset: "0",
-    background: "rgba(0,0,0,0.55)",
-    zIndex: "2147483647",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    font: "14px/1.4 Roboto, system-ui, sans-serif",
-  });
-
-  const modal = document.createElement("div");
-  Object.assign(modal.style, {
-    background: t.bg, borderRadius: "16px",
-    padding: "28px 32px", maxWidth: "420px", width: "90%",
-    boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
-    display: "flex", flexDirection: "column", gap: "16px",
-  });
-
-  // Header: TL;DW icon + "Skip channel"
-  const hd = document.createElement("div");
-  Object.assign(hd.style, { display: "flex", alignItems: "center", gap: "12px" });
-  const hdIcon = document.createElement("img");
-  hdIcon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
-  Object.assign(hdIcon.style, { width: "48px", height: "48px", borderRadius: "8px", flexShrink: "0" });
-  const hdTitle = document.createElement("span");
-  hdTitle.textContent = "Skip channel";
-  Object.assign(hdTitle.style, { fontWeight: "700", fontSize: "18px", color: t.text });
-  hd.append(hdIcon, hdTitle);
-
-  // Body: [avatar] ChannelName — description flows inline
-  const desc = document.createElement("div");
-  Object.assign(desc.style, { display: "flex", alignItems: "flex-start", gap: "10px" });
-
-  if (info?.avatarUrl) {
-    const avImg = document.createElement("img");
-    avImg.src = info.avatarUrl;
-    Object.assign(avImg.style, { width: "40px", height: "40px", borderRadius: "50%", flexShrink: "0", marginTop: "2px" });
-    desc.append(avImg);
-  }
-
-  const textBlock = document.createElement("div");
-  Object.assign(textBlock.style, { fontSize: "15px", color: t.sub, lineHeight: "1.65" });
-
-  const nameLine = document.createElement("div");
-  Object.assign(nameLine.style, { marginBottom: "8px" });
-  const chNameEl = document.createElement("strong");
-  chNameEl.textContent = channelName;
-  Object.assign(chNameEl.style, { fontSize: "16px", color: t.text });
-  const cacheNote = document.createElement("span");
-  cacheNote.textContent = " Cached summaries will also be deleted.";
-  nameLine.append(
-    chNameEl,
-    document.createTextNode(" — Skip AI summaries for this channel?"),
-    cacheNote,
-  );
-
-  const reopenNote = document.createElement("div");
-  const settingsBold = document.createElement("strong");
-  settingsBold.textContent = "TL;DW Settings → Channels";
-  reopenNote.append(
-    document.createTextNode("To re-enable, go to "),
-    settingsBold,
-    document.createTextNode(" and click Unblock next to this channel."),
-  );
-
-  textBlock.append(nameLine, reopenNote);
-  desc.append(textBlock);
-
-  // Buttons: Cancel on left, Confirm on right
-  const row = document.createElement("div");
-  Object.assign(row.style, { display: "flex", gap: "10px", justifyContent: "space-between" });
-
-  const cancelBtn = document.createElement("button");
-  cancelBtn.textContent = "Cancel";
-  Object.assign(cancelBtn.style, {
-    padding: "10px 24px", borderRadius: "999px",
-    border: `1px solid ${t.border}`, background: "transparent",
-    color: t.text, cursor: "pointer", fontSize: "15px", fontWeight: "600",
-  });
-  cancelBtn.addEventListener("click", () => { overlay.remove(); onCancel(); });
-
-  const confirmBtn = document.createElement("button");
-  confirmBtn.textContent = "Yes, skip this channel";
-  Object.assign(confirmBtn.style, {
-    padding: "10px 24px", borderRadius: "999px",
-    border: "none", background: "#dc2626",
-    color: "#fff", cursor: "pointer", fontSize: "15px", fontWeight: "600",
-  });
-
-  confirmBtn.addEventListener("click", () => {
-    overlay.remove();
-    const finalInfo = info ?? getChannelInfo();
-    if (finalInfo) void addBlockedChannelEntry(finalInfo).then(() => { removeSummaryPanel(); });
-    else removeSummaryPanel();
-  });
-
-  row.append(cancelBtn, confirmBtn);
-  modal.append(hd, desc, row);
-  overlay.append(modal);
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) { overlay.remove(); onCancel(); } });
-  document.addEventListener("keydown", function esc(e) {
-    if (e.key === "Escape") { overlay.remove(); onCancel(); document.removeEventListener("keydown", esc); }
-  });
-  document.body.appendChild(overlay);
 }
 
 /** Confirmation overlay shown before enabling auto-run for a channel. */
@@ -2322,72 +2283,6 @@ function showAutoRunConfirmOverlay(
   document.body.appendChild(overlay);
 }
 
-/** Show the idle panel — TL;DW icon + title + Get Summary + Never all in one header row. */
-function showIdlePanel(onGetSummary: () => void): void {
-  const host = panelHost();
-  if (!host) return;
-  removeSummaryPanel();
-
-  const t = theme();
-  const panel = document.createElement("div");
-  panel.id = "tldw-summary";
-  Object.assign(panel.style, {
-    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
-    padding: "10px 14px", marginTop: "12px", marginBottom: "16px",
-    font: "14px/1.4 Roboto, system-ui, sans-serif",
-  });
-
-  const capturedChannelInfo = currentChannelInfo;
-
-  const summaryBtn = document.createElement("button");
-  summaryBtn.textContent = "TL;DW";
-  Object.assign(summaryBtn.style, {
-    fontSize: "13px", fontWeight: "700", letterSpacing: "0.03em",
-    padding: "0 16px", borderRadius: "999px",
-    background: "#1a73e8", color: "#fff",
-    border: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
-    ...pillGeom,
-  });
-  summaryBtn.title = "Get TL;DW summary of this video";
-  summaryBtn.addEventListener("mouseenter", () => { summaryBtn.style.background = "#1557b0"; });
-  summaryBtn.addEventListener("mouseleave", () => { summaryBtn.style.background = "#1a73e8"; });
-  summaryBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    removeSummaryPanel();
-    onGetSummary();
-  });
-
-  const skipBtn = document.createElement("button");
-  skipBtn.textContent = "Skip channel";
-  Object.assign(skipBtn.style, {
-    fontSize: "12px", fontWeight: "600",
-    padding: "0 14px", borderRadius: "999px",
-    background: "transparent", color: t.sub,
-    border: `1px solid ${t.border}`, cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
-    ...pillGeom,
-  });
-  skipBtn.title = "Skip TL;DW for this channel";
-  skipBtn.addEventListener("mouseenter", () => { skipBtn.style.borderColor = "#dc2626"; skipBtn.style.color = "#dc2626"; });
-  skipBtn.addEventListener("mouseleave", () => { skipBtn.style.borderColor = t.border; skipBtn.style.color = t.sub; });
-  skipBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const info = capturedChannelInfo ?? getChannelInfo();
-    const channelName = info?.name ?? "this channel";
-    showSkipOverlay(channelName, info, () => { /* panel stays open */ });
-  });
-
-  // Build the header with the TL;DW action + Skip channel as inline controls.
-  // No left-hand "TL;DW" label here — the TL;DW button itself is the affordance.
-  const head = buildPanelHead(t, [summaryBtn, skipBtn], capturedChannelInfo, false, false, false);
-  panel.append(head);
-
-  summaryPanel = panel;
-  summaryPanelKind = "idle";
-  host.prepend(panel);
-  log("idle panel shown");
-  refreshSponsorPanel();
-}
-
 
 // --- auto TL;DW ----------------------------------------------------------
 
@@ -2432,8 +2327,14 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
   const stale = () => navEpoch !== myEpoch || currentVideoId() !== vid;
 
   // In-progress live streams have no transcript to summarize — don't offer the
-  // summary UI. A finished/recorded live stream has a transcript, so it's fine.
-  if (isUnsummarizableLive()) { removeSummaryPanel(); return; }
+  // summary UI (no panel, no inline button). A finished/recorded live stream has
+  // a transcript, so it's fine.
+  if (isUnsummarizableLive()) {
+    watchButtonAllowed = false;
+    removeWatchButton();
+    removeSummaryPanel();
+    return;
+  }
 
   // Set currentChannelInfo early so the blocked-channel check and auto-run toggle can use it even when we return early.
   currentChannelInfo = getChannelInfo();
@@ -2457,14 +2358,22 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
     }
   }
 
-  // If the user has blocked this channel from summary, skip injection entirely.
+  // If the user has blocked this channel from summary, skip injection entirely —
+  // and don't show the inline TL;DW button either.
   if (currentChannelInfo) {
     const blocked = (r[BLOCKED_CHANNELS_KEY] as BlockedChannelEntry[]) ?? [];
     if (blocked.some((c) => c.id === currentChannelInfo!.id || c.name === currentChannelInfo!.name)) {
       log("channel blocked from summary, skipping panel injection:", currentChannelInfo.name);
+      watchButtonAllowed = false;
+      removeWatchButton();
       return;
     }
   }
+
+  // Channel is allowed — make sure the inline TL;DW button is mounted (the
+  // manual entry point on a cold video; a status cue during auto/cached runs).
+  watchButtonAllowed = true;
+  ensureWatchButton();
 
   const autoRunChannels = await readAutoRunChannels();
   if (stale()) return;
@@ -2545,9 +2454,10 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
     return;
   }
 
-  // Show idle panel with the manual "TL;DW" + "Skip channel" buttons. Clicking
-  // runs the configured backend (headless Gemini, or the tab-scrape flow).
-  showIdlePanel(() => { void startApiCall(); });
+  // Cold video (no cache, channel not auto-summarize): show NO panel. The inline
+  // TL;DW button mounted above is the entry point — clicking it re-enters here
+  // via forceRun and runs the configured backend (headless Gemini or tab-scrape).
+  setWatchButtonState("idle");
 }
 
 /**
@@ -2586,6 +2496,11 @@ function onNavigate(): void {
   // Normalize to video ID so URL decorations added by YouTube (?t=123, &pp=…)
   // don't trigger a spurious re-run that wipes the panels.
   const vid = currentVideoId();
+  // Keep the inline button alive on EVERY tick (YouTube re-renders the owner row
+  // on its own), independent of the URL-change guard below. ensureWatchButton is
+  // idempotent and respects watchButtonAllowed; off a watch page, drop it.
+  if (vid) ensureWatchButton();
+  else removeWatchButton();
   const url = vid ? `v=${vid}` : (location.pathname + location.search);
   if (url === lastHandledUrl) return;
   lastHandledUrl = url;
@@ -2600,6 +2515,9 @@ function onNavigate(): void {
   activeTranscriptFetch = null;
   currentChannelInfo = null;
   currentAutoRunSummary = false;
+  // Re-allow the inline button for the new video; maybeStartDirectApiRun flips it
+  // back off if this channel turns out to be blocked / a live stream.
+  watchButtonAllowed = true;
   void maybeStartDirectApiRun();
   setTimeout(() => { void autoRunIfLong(); }, 2500);
 }
