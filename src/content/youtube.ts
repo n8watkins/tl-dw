@@ -809,6 +809,12 @@ function ensureWatchButton(): void {
   // Watch pages only, and only when allowed (not a non-summarizable live stream).
   if (!currentVideoId() || !watchButtonAllowed) { removeWatchButton(); return; }
 
+  // Fast path for the 500ms onNavigate poll: if our button is still attached,
+  // there's nothing to do — skip the getElementById + owner-row queries. Only
+  // when YouTube has detached it (re-rendered the owner row) do we fall through
+  // and re-find or re-mount.
+  if (watchButton?.isConnected) return;
+
   const existing = document.getElementById(WATCH_BTN_ID) as HTMLButtonElement | null;
   if (existing) { watchButton = existing; return; }
 

@@ -14,6 +14,7 @@ import {
   getProfiles,
   getSettings,
   pruneOpenSearch,
+  pruneOrphanVideoTags,
   recordDeliveryStatus,
   recordGeminiCall,
   clearPendingPrompt,
@@ -101,6 +102,9 @@ async function startupStorageSweep(): Promise<void> {
     // One-time cleanup: the "block channel" feature was removed, so drop its
     // now-orphaned storage key for users who had blocked channels (no-op after).
     await chrome.storage.local.remove("tldwBlockedChannels");
+    // Sweep video-tag assignments whose video has left history — the one
+    // otherwise-unbounded storage map.
+    await pruneOrphanVideoTags();
   } catch {
     /* never let a maintenance sweep throw on startup */
   }
@@ -552,7 +556,7 @@ async function runSummary(
   if (settings.saveHistoryOnSearch) {
     // Store a transcript-free prompt: the transcript can be tens to hundreds of
     // KB, and persisting it per entry would bloat chrome.storage.local toward
-    // its ~10 MB quota (and means "Copy prompt" wouldn't quietly drag the whole
+    // its ~5 MB quota (and means "Copy prompt" wouldn't quietly drag the whole
     // transcript along). Rebuild the prompt with no transcript for the log.
     let historyPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity, activeTags);
     if (gateMinutes > 0) {

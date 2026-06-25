@@ -8,6 +8,15 @@
 >
 > _Audited: 2026-06-25._
 
+> **Update (2026-06-25): top items resolved.** ① Unbounded video-tag map — now
+> swept against history on startup (`pruneOrphanVideoTags`). ② 500ms poll — added
+> an `isConnected` fast-path in `ensureWatchButton` (the single-write watch-path
+> fold was **declined**: `history` and `tldwStats` use separate write-locks other
+> writers depend on). ③ 167 KB `claude-icon.png` — replaced with an inline brand
+> SVG; asset deleted. ④ Stale "~10 MB" comments — corrected to ~5 MB. The
+> `videosWatched` seen-set was **declined** per this audit (it would become the
+> storage risk it set out to fix). List virtualization (Med) remains deferred.
+
 ---
 
 ## Top 5 actions (do these, in order)

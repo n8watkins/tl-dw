@@ -827,6 +827,25 @@ export async function getActiveTags(args: {
   return library.filter((t) => ids.has(t.id));
 }
 
+/** Drop VIDEO-tag assignments whose video has aged out of history. Video tags are
+ *  one-off per-video, so once the video leaves history the assignment is orphaned
+ *  and unreachable — without this the VIDEO_TAGS_KEY map grows unbounded (one
+ *  entry per ever-tagged video), the only storage key with no natural cap.
+ *  CHANNEL tags are intentionally NOT swept: a channel stays valid (and taggable)
+ *  even when nothing of its is currently in history. Runs from the startup sweep. */
+export async function pruneOrphanVideoTags(): Promise<void> {
+  await withWriteLock(VIDEO_TAGS_KEY, async () => {
+    const [history, map] = await Promise.all([getHistory(), readAssignments(VIDEO_TAGS_KEY)]);
+    if (Object.keys(map).length === 0) return;
+    const live = new Set(history.map((e) => extractVideoId(e.videoUrl)).filter(Boolean));
+    let changed = false;
+    for (const vid of Object.keys(map)) {
+      if (!live.has(vid)) { delete map[vid]; changed = true; }
+    }
+    if (changed) await chrome.storage.local.set({ [VIDEO_TAGS_KEY]: map });
+  });
+}
+
 /** Delete a tag from the library AND strip its id from every channel/video
  *  assignment, so no orphaned ids remain (the UI promises this on delete). */
 export async function deleteTagEverywhere(tagId: string): Promise<void> {

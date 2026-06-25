@@ -76,7 +76,7 @@ export const SUMMARY_CACHE_KEY = "tldwSummaryCache";
 export const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Hard cap on cached summaries (in addition to the TTL) so a binge-watcher
- *  can't accumulate unbounded entries toward the ~10 MB storage quota. */
+ *  can't accumulate unbounded entries toward the ~5 MB storage quota. */
 export const CACHE_MAX_ENTRIES = 300;
 
 /**
