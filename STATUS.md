@@ -1,7 +1,7 @@
 # TL;DW Extension — Status
 
-**Version:** 0.1.156
-**Last updated:** 2026-06-20
+**Version:** 0.1.164
+**Last updated:** 2026-06-25
 
 ---
 
@@ -10,7 +10,10 @@
 ### 1. Core Direct API flow
 - Headless Gemini REST call on YouTube navigation — no destination tab opened.
 - `---TLDW---` block parsed from the response: VERDICT / SUMMARY / RATING / DETAILS.
-- Widget injected into the YouTube page with a shimmer loading state.
+- An inline **"TL;DW" button** mounted in YouTube's subscribe row (next to vidIQ)
+  runs the summary on click; the button shows "Analyzing…" while in flight (the
+  always-on idle box and the loading skeleton panel are gone). The summary renders
+  in an injected widget; errors/timeouts still surface in an error panel.
 - Auto-run trigger: fires when a video exceeds the configured minute threshold.
 - One Gemini API call per video — no secondary calls.
 
@@ -42,16 +45,21 @@
   activity map is retained for up to 366 days in storage.
 - **Week/month/year/all-time dashboards** (`src/lib/dashboards.ts`, F7 Phase 1,
   merged in PR #2): a window toggle on the Stats page with vs-previous-window delta
-  chips, finish-rate donut, time-given-back, and a block-nudge card.
+  chips, finish-rate donut, and time-given-back.
 
 ### 6. Channel tracking + comparison
 - `channel` and `channelAvatarUrl` stored on every `SearchHistoryEntry`.
 - `computeChannelStats()` groups history by channel for avg AI rating + engagement
   — all local arithmetic, no LLM.
 - Widget shows a `📊 vs channel` row with avg score and ▲/▼/≈ trend.
-- **Channels page** in options: avatar cards, AI score pills, sort (most watched /
-  highest rated / recent), expandable per-channel video lists.
-- Per-channel **block** and **auto-run** lists.
+- Channel tags are keyed by channel **name** (was channel id).
+- **Channels page** in options: **tabbed** (All channels / Auto-summarize) with
+  **search by name + tag**, avatar cards, AI score pills, sort (most watched /
+  highest rated / recent), expandable per-channel video lists. The channel and
+  expanded-video lists are **virtualized** for long histories.
+- Per-channel **auto-summarize** list.
+- **Per-channel stats persisted** — time spent + engagement; "Top channel" now
+  means most time watched.
 
 ### 7. Direct API settings
 - Profile picker independent of the global default (`directApiProfileId`).
@@ -94,7 +102,7 @@ Locks, `src/lib/storage.ts`), SPA nav-epoch / videoId staleness (stale summaries
 and panels for the video you left), Direct-API parser robustness (bold labels,
 truncation, multi-block, value mangling), the dead AI RATING cue (revived),
 transcript prompt-injection (fenced), watch-time double-count + seek-counting,
-and assorted React state bugs. Gated by typecheck + 101 unit tests + production
+and assorted React state bugs. Gated by typecheck + 113 unit tests + production
 build.
 
 ## Architecture notes
@@ -111,7 +119,7 @@ build.
 | Library helpers | `src/lib/` (history, storage, profiles, engagement, promptBuilder, tldw, dashboards, constants) |
 | Options UI | `src/options/sections/` |
 
-Tests: 101 Vitest cases over the pure helpers (engagement 21, stats 18, dashboards 14,
+Tests: 113 Vitest cases over the pure helpers (engagement 21, stats 30, dashboards 14,
 history 13, promptBuilder 13, tldw 12, profiles 10 — the stats suite imports its
 helpers from `storage.ts`). DOM/content-script and React UI remain untested.
 
@@ -136,20 +144,27 @@ for the paste-ready listing copy + permission justifications). **Done:** MIT
 `LICENSE`, `PRIVACY.md`, `NOTICE`, `CONTRIBUTING.md`, a full compliance audit
 (49 pass, 0 code/policy blockers), the rejection-risk hardenings (key→header,
 dropped `chat.openai.com` + `m.youtube.com`, first-run consent notice), and
-`npm run package`. **Remaining (hard blockers, user-made):** ≥1 screenshot
-(1280×800) + the 440×280 promo tile; then the $5 dev account + 2-Step Verification.
+`npm run package`. The current build is **0.1.164**. **Remaining (hard blockers,
+user-made):** ≥1 screenshot (1280×800) + the 440×280 promo tile; then the $5 dev
+account + 2-Step Verification.
 
 ## Other potential next steps
 
 1. Avatar URL de-duplication / refresh strategy.
 2. Popup channel context card.
-3. Optional pre-launch polish: bump to `1.0.0`; neutralize the bundled third-party
-   brand logos; live-key test of the Direct-API header change.
+3. Optional pre-launch polish: bump to `1.0.0`; the bundled `claude-icon.png` is
+   already gone (all four destination marks are now inline SVG in
+   `DestinationIcon.tsx`), so only the remaining third-party SVG marks would need
+   neutralizing if desired; live-key test of the Direct-API header change.
 4. Consider splitting `youtube.ts` (~2.7k LOC) into panel / nav-mount / scrape modules.
 
 The F1–F8 feature sprint (overflow menu, channel-average cue, persisted watch
 tracking, fill-hover, prose tightening, tags, regenerate) and F7 Phase 1
 (week/month/year dashboards) have all shipped and merged; their plans are archived
-under `docs/archive/`. The one genuinely open bet is **F7 Phase 2 — paid / hosted
-analytics**, still undecided (see `docs/archive/F7_PHASE1_PLAN.md` §0 for the
-"don't charge for local data" reasoning).
+under `docs/archive/`. The **2026-06-25 UX revision + perf pass** also shipped:
+the inline subscribe-row TL;DW button (idle box + loading skeleton removed),
+end-to-end removal of the block-channel feature, the tabbed/searchable/virtualized
+Channels page, and persisted per-channel time/engagement stats. The one genuinely
+open bet is **F7 Phase 2 — paid / hosted analytics**, still undecided (see
+`docs/archive/F7_PHASE1_PLAN.md` §0 for the "don't charge for local data"
+reasoning).

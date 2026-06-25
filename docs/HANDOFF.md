@@ -4,7 +4,7 @@ Zero-context handoff. Read this + [`STATUS.md`](../STATUS.md) +
 [`docs/PUBLISH_CHECKLIST.md`](PUBLISH_CHECKLIST.md) first; they answer most
 questions — don't re-ask the user what they already decide here.
 
-_Last updated: 2026-06-20._
+_Last updated: 2026-06-25._
 
 ## Project summary
 
@@ -25,7 +25,7 @@ dashboards. **No backend, no accounts, no analytics** — everything is local.
   rsyncs `dist/` to `/mnt/c/Users/natha/Projects/Tools/tldw` (the Windows
   load-unpacked folder). `npm run package` builds the clean Web Store zip
   (`web-store/tldw-<version>.zip`, no version bump, no Windows copy).
-- **Gate (run before every commit):** `npm run typecheck` && `npm test` (**101
+- **Gate (run before every commit):** `npm run typecheck` && `npm test` (**113
   tests**). For UI/content-script changes also walk [`SMOKE_TEST.md`](SMOKE_TEST.md).
 
 ## State
@@ -41,8 +41,33 @@ dashboards. **No backend, no accounts, no analytics** — everything is local.
 | `8a88a2d` | Submission-guide accuracy fixes (per compliance audit) |
 | `21be53a` | Hardenings: Gemini key → `x-goog-api-key` header; dropped `m.youtube.com`; first-run consent notice |
 | `73be4a6` | `docs/PUBLISH_CHECKLIST.md` + staleness fixes from the host-scope change |
+| `ec23721` | This handoff doc (zero-context session handoff) |
 
-**Verified working:** `npm run typecheck` clean, **101/101** Vitest tests pass,
+**Updated 2026-06-25:** a follow-up session shipped the UX revision + perf/virtualization
+pass (~10 commits, `88098e5`…`c1bc979`) on top of the table above:
+
+| Commit | What |
+|---|---|
+| `88098e5` | Inline "TL;DW" button in the subscribe row; dropped the always-on idle box |
+| `bf03ef5` | UX revision plan (`docs/UX_REVISION_PLAN.md`) |
+| `c249eba` | UX revision batch — removed channel blocking, button-only loading, options polish |
+| `8f6ac27` | Review fixes — stuck-Analyzing on host miss, broken channel-tag lookup, search dead-end |
+| `acd4f54` | Review fixes — loading-cue mount, orphaned block-storage cleanup, honest videosWatched |
+| `44f9614` | Memory + performance/optimization audit (`docs/PERF_MEMORY_AUDIT.md`) |
+| `1acf1fa` | Top memory/optimization fixes (tag-map leak, poll, icon, comments) |
+| `30a4c07` | Virtualize Channels + History lists (dynamic-height, search-aware) |
+| `004adf0` | Virtualize the expanded channel video list |
+| `c1bc979` | In-Chrome verification checklist for this session's UX changes |
+
+Net effect: version is now **0.1.164**, **113** unit tests, **4** destinations
+(Gemini/ChatGPT/Claude/NotebookLM — Perplexity removed), the block-channel feature
+is gone end-to-end (a one-time orphan-key cleanup of `tldwBlockedChannels` remains
+in `background/index.ts`), `claude-icon.png` is deleted (all four marks are inline
+SVG in `DestinationIcon.tsx`), the Channels page is tabbed/searchable/virtualized
+with persisted per-channel time + engagement stats, and support repointed to Ko-fi
+(`ko-fi.com/n8watkins`) + `n8builds.dev` + Appturnity (`appturnity.com`).
+
+**Verified working:** `npm run typecheck` clean, **113/113** Vitest tests pass,
 `npm run package` builds a valid zip (manifest at root, 7 host permissions). A full
 **Chrome Web Store compliance audit** passed: 49 requirements pass, **0 code/policy
 blockers**.
@@ -64,7 +89,7 @@ blockers remain:
 2. Dev account: **$5** + **2-Step Verification** + verified email.
 3. Run the two live verifications above, then `npm run package`, paste the listing
    fields from `STORE_SUBMISSION.md`, set visibility, **submit**.
-- **Decision pending (user):** bump version `0.1.156` → `1.0.0` for the public
+- **Decision pending (user):** bump version `0.1.164` → `1.0.0` for the public
   listing (cosmetic).
 
 ### B. Feature development (post-launch roadmap)
@@ -89,10 +114,12 @@ From [`STATUS.md`](../STATUS.md) and the audits, in rough priority:
    pure tech-debt refactor; keep behavior identical, gate with the smoke test.
 
 ### C. Optional pre-launch polish
-- **Neutralize bundled brand logos** — `src/assets/claude-icon.png` and the OpenAI/
-  Gemini/NotebookLM marks in `src/lib/DestinationIcon.tsx` are real third-party
-  logos. Low IP-complaint risk; swap to neutral labeled glyphs to de-risk a public
-  listing. (User opted to keep for now.)
+- **Neutralize bundled brand logos** — `src/assets/claude-icon.png` has been
+  **deleted**; all four destination marks (Gemini/ChatGPT/Claude/NotebookLM) are
+  now **inline SVG** in `src/lib/DestinationIcon.tsx`. The "swap the PNG" task is
+  done. They are still real third-party marks (low IP-complaint risk); swapping
+  them to neutral labeled glyphs to de-risk a public listing remains optional.
+  (User opted to keep for now.)
 
 ## Conventions & gotchas
 

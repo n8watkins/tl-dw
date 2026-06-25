@@ -121,11 +121,15 @@ For destinations that can't watch the video, TL;DW extracts the transcript by in
 - [x] **Stats dashboard** — lifetime counters, activity heatmap, and
   week/month/year/all-time windowed rollups with delta chips (F7 Phase 1,
   `lib/dashboards.ts`, `StatsSection.tsx`)
-- [x] **Channels + per-channel tags** — channel cards, block / auto-run lists,
+- [x] **Channels + per-channel tags** — channel cards, an auto-summarize list,
   and a tags layer (channel ∪ video tags) surfaced on the widget and the
-  options Tags page (`ChannelsSection.tsx`, `TagsSection.tsx`, `lib/storage.ts`)
-- [x] Widget polish — overflow (kebab) menu, channel-average cue, fill-on-hover
-  pills, force-rerun Regenerate (`content/youtube.ts`)
+  options Tags page (`ChannelsSection.tsx`, `TagsSection.tsx`, `lib/storage.ts`).
+  Channel tags are keyed by channel **name** (was channel id).
+- [x] Summary-panel polish — overflow (kebab) menu, channel-average cue,
+  fill-on-hover pills, force-rerun Regenerate. These controls live on the
+  rendered summary panel; the summary itself is now triggered by an inline
+  "TL;DW" button in the subscribe row (the always-on idle box and the loading
+  skeleton panel were removed) (`content/youtube.ts`)
 
 ### Declined
 

@@ -32,6 +32,11 @@ The dashboard will not let you submit for review until both exist.
 
 ## 🟡 Verify before submitting (changes we couldn't runtime-test)
 
+- [x] **Listing text accuracy** — [`STORE_SUBMISSION.md`](STORE_SUBMISSION.md) re-checked
+      against the shipped UI (it had depended on now-removed claims): no "block channel"
+      wording (block feature removed), the brand-logo §7 note matches the inline-SVG
+      reality (no bundled `claude-icon.png`), 4 destinations (no Perplexity), and the
+      version reference is `0.1.164`.
 - [ ] **Direct API live-key test** — run one Direct-API summary with a real Gemini
       key to confirm the new `x-goog-api-key` header call still works.
 - [ ] **First-run notice** — load the latest build, open the popup once, confirm the
@@ -63,6 +68,7 @@ The dashboard will not let you submit for review until both exist.
 
 ## 🔵 Optional polish (not required to publish)
 
-- [ ] Neutralize the bundled third-party brand logos (Claude/OpenAI/etc.) — lowers a
-      small IP-complaint risk on a public listing; swap to neutral labeled glyphs.
-- [ ] Decide on the `1.0.0` version bump for the public launch.
+- [ ] Neutralize the third-party brand marks (Claude/OpenAI/etc.) — now inline SVGs in
+      `src/lib/DestinationIcon.tsx`; lowers a small IP-complaint risk on a public
+      listing; swap to neutral labeled glyphs.
+- [ ] Decide on the `1.0.0` version bump for the public launch (current: `0.1.164`).

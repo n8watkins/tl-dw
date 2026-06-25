@@ -9,6 +9,11 @@ React and React-DOM — MIT License.
 Copyright (c) Meta Platforms, Inc. and affiliates.
 https://github.com/facebook/react
 
+Simple Icons — CC0 1.0 (public domain). The inline destination-icon SVG paths are
+sourced from Simple Icons; no attribution is legally required, but it is noted here
+for cleanliness. (The OpenAI/ChatGPT mark is OpenAI's, from openai.com.)
+https://simpleicons.org/
+
 (Build/dev tooling — Vite, @crxjs/vite-plugin, TypeScript, Vitest — is used at
 build time only and is not redistributed in the packaged extension.)
 

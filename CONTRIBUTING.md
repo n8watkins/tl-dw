@@ -24,7 +24,7 @@ which bumps the patch version every run so the popup version always changes.
 
 ```bash
 npm run typecheck  # tsc --noEmit
-npm test           # vitest run — currently 101 passing unit tests
+npm test           # vitest run — currently 113 passing unit tests
 ```
 
 Tests cover the **pure helpers** in `src/lib/` (engagement, stats, dashboards,

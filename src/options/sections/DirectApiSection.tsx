@@ -168,7 +168,7 @@ export function DirectApiSection() {
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
           <TierBadge tier="integrated" label="Integrated" />
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>
             Everything on this page is part of the Integrated tier — it needs the Direct API
             (Gemini) key. The on-page summary panel and AI verdict come from the model's
             structured output.
@@ -247,7 +247,7 @@ export function DirectApiSection() {
             gives you ~500 requests/day with Gemini 3.1 Flash Lite — plenty for daily use.
             Stay on the free tier.
           </div>
-          <div className="card-desc" style={{ marginTop: 4, fontSize: 12, color: "var(--text-muted)" }}>
+          <div className="card-desc" style={{ marginTop: 4, fontSize: 12, color: "var(--muted)" }}>
             Your key is stored only in your browser and sent only to Google's API — never to us.
           </div>
 
@@ -261,7 +261,7 @@ export function DirectApiSection() {
                   Delete key
                 </button>
               </div>
-              <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-muted)" }}>
+              <div style={{ marginTop: 6, fontSize: 12, color: "var(--muted)" }}>
                 The key value is not visible after saving. To use a different key, delete this one and add a new one.
               </div>
             </div>
@@ -284,7 +284,7 @@ export function DirectApiSection() {
                 autoComplete="new-password"
                 spellCheck={false}
               />
-              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              <div style={{ fontSize: 12, color: "var(--muted)" }}>
                 You can delete it later, but you cannot view or edit it.
               </div>
               <div>
@@ -311,7 +311,7 @@ export function DirectApiSection() {
 
         {/* Request count summary */}
         {settings.useDirectApi && (
-          <div style={{ marginBottom: 12, fontSize: 12, color: "var(--text-muted)" }}>
+          <div style={{ marginBottom: 12, fontSize: 12, color: "var(--muted)" }}>
             <span style={{
               display: "inline-block", background: "var(--border)",
               borderRadius: "999px", padding: "2px 10px", fontWeight: 600, fontSize: 11,
@@ -475,7 +475,7 @@ export function DirectApiSection() {
                   <span style={{ fontSize: 12, fontWeight: 600 }}>
                     Free tier usage today
                   </span>
-                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  <span style={{ fontSize: 12, color: "var(--muted)" }}>
                     {geminiUsage.todayCalls} / {FREE_TIER_LIMIT} requests
                   </span>
                 </div>
@@ -486,13 +486,13 @@ export function DirectApiSection() {
                     transition: "width 0.4s ease",
                   }} />
                 </div>
-                <div style={{ marginTop: 5, fontSize: 11, color: "var(--text-muted)" }}>
+                <div style={{ marginTop: 5, fontSize: 11, color: "var(--muted)" }}>
                   Gemini 3.1 Flash Lite free tier · ~500 RPD ·{" "}
                   <a
                     href="https://ai.google.dev/pricing"
                     target="_blank"
                     rel="noreferrer"
-                    style={{ color: "var(--text-muted)", textDecoration: "underline" }}
+                    style={{ color: "var(--muted)", textDecoration: "underline" }}
                   >
                     Pricing details ↗
                   </a>
@@ -507,7 +507,7 @@ export function DirectApiSection() {
               <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
                 {geminiUsage.allTimeCalls}
               </div>
-              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
                 all-time calls
               </div>
             </div>
@@ -515,7 +515,7 @@ export function DirectApiSection() {
               <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
                 {geminiUsage.todayCalls}
               </div>
-              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
                 today
               </div>
             </div>
@@ -523,7 +523,7 @@ export function DirectApiSection() {
               <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
                 {geminiUsage.totalCalls}
               </div>
-              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
                 since last clear
               </div>
             </div>
@@ -531,12 +531,12 @@ export function DirectApiSection() {
               <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1 }}>
                 {timeAgo(geminiUsage.lastCalledAt)}
               </div>
-              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
                 last used
               </div>
             </div>
           </div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
             All-time total is permanent and never cleared.
           </div>
           <button className="btn" onClick={() => setConfirmClearStats(true)}>
@@ -662,7 +662,7 @@ export function DirectApiSection() {
                         )}
                         {!entry.prompt && !entry.response && (
                           <div className="history-detail">
-                            <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                            <p style={{ color: "var(--muted)", fontSize: 13 }}>
                               Metadata only — the full prompt &amp; response aren't stored for this
                               call. Turn on “Keep full prompt &amp; response in the call log” in the
                               Behavior tab to capture them for future calls.

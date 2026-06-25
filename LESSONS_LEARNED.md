@@ -101,11 +101,12 @@ A summary that lands on the wrong video is worse than no summary.
 
 ## 10. One owner per piece of UI; track its "kind"
 
-When several injected surfaces can occupy the same spot (idle panel vs loading
-skeleton vs final summary vs a standalone rating bar), give the panel a **`kind`**
-and enforce **mutual exclusion** — the summary "owns" the rating row, so the
-standalone bar removes itself when the summary is present. Two surfaces silently
-rendering the same control is a classic source of "why is this showing twice?"
+When several injected surfaces can occupy the same spot (the inline subscribe-row
+TL;DW button vs the rendered summary panel vs an error panel vs a standalone rating
+bar), give the panel a **`kind`** and enforce **mutual exclusion** — the summary
+"owns" the rating row, so the standalone bar removes itself when the summary is
+present. Two surfaces silently rendering the same control is a classic source of
+"why is this showing twice?"
 
 ## 11. Isolate your styles from the host page (and vice-versa)
 

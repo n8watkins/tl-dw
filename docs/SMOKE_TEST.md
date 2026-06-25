@@ -1,6 +1,6 @@
 # TL;DW — Manual Smoke Test
 
-_Everything below is verified **statically** (typecheck + 101 unit tests + build +
+_Everything below is verified **statically** (typecheck + 113 unit tests + build +
 multiple adversarial reviews) but **not** in a real browser. This is the in-Chrome
 pass that closes that gap. Walk it after a build; check the boxes as you go._
 
@@ -23,8 +23,9 @@ feature path · 🟢 nice-to-have.
 
 ## A. 5-minute core smoke (do this first)
 
-- [ ] Open a normal YouTube **watch** page → the **TL;DW panel** injects below the
-      player (verdict pill + one-line summary).
+- [ ] Open a normal YouTube **watch** page → an inline **"TL;DW" button** appears in
+      the subscribe/owner row. Click it → the button shows **"Analyzing…"**, then a
+      **summary panel** appears (verdict pill + one-line summary).
 - [ ] Click the panel → **details** expand/collapse.
 - [ ] Open the toolbar **popup** on a video → it shows the video title + destination
       buttons + a profile select.
@@ -40,15 +41,15 @@ feature path · 🟢 nice-to-have.
 ### B1 — Navigate-during-summary (the wrong-video / cache-poison fix)
 - [ ] 🔴 Start a summary on **video A**, then immediately click a suggested **video B**
       (same tab) before A finishes. **Expected:** A's summary never appears on B;
-      B gets its own (or its idle panel). Go back to A → A still shows A's summary
-      (its cache wasn't overwritten by B).
+      B gets its own (or its inline "TL;DW" button). Go back to A → A still shows A's
+      summary (its cache wasn't overwritten by B).
 - [ ] 🔴 Repeat with the **tab-flow** (no key): same result.
 
 ### B2 — Direct-API error surfaces (no 90s hang)
 - [ ] 🔴 Temporarily break the key (Options → Direct API → bad key), summarize a video.
-      **Expected:** within a few seconds the panel shows an **error + retry**, not a
-      90-second spinning skeleton, and the toolbar badge is **not** a green ✓.
-      Restore the key after.
+      **Expected:** within a few seconds the inline button drops "Analyzing…" and an
+      **error panel** shows (**error + retry**) — it does **not** hang for 90 seconds,
+      and the toolbar badge is **not** a green ✓. Restore the key after.
 
 ### B3 — Parser / RATING revived
 - [ ] 🔴 A normal Direct-API summary parses cleanly (verdict + one-sentence summary +
@@ -97,12 +98,12 @@ feature path · 🟢 nice-to-have.
 ## C. Feature sprint (🟡 tags / engagement / menu / regenerate)
 
 ### C1 — ⋯ overflow menu + fill-hover (F1/F4)
-- [ ] 🟡 The summary header shows verdict + summary + **Auto-summarize** + **Skip
-      channel** inline, and a **"⋯"** button.
+- [ ] 🟡 The summary header shows verdict + summary + **Auto-summarize** inline, and a
+      **"⋯"** button.
 - [ ] 🟡 Clicking "⋯" opens a menu with **Clear cache**, **⚡ Gemini/source**, **Open
       tab**. Closes on outside-click and **Esc**.
-- [ ] 🟡 Hover **Auto-summarize** → it **fills blue with white text** (not just a border).
-      Skip-channel fills red. Looks consistent in **light and dark** YouTube themes.
+- [ ] 🟡 Hover **Auto-summarize** → it **fills blue with white text** (not just a
+      border). Looks consistent in **light and dark** YouTube themes.
 
 ### C2 — Engagement cue is average-only (F2)
 - [ ] 🟡 On a fresh load, the engagement line shows your **channel average** (e.g.
@@ -133,6 +134,13 @@ feature path · 🟢 nice-to-have.
 - [ ] 🟡 After a regenerate that used a **video-only** tag, a **"save for this channel"**
       prompt appears; using it promotes the tag.
 
+### C5 — Channels page (tabs + search + virtualized lists)
+- [ ] 🟡 **Options → Channels** shows a **tab strip** (**All channels** / **Auto-summarize**)
+      and a **search box**. Typing filters the list (All filters by name **or** tag;
+      Auto-summarize filters by name); no matches shows a friendly empty state.
+- [ ] 🟢 With many channels, the list is **virtualized** — it scrolls smoothly and rows
+      render as you scroll (no lag, no broken layout).
+
 ---
 
 ## D. F7 Phase-1 dashboards (🟡 Options → Stats)
@@ -144,11 +152,6 @@ feature path · 🟢 nice-to-have.
 - [ ] 🟡 **Finish rate** donut is windowed and shows a **pts vs last** delta.
 - [ ] 🟡 **"What you watched"** lists top channels for the window with their engagement mix.
 - [ ] 🟡 **Active days** ("5 / 7"), **hours previewed**, **channels** tiles render.
-- [ ] 🔴 **Block nudge:** if you skip ≥70% of a channel (≥5 videos) in the window, a
-      "You skipped X of Y from <channel> — Block it?" card appears. Click **Block
-      channel** → go to a **watch page** for that channel → **the TL;DW panel is
-      suppressed** (the nudge actually blocks). Reload Stats → the nudge for that
-      already-blocked channel does **not** come back.
 - [ ] 🟢 **This year** shows the "based on retained history" footnote.
 - [ ] 🟢 Channel **avatars** render; an expired/broken avatar URL falls back to a plain
       circle (no broken-image glyph).
@@ -186,5 +189,4 @@ feature path · 🟢 nice-to-have.
 ### Priority if you're short on time
 Do the 🔴 items in **B** (navigate-during-summary, error surfacing, RATING cue,
 watch persistence, multi-tab stats, popup choices, history-no-wipe), then **C3**
-(tags seam) and **D**'s block-nudge. Those are the subtle, this-session changes most
-worth a human eye.
+(tags seam). Those are the subtle, this-session changes most worth a human eye.

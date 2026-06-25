@@ -707,7 +707,7 @@ const NEUTRAL_FILL = "#3f3f3f";
 
 /**
  * Uniform geometry shared by every injected pill-shaped control (rating
- * buttons, skip-channel, auto toggles, verdict/score pills, Get Summary, …).
+ * buttons, auto toggles, verdict/score pills, Get Summary, …).
  * A fixed height + flex centering keeps them all the SAME height regardless of
  * font-size, border, or text content; box-sizing folds any border/padding into
  * that height so bordered and borderless pills line up exactly.
@@ -962,7 +962,7 @@ function menuItemRow(
 /**
  * The right-aligned "⋯" kebab that collapses the summary panel's SECONDARY
  * actions (Open tab / Clear cache / source badge) into a popover (F1). The
- * primary controls (verdict, Auto-summarize, Skip channel) stay inline.
+ * primary controls (verdict, Auto-summarize) stay inline.
  */
 function buildOverflowMenu(
   t: ReturnType<typeof theme>,
@@ -1018,7 +1018,7 @@ function buildAutoToggle(
     cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
     background: t.border,
     // Include `background` so the F4 hover fill eases like the sibling header
-    // pills (Skip-channel / Gemini / kebab), not snap instantly.
+    // pills (Gemini / kebab), not snap instantly.
     transition: "background 0.15s, border-color 0.15s, color 0.15s",
     ...pillGeom,
   });

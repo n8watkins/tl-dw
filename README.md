@@ -130,7 +130,7 @@ number should match the latest build.
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the dev loop and conventions.
 [`STATUS.md`](STATUS.md) is the live status doc. In short: feature work lands on
 short-lived `feat/*` branches via PR, and every change is gated by `npm run
-typecheck` + `npm test` (currently 101 passing unit tests) plus the relevant
+typecheck` + `npm test` (currently 113 passing unit tests) plus the relevant
 [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) checks before committing.
 
 ## License

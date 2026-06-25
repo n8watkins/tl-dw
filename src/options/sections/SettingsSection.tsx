@@ -185,7 +185,7 @@ export function SettingsSection() {
               Clear all cached summaries
             </button>
           </div>
-          <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
+          <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)" }}>
             Your per-channel ratings and history aren't affected — only the stored summaries.
           </div>
         </div>

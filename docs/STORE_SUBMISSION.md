@@ -84,7 +84,7 @@ WHAT YOU GET
 - Worth-watching verdict gate for long videos, plus optional auto-summarize for anything over a length you choose.
 - SponsorBlock auto-skip with inline timestamps, a one-tap Undo, and lifetime time-saved tracking.
 - Engagement auto-rating (Engaged / Skimmed / Skipped) - no manual buttons to tap.
-- Per-channel stats with avatar cards, average AI score, and a "vs this channel" cue on the video; block or auto-run any channel.
+- Per-channel stats with avatar cards, average AI score, and a "vs this channel" cue on the video; auto-summarize any channel.
 - Dashboards: time given back, finish-rate donut, activity heatmap, day streak, and vs-previous-period delta chips across week, month, year, and all-time.
 - Editable prompt profiles (TL;DW, Research, Learning, Tutorial, or your own), an optional "ask something specific" field, searchable history, tags, a right-click menu, and the Alt+Shift+G keyboard shortcut.
 - Works on standard YouTube watch pages; Shorts are supported via the popup (sent to Gemini, which watches the video directly).
@@ -184,12 +184,12 @@ asks about the two "magnets," reply with:
 
 ## 7. Optional follow-ups (not blockers)
 
-- **Brand logos.** The extension bundles real Gemini/ChatGPT/Claude/NotebookLM
-  marks (`src/assets/claude-icon.png`, `src/lib/DestinationIcon.tsx`). Trademark
-  owners can request removal on a public listing. Kept for now (used only to label
-  destinations, nominative) — to de-risk, swap to neutral monogram chips and never
-  put a third-party logo in the store screenshots/promo tile.
-- **Version.** `0.1.156` signals beta; consider bumping to `1.0.0` for the public
+- **Brand logos.** All four Gemini/ChatGPT/Claude/NotebookLM marks are inline SVGs
+  in `src/lib/DestinationIcon.tsx` (no bundled brand PNGs). Trademark owners can
+  request removal on a public listing. Kept for now (used only to label destinations,
+  nominative) — to de-risk, swap to neutral monogram chips and never put a third-party
+  logo in the store screenshots/promo tile.
+- **Version.** `0.1.164` signals beta; consider bumping to `1.0.0` for the public
   listing (cosmetic, not a rejection issue).
 - **Live-key test.** The Gemini key now goes via the `x-goog-api-key` header — do a
   30-second Direct-API summary with a real key to confirm the call still works.

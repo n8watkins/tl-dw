@@ -9,6 +9,42 @@ Notable changes to TL;DW. Format loosely follows
 > milestones**, not every patch. Full commit-level history is in git, and completed
 > planning docs live in [`docs/archive/`](docs/archive/).
 
+## 0.1.164 — 2026-06-25
+
+### Added
+- **Inline TL;DW button in the subscribe row** — replaces the always-on idle box;
+  the action now lives next to Subscribe and shows its own loading state.
+- **Channels page tabs + search** — an *All channels* / *Auto-summarize* tab split
+  with name/tag search, and **virtualized lists** (`@tanstack/react-virtual`) so
+  large channel lists stay smooth.
+- **Per-channel stats** — time-spent and engagement are now tracked and persisted
+  per channel.
+- **Support / About refresh** — support repointed from Buy Me a Coffee to
+  **Ko-fi** (https://ko-fi.com/n8watkins) and now also plugs
+  **n8builds.dev** (https://n8builds.dev) and **Appturnity**
+  (https://appturnity.com/); the version moved to the sidebar/header and About.
+
+### Changed
+- **Channel tags are now keyed by channel name** (rather than the prior key).
+- Popup: shorter first-run sponsor notice, four destinations, and a Ko-fi link.
+- Documentation pass: corrected the unit-test count (now **113**).
+
+### Removed
+- **Block-channel feature removed entirely** — the blocked-channels lists and the
+  block-nudge card (advertised in 0.1.156) are gone. Orphaned
+  `tldwBlockedChannels` storage is cleaned up on startup.
+- **Perplexity destination removed** — the open-in-a-tab destinations are now
+  **Gemini, ChatGPT, Claude, and NotebookLM** (four total).
+- **Always-on idle box and loading skeleton removed** — loading lives on the new
+  inline button instead.
+- **`src/assets/claude-icon.png` removed** — all four destination icons are now
+  inline Simple Icons SVG paths in `DestinationIcon.tsx`.
+
+### Fixed / performance
+- Fixed a tag-map memory leak, added a poll fast-path, and added storage
+  quota-comment clarifications.
+- Added a video-tag sweep alongside the orphaned blocked-channels cleanup.
+
 ## 0.1.156 — 2026-06-20
 
 ### Added

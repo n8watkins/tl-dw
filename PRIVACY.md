@@ -1,6 +1,6 @@
 # TL;DW — Privacy Policy
 
-_Last updated: 2026-06-20 (extension v0.1.156)_
+_Last updated: 2026-06-25 (extension v0.1.164)_
 
 TL;DW is a Chrome extension that summarizes the YouTube video you're watching. It
 has **no backend service, no user accounts, and no analytics or tracking.**

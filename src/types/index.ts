@@ -138,7 +138,7 @@ export type CachedSummary = {
   cachedAt: string;
   /** The user's personal verdict on whether the video was worth watching. */
   userRating?: "watch" | "skim" | "skip";
-  /** Channel display name — used to clear cached entries when a channel is blocked. */
+  /** Channel display name — used to scope cached entries by channel. */
   channelName?: string;
 };
 
@@ -328,7 +328,7 @@ export type VideoContext = {
   channel?: string;
   /** Channel id/href (e.g. "/@Handle" or "/channel/UC…") from getChannelInfo().id.
    *  Used to resolve channel tags by id (with name fallback), matching the
-   *  widget's writer and the auto-run/blocked channel lookups. */
+   *  widget's writer and the auto-run channel lookups. */
   channelId?: string;
   avatarUrl?: string;
 };

@@ -74,7 +74,7 @@ export function AboutSection() {
           </div>
         </div>
 
-        {/* 5 AI destinations — wide */}
+        {/* AI destinations — wide */}
         <div className="about-card about-card-wide" style={{"--ca": "#14b8a6", "--cg": "rgba(20,184,166,0.1)"} as React.CSSProperties}>
           <div className="about-card-icon" style={{background:"rgba(20,184,166,0.12)", color:"#2dd4bf"}}>
             <Icon name="sparkles" />

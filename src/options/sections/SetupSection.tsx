@@ -76,7 +76,7 @@ export function SetupSection() {
           </div>
           <div className="mode-card-tag">No API key · uses your AI subscription</div>
           <div className="card-desc">
-            TL;DW opens your chosen AI (Gemini, ChatGPT, Claude, Perplexity, NotebookLM) with
+            TL;DW opens your chosen AI (Gemini, ChatGPT, Claude, NotebookLM) with
             the prompt already typed and running. You can keep that tab in the
             background — TL;DW reads the finished answer back out of it and drops the summary
             onto the YouTube page for you. Nothing to set up; it just uses wherever you're
