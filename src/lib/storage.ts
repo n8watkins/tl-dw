@@ -1,7 +1,7 @@
 import type {
   AutoRunChannel,
-  BlockedChannel,
   CachedSummary,
+  ChannelStat,
   DeliveryStatus,
   GeminiCallEntry,
   GeminiUsage,
@@ -16,7 +16,6 @@ import type {
 import { computeEngagementVerdict, VERDICT_RANK } from "./engagement";
 import {
   AUTO_RUN_CHANNELS_KEY,
-  BLOCKED_CHANNELS_KEY,
   CACHE_TTL_MS,
   CHANNEL_TAGS_KEY,
   DEFAULT_SETTINGS,
@@ -35,6 +34,7 @@ import {
   VIDEO_TAGS_KEY,
 } from "./constants";
 import { createDefaultProfiles } from "./profiles";
+import { trimChannelStats } from "./stats";
 
 function normalizeBuiltInProfiles(profiles: PromptProfile[]): PromptProfile[] {
   const builtInIds = new Set(createDefaultProfiles().map((profile) => profile.id));
@@ -172,9 +172,13 @@ export async function recordWatchProgress(args: {
   // out of the serialized history mutation so we can bump stats afterward.
   let updatedEntry: SearchHistoryEntry | null = null;
   let prevRating: "watch" | "skim" | "skip" | undefined;
+  // True when this delta created the FIRST history row for the video — used to
+  // increment the channel's distinct-video count exactly once per video.
+  let wasNewEntry = false;
 
   await mutateHistory((history) => {
     const idx = history.findIndex((e) => extractVideoId(e.videoUrl) === videoId);
+    wasNewEntry = idx === -1;
 
     // Compute prospective accumulated total if we find (or create) an entry.
     const existingEntry = idx !== -1 ? history[idx]! : null;
@@ -247,15 +251,35 @@ export async function recordWatchProgress(args: {
   const entry = updatedEntry as SearchHistoryEntry;
 
   // --- Bump lifetime stats: watch time + verdict transitions ---------------
+  // Both the global counters and the per-channel aggregate ride the same
+  // bumpLifetimeStats write-lock, so they stay consistent and never lose a
+  // concurrent update.
   const newRating = entry.userRating;
-  if (deltaSeconds > 0 || (newRating !== undefined && newRating !== prevRating)) {
+  const verdictChanged = newRating !== undefined && newRating !== prevRating;
+  if (deltaSeconds > 0 || verdictChanged) {
+    const verdictDelta = verdictChanged
+      ? verdictCounterDelta(prevRating, newRating!)
+      : undefined;
+    // Key per-channel stats by channel name — the only channel identifier the
+    // watch-time engine reliably threads here (matches how computeChannelStats
+    // groups history). Skip the per-channel bump when the channel is unknown.
+    const channelName = entry.channel ?? video.channel;
     await bumpLifetimeStats((s) => {
       if (deltaSeconds > 0) s.secondsWatched += deltaSeconds;
-      if (newRating !== undefined && newRating !== prevRating) {
-        const delta = verdictCounterDelta(prevRating, newRating);
-        s.engaged = Math.max(0, s.engaged + delta.engaged);
-        s.skimmed = Math.max(0, s.skimmed + delta.skimmed);
-        s.skipped = Math.max(0, s.skipped + delta.skipped);
+      if (verdictDelta) {
+        s.engaged = Math.max(0, s.engaged + verdictDelta.engaged);
+        s.skimmed = Math.max(0, s.skimmed + verdictDelta.skimmed);
+        s.skipped = Math.max(0, s.skipped + verdictDelta.skipped);
+      }
+      if (channelName) {
+        bumpChannelStat(s, {
+          channelKey: channelName,
+          name: channelName,
+          avatarUrl: entry.channelAvatarUrl ?? video.avatarUrl,
+          deltaSeconds: deltaSeconds > 0 ? deltaSeconds : 0,
+          videoIsNew: wasNewEntry,
+          verdictDelta,
+        });
       }
     });
   }
@@ -550,6 +574,7 @@ function emptyLifetimeStats(): LifetimeStats {
     skimmed: 0,
     skipped: 0,
     activity: {},
+    channels: {},
   };
 }
 
@@ -573,7 +598,12 @@ export function trimActivity(
 export async function getLifetimeStats(): Promise<LifetimeStats> {
   const r = await chrome.storage.local.get(TLDW_STATS_KEY);
   const stored = r[TLDW_STATS_KEY] as Partial<LifetimeStats> | undefined;
-  return { ...emptyLifetimeStats(), ...stored, activity: stored?.activity ?? {} };
+  return {
+    ...emptyLifetimeStats(),
+    ...stored,
+    activity: stored?.activity ?? {},
+    channels: stored?.channels ?? {},
+  };
 }
 
 /**
@@ -592,8 +622,57 @@ export async function bumpLifetimeStats(
     if (!stats.since) stats.since = new Date().toISOString();
     mutate(stats);
     stats.activity = trimActivity(stats.activity);
+    // Bound the per-channel map the same way activity is bounded — evict the
+    // least-recently-watched channels so storage stays well under the quota.
+    if (stats.channels) stats.channels = trimChannelStats(stats.channels);
     await chrome.storage.local.set({ [TLDW_STATS_KEY]: stats });
   });
+}
+
+/**
+ * Apply a watch-progress delta to the per-channel aggregate inside a
+ * LifetimeStats draft. Pure mutation over `s.channels` so it can ride the
+ * existing `bumpLifetimeStats` write-lock alongside the global counters. Keyed
+ * by `channelKey` (channelId ?? name). `videoIsNew` increments the channel's
+ * distinct-video count exactly when a brand-new video starts accruing time.
+ * Verdict transitions mirror the global engaged/skimmed/skipped logic so the
+ * per-channel tallies move in lock-step (never below zero).
+ */
+export function bumpChannelStat(
+  s: LifetimeStats,
+  args: {
+    channelKey: string;
+    name: string;
+    avatarUrl?: string;
+    deltaSeconds: number;
+    videoIsNew: boolean;
+    verdictDelta?: { engaged: number; skimmed: number; skipped: number };
+  },
+): void {
+  if (!s.channels) s.channels = {};
+  const { channelKey, name, avatarUrl, deltaSeconds, videoIsNew, verdictDelta } = args;
+  const prev = s.channels[channelKey];
+  const next: ChannelStat = prev ?? {
+    name,
+    secondsWatched: 0,
+    videosWatched: 0,
+    engaged: 0,
+    skimmed: 0,
+    skipped: 0,
+    lastWatched: "",
+  };
+  // Refresh display fields to the latest known values.
+  next.name = name || next.name;
+  if (avatarUrl) next.avatarUrl = avatarUrl;
+  if (deltaSeconds > 0) next.secondsWatched += deltaSeconds;
+  if (videoIsNew) next.videosWatched += 1;
+  if (verdictDelta) {
+    next.engaged = Math.max(0, next.engaged + verdictDelta.engaged);
+    next.skimmed = Math.max(0, next.skimmed + verdictDelta.skimmed);
+    next.skipped = Math.max(0, next.skipped + verdictDelta.skipped);
+  }
+  next.lastWatched = new Date().toISOString();
+  s.channels[channelKey] = next;
 }
 
 /**
@@ -675,34 +754,6 @@ export async function removeAutoRunChannel(channelId: string): Promise<void> {
   await withWriteLock(AUTO_RUN_CHANNELS_KEY, async () => {
     const existing = await getAutoRunChannels();
     await setAutoRunChannels(existing.filter((c) => c.id !== channelId && c.name !== channelId));
-  });
-}
-
-// --- Blocked channel list ---------------------------------------------------
-
-export async function getBlockedChannels(): Promise<BlockedChannel[]> {
-  const r = await chrome.storage.local.get(BLOCKED_CHANNELS_KEY);
-  return (r[BLOCKED_CHANNELS_KEY] as BlockedChannel[]) ?? [];
-}
-
-export async function setBlockedChannels(channels: BlockedChannel[]): Promise<void> {
-  await chrome.storage.local.set({ [BLOCKED_CHANNELS_KEY]: channels });
-}
-
-/** Add or update a channel in the blocked list (matched by id or name). */
-export async function addBlockedChannel(channel: BlockedChannel): Promise<void> {
-  await withWriteLock(BLOCKED_CHANNELS_KEY, async () => {
-    const existing = await getBlockedChannels();
-    const filtered = existing.filter((c) => c.id !== channel.id && c.name !== channel.name);
-    await setBlockedChannels([channel, ...filtered]);
-  });
-}
-
-/** Remove a channel from the blocked list (matched by id or name). */
-export async function removeBlockedChannel(channelId: string): Promise<void> {
-  await withWriteLock(BLOCKED_CHANNELS_KEY, async () => {
-    const existing = await getBlockedChannels();
-    await setBlockedChannels(existing.filter((c) => c.id !== channelId && c.name !== channelId));
   });
 }
 

@@ -116,14 +116,21 @@ export const GEMINI_USAGE_KEY = "geminiUsage";
 /** chrome.storage.local key holding the list of auto-run channels (AutoRunChannel[]). */
 export const AUTO_RUN_CHANNELS_KEY = "autoRunChannels";
 
-/** chrome.storage.local key holding the list of blocked channels (BlockedChannel[]). */
-export const BLOCKED_CHANNELS_KEY = "tldwBlockedChannels";
-
 /** chrome.storage.local key holding per-call Direct API history entries. */
 export const GEMINI_CALL_LOG_KEY = "geminiCallLog";
 
 /** chrome.storage.local key for lifetime usage stats (never pruned). */
 export const TLDW_STATS_KEY = "tldwStats";
+
+/**
+ * Hard cap on the per-channel watch aggregates kept in LifetimeStats.channels.
+ * At ~80–120 bytes/channel a cap of 500 ≈ 40–60 KB — trivial vs the ~5 MB
+ * chrome.storage.local quota (no `unlimitedStorage` permission), but the map
+ * must be bounded since otherwise it grows one entry per distinct channel ever
+ * watched. The least-recently-watched channels are evicted first (see
+ * trimChannelStats).
+ */
+export const CHANNEL_STATS_CAP = 500;
 
 /** chrome.storage.local key for the user's tag library (Tag[]). */
 export const TAGS_KEY = "tldwTags";

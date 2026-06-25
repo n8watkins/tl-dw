@@ -10,9 +10,9 @@
 
 | Purpose | URL | Confirm before shipping |
 | --- | --- | --- |
-| Ko-fi (tips) | `https://ko-fi.com/n8watkins` | ✅ given by user |
-| Personal site | `https://natebuilds.dev` | ⚠️ user dictated "nate builds.dev" — **CONFIRM** it's `natebuilds.dev` (one word, no hyphen) and that it resolves |
-| Consulting brand | "Appturnity" | ⚠️ no URL provided — need the canonical link (appturnity.dev? appturnity.com? a LinkedIn/landing page?) |
+| Ko-fi (tips) | `https://ko-fi.com/n8watkins` | ✅ confirmed |
+| Personal site | `https://n8builds.dev` | ✅ confirmed (`n8builds.dev`, not "nate") |
+| Consulting brand | Appturnity — `https://appturnity.com/` | ✅ confirmed |
 
 Note: the codebase today points "Buy a coffee" at **buymeacoffee.com**, not Ko-fi
 (`SupportSection.tsx:5`). Items 7, 14 standardize everything on the Ko-fi URL above.
@@ -463,21 +463,21 @@ the resolution note there. Blocking is going away, so **no Blocked tab**.
   bar, that's a larger layout change — **flag this as a clarification**: *does
   "options page header" mean the sidebar logo area, or a new top bar?*
 
-### E16. Support: plug the dev (natebuilds.dev + Appturnity), framed around code/content + Ko-fi
+### E16. Support: plug the dev (n8builds.dev + Appturnity), framed around code/content + Ko-fi
 
 - **Current:** Support has only 3 cards — coffee, GitHub repo, Report an issue
   (`SupportSection.tsx:17-41`). **No** personal-site or consulting links anywhere
   in `src` (grep confirmed: no natebuilds, no Appturnity, no ko-fi).
 - **Proposed:** Reframe Support as "support the dev + their work." Card set:
   1. **Buy me a Ko-fi** → `https://ko-fi.com/n8watkins` (item E14).
-  2. **natebuilds.dev** → personal site (CONFIRM spelling/URL — see brand table).
-  3. **Appturnity** → consulting brand (NEED a URL).
+  2. **n8builds.dev** → personal site `https://n8builds.dev`.
+  3. **Appturnity** → consulting brand `https://appturnity.com/`.
   4. Keep **GitHub repo** + **Report an issue**.
   - Add `link`/`external` icons as needed (`Icons.tsx` already has `external`
     `:31` and `github` `:39`; add a generic `link`/`globe` if you want distinct
     iconography for the personal site).
   - Update the section description (`:14`) to match the new framing.
-- **Complications:** Need the two missing facts (natebuilds.dev exact URL,
+- **Complications:** Need the two missing facts (n8builds.dev exact URL,
   Appturnity URL) before this can ship. Otherwise straightforward — same
   `support-card` pattern.
 
@@ -519,7 +519,7 @@ inline `color:` hex on text. Standardize on `--text` / `--muted` / `--faint`.
 | **Channels — search / tag filter** | **Missing** | Not built yet (item C12). |
 | **About — "5 AI destinations"** | **Stale / Perplexity remnant** | `AboutSection.tsx:82` hardcodes the title **"5 AI destinations"** but maps `DESTINATIONS` which now has **4** (`:87`). Title says 5, grid shows 4. Fix to "4 AI destinations" (or derive `{DESTINATIONS.length}`). |
 | **Support — version panel** | Wired but **to be removed** (E15) | Redundant once version moves to header. |
-| **Support — dev plugs** | **Missing** | natebuilds.dev / Appturnity not present (E16). |
+| **Support — dev plugs** | **Missing** | n8builds.dev / Appturnity not present (E16). |
 | **On-page — loading panel** | Wired but **to be removed** (A1) | Sole caller `youtube.ts:2414`; coupled to error/timeout flow. |
 | **On-page — Block channel kebab** | **To be removed** (A4) | `youtube.ts:1955-1966`. |
 | **Constants/storage — `BlockedChannel*`** | **Dead after A4** | `constants.ts:119-120`, `storage.ts:683-707`, `types/index.ts:105`. |
@@ -533,7 +533,7 @@ inline `color:` hex on text. Standardize on `--text` / `--muted` / `--faint`.
 
 # Open questions / decisions for the user
 
-1. **Brand URLs (blocking E16):** Confirm `natebuilds.dev` exact spelling and
+1. **Brand URLs (blocking E16):** Confirm `n8builds.dev` exact spelling and
    that it resolves. Provide the **Appturnity** URL.
 2. **"Options page header" (E15):** There's no top header bar — the title is in
    the **sidebar logo**. Is putting the version next to the sidebar logo

@@ -1140,29 +1140,6 @@ textarea { min-height: 176px; font-family: "JetBrains Mono", "Fira Code", ui-mon
   line-height: 1.45;
 }
 
-.version-panel {
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px 18px;
-}
-
-.version-panel span {
-  color: var(--muted);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.version-panel strong {
-  color: var(--accent);
-  font-size: 22px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
 /* ── About ───────────────────────────────────────────── */
 
 .about-hero {

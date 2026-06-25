@@ -79,9 +79,9 @@ export function AboutSection() {
           <div className="about-card-icon" style={{background:"rgba(20,184,166,0.12)", color:"#2dd4bf"}}>
             <Icon name="sparkles" />
           </div>
-          <div className="about-card-title">5 AI destinations</div>
+          <div className="about-card-title">{DESTINATIONS.length} AI destinations</div>
           <div className="about-card-desc">
-            Each destination handled the right way — Gemini watches the video directly; others get the full extracted transcript.
+            Each destination handled the right way — Gemini watches the video directly; NotebookLM, Claude, and ChatGPT get the full extracted transcript.
           </div>
           <div className="about-dest-row">
             {DESTINATIONS.map((d) => (

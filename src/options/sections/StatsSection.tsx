@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import type { LifetimeStats, GeminiUsage, SearchHistoryEntry } from "../../types";
-import { addBlockedChannel, getBlockedChannels, getLifetimeStats, getGeminiUsage, getHistory } from "../../lib/storage";
-import { computeChannelStats, type ChannelStats } from "../../lib/history";
+import { getLifetimeStats, getGeminiUsage, getHistory } from "../../lib/storage";
+import { computeChannelStats } from "../../lib/history";
+import {
+  engagedRatio,
+  mostEngagedChannels,
+  topChannelsByTime,
+  type RankedChannel,
+} from "../../lib/stats";
 import { GEMINI_USAGE_KEY, localDateKey, STORAGE_KEYS, TLDW_STATS_KEY } from "../../lib/constants";
 import {
   compareWindows,
@@ -207,42 +213,51 @@ function ChannelAv({ url }: { url?: string }) {
   return <img className="stat-channel-av" src={url} alt="" onError={() => setErr(true)} />;
 }
 
+/**
+ * A ranked list of persisted channels (top-by-time / most-engaged). Each row
+ * shows the avatar, name, and a meta line built by `meta`. Empty list renders an
+ * inline empty-state. Pure-presentational over RankedChannel from lib/stats.
+ */
+function RankedChannelList({
+  channels,
+  meta,
+  emptyText,
+}: {
+  channels: RankedChannel[];
+  meta: (c: RankedChannel) => string;
+  emptyText: string;
+}) {
+  if (channels.length === 0) {
+    return <div className="stat-empty">{emptyText}</div>;
+  }
+  return (
+    <div>
+      {channels.map((c) => (
+        <div key={c.key} className="stat-channel-row">
+          <ChannelAv url={c.avatarUrl} />
+          <span className="stat-channel-name">{c.name}</span>
+          <span className="stat-channel-meta">{meta(c)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Finish-rate = engaged / rated (0..1, or null when nothing rated). */
 function finishRate(e: { engaged: number; skimmed: number; skipped: number }): number | null {
   const rated = e.engaged + e.skimmed + e.skipped;
   return rated > 0 ? e.engaged / rated : null;
 }
 
-/** The worst channel worth nudging to block: high count + high skip rate. */
-function nudgeCandidate(channels: ChannelStats[], excluded: Set<string>): ChannelStats | null {
-  let worst: ChannelStats | null = null;
-  let worstRate = 0;
-  for (const c of channels) {
-    if (excluded.has(c.channel)) continue;
-    const b = c.userBreakdown;
-    const rated = b.engaged + b.skimmed + b.skipped;
-    if (rated < 5) continue;
-    const skipRate = b.skipped / rated;
-    if (skipRate >= 0.7 && skipRate > worstRate) {
-      worst = c;
-      worstRate = skipRate;
-    }
-  }
-  return worst;
-}
-
 /** The week/month/year view. Pure-presentational: all data is precomputed. */
 function WindowedView({
-  kind, cur, prev, handledNudges, onNudge,
+  kind, cur, prev,
 }: {
   kind: WindowKind;
   cur: WindowStats;
   prev: WindowStats;
-  handledNudges: Set<string>;
-  onNudge: (ch: ChannelStats, block: boolean) => void;
 }) {
   const label = WINDOW_LABEL[kind];
-  const nudge = nudgeCandidate(cur.topChannels, handledNudges);
   const finCur = finishRate(cur.engagement);
   const finPrev = finishRate(prev.engagement);
   const ratedTotal = cur.engagement.engaged + cur.engagement.skimmed + cur.engagement.skipped;
@@ -270,20 +285,6 @@ function WindowedView({
           {cur.videosWithMeta === 1 ? "video" : "videos"} you skimmed or skipped instead of watching in full.
         </div>
       </div>
-
-      {/* Behaviour nudge — block a channel you mostly skip */}
-      {nudge && (
-        <div className="stat-nudge">
-          <ChannelAv url={nudge.avatarUrl} />
-          <div className="stat-nudge-text">
-            You skipped{" "}
-            <strong>{nudge.userBreakdown.skipped} of {nudge.userBreakdown.engaged + nudge.userBreakdown.skimmed + nudge.userBreakdown.skipped}</strong>{" "}
-            videos from <strong>{nudge.channel}</strong> this {label}. Block it from TL;DW?
-          </div>
-          <button className="nudge-block" onClick={() => onNudge(nudge, true)}>Block channel</button>
-          <button className="nudge-dismiss" onClick={() => onNudge(nudge, false)}>Not now</button>
-        </div>
-      )}
 
       {/* Finish-rate donut + what you watched */}
       <div className="stats-grid stats-mid-row">
@@ -386,11 +387,6 @@ export function StatsSection() {
   const [usage, setUsage] = useState<GeminiUsage | null>(null);
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   const [view, setView] = useState<WindowKind | "all">("week");
-  // Channels the user dismissed or blocked via the nudge this session.
-  const [handledNudges, setHandledNudges] = useState<Set<string>>(new Set());
-  // Already-blocked channel names (loaded once) — so we never re-nudge to block
-  // a channel that's already blocked across reloads.
-  const [blockedNames, setBlockedNames] = useState<Set<string>>(new Set());
 
   // Windowed comparison — derived only, recomputed when data or window changes
   // (no extra storage reads; the storage listener already keeps history/stats fresh).
@@ -400,13 +396,12 @@ export function StatsSection() {
   );
 
   async function loadAll() {
-    const [s, u, h, blocked] = await Promise.all([
-      getLifetimeStats(), getGeminiUsage(), getHistory(), getBlockedChannels(),
+    const [s, u, h] = await Promise.all([
+      getLifetimeStats(), getGeminiUsage(), getHistory(),
     ]);
     setStats(s);
     setUsage(u);
     setHistory(h);
-    setBlockedNames(new Set(blocked.map((c) => c.name)));
   }
 
   useEffect(() => {
@@ -438,9 +433,17 @@ export function StatsSection() {
     );
   }
 
-  // Derived values
+  // Derived values. Per-channel rankings draw from the PERSISTED stats.channels
+  // map (the never-pruned source of truth) so "most engaged" / "time spent"
+  // survive history pruning — unlike computeChannelStats(history), which only
+  // sees the retained window. `channelStats` (history-derived) is still used for
+  // "Channels explored" so that count matches the rest of the history views.
   const channelStats = computeChannelStats(history);
-  const topChannel = channelStats[0];
+  const timeRanked = topChannelsByTime(stats.channels, 5);
+  const engagedRanked = mostEngagedChannels(stats.channels, 5);
+  // Lifetime "Top channel" = most time spent (engagement-meaningful), from the
+  // persisted map — not most-videos from the windowed history as before.
+  const topChannel = timeRanked[0];
   const uniqueChannels = channelStats.length;
   const timeSavedSeconds = computeTimeSaved(history);
   const streak = computeStreak(stats.activity);
@@ -454,18 +457,6 @@ export function StatsSection() {
   const donutTotal = stats.engaged + stats.skimmed + stats.skipped;
 
   const hasAnyStats = stats.summaries > 0 || donutTotal > 0;
-
-  function handleNudge(ch: ChannelStats, block: boolean) {
-    if (block) {
-      void addBlockedChannel({
-        id: ch.channel,
-        name: ch.channel,
-        avatarUrl: ch.avatarUrl ?? "",
-        addedAt: new Date().toISOString(),
-      });
-    }
-    setHandledNudges((prev) => new Set(prev).add(ch.channel));
-  }
 
   return (
     <div>
@@ -495,8 +486,6 @@ export function StatsSection() {
           kind={view}
           cur={comparison.current}
           prev={comparison.previous}
-          handledNudges={new Set([...handledNudges, ...blockedNames])}
-          onNudge={handleNudge}
         />
       )}
 
@@ -583,6 +572,35 @@ export function StatsSection() {
         </div>
       </div>
 
+      {/* ── Per-channel engagement: time spent + most engaged ───── */}
+      <div className="stats-grid stats-mid-row">
+
+        <div className="stat-card" style={{ "--ca": "#14b8a6", "--cg": "rgba(20,184,166,0.12)" } as React.CSSProperties}>
+          <div className="stat-card-label">Top channels by time spent</div>
+          <RankedChannelList
+            channels={timeRanked}
+            emptyText="No watch time tracked per channel yet."
+            meta={(c) => {
+              const vids = `${fmtCount(c.videosWatched)} ${c.videosWatched === 1 ? "video" : "videos"}`;
+              return `${fmtSeconds(c.secondsWatched)} · ${vids}`;
+            }}
+          />
+        </div>
+
+        <div className="stat-card" style={{ "--ca": "#22c55e", "--cg": "rgba(34,197,94,0.12)" } as React.CSSProperties}>
+          <div className="stat-card-label">Most engaged channels</div>
+          <RankedChannelList
+            channels={engagedRanked}
+            emptyText="No engaged videos tracked per channel yet."
+            meta={(c) => {
+              const ratio = engagedRatio(c);
+              const eng = `${fmtCount(c.engaged)} engaged`;
+              return ratio !== null ? `${eng} · ${Math.round(ratio * 100)}%` : eng;
+            }}
+          />
+        </div>
+      </div>
+
       {/* ── Small tile row ──────────────────────────────────────── */}
       <div className="stats-grid stats-small-row">
 
@@ -603,11 +621,11 @@ export function StatsSection() {
         <div className="stat-card stat-card-sm" style={{ "--ca": "#f43f5e", "--cg": "rgba(244,63,94,0.15)" } as React.CSSProperties}>
           <div className="stat-sm-icon">🎯</div>
           <div className="stat-sm-num" style={{ color: "#fb7185", fontSize: topChannel ? "15px" : undefined }}>
-            {topChannel ? topChannel.channel : "—"}
+            {topChannel ? topChannel.name : "—"}
           </div>
           <div className="stat-sm-label">Top channel</div>
           <div className="stat-sm-sub">
-            {topChannel ? `${fmtCount(topChannel.count)} videos` : "no data yet"}
+            {topChannel ? `${fmtSeconds(topChannel.secondsWatched)} watched` : "no data yet"}
           </div>
         </div>
 

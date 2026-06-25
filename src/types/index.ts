@@ -99,17 +99,6 @@ export type GeminiUsage = {
 };
 
 /**
- * A YouTube channel the user has blocked from TL;DW injection entirely.
- * Stored as an array in chrome.storage.local under "tldwBlockedChannels".
- */
-export type BlockedChannel = {
-  id: string;
-  name: string;
-  avatarUrl: string;
-  addedAt: string;
-};
-
-/**
  * A YouTube channel the user has opted into automatic TL;DW summarization for.
  * Stored as an array in chrome.storage.local under "autoRunChannels".
  */
@@ -170,6 +159,30 @@ export type GeminiCallEntry = {
 export type HistoryExpiryDays = 7 | 30 | 90 | 365;
 
 /**
+ * Per-channel watch aggregate inside LifetimeStats.channels. Lives in the
+ * never-pruned `tldwStats` so it survives history expiry — unlike
+ * computeChannelStats(history), which only sees the retained history window.
+ * Populated forward from recordWatchProgress; existing users start from zero
+ * (per-channel watch deltas weren't recorded before this field existed).
+ */
+export type ChannelStat = {
+  /** Channel display name (latest seen). */
+  name: string;
+  /** Total content-seconds watched on this channel. */
+  secondsWatched: number;
+  /** Distinct videos from this channel that have accrued watch time. */
+  videosWatched: number;
+  /** Lifetime engagement verdict tallies for this channel. */
+  engaged: number;
+  skimmed: number;
+  skipped: number;
+  /** ISO timestamp of the most recent watch — also the eviction key. */
+  lastWatched: string;
+  /** Latest channel avatar URL scraped from the watch page, if known. */
+  avatarUrl?: string;
+};
+
+/**
  * Lifetime usage counters stored under "tldwStats" in chrome.storage.local.
  * Never pruned — survives history expiry and cache clears.
  */
@@ -199,6 +212,13 @@ export type LifetimeStats = {
    * Keys are "YYYY-MM-DD"; capped at the most recent 366 entries.
    */
   activity: Record<string, number>;
+  /**
+   * Per-channel watch aggregates, keyed by channel key (channelId ?? name).
+   * Capped at the most-recently-watched CHANNEL_STATS_CAP channels (see
+   * trimChannelStats) so it stays well under the storage quota. Optional so
+   * existing stored stats (written before this field) read back cleanly.
+   */
+  channels?: Record<string, ChannelStat>;
 };
 
 /** Minutes thresholds the worth-watching gate offers (see WATCH_THRESHOLD_OPTIONS). */
@@ -399,9 +419,6 @@ export type OpenOptionsMessage = { type: "OPEN_OPTIONS"; section?: string };
  */
 export type OpenOrFocusDestinationMessage = { type: "OPEN_OR_FOCUS_DESTINATION" };
 
-/** Popup asking the content script whether the current channel is blocked. */
-export type GetChannelStatusMessage = { type: "GET_CHANNEL_STATUS" };
-
 /**
  * Sent from watchtime.ts (the watch-time engine content script) to report
  * accumulated playback progress. The background uses this to auto-rate videos
@@ -418,12 +435,6 @@ export type WatchProgressMessage = {
   /** True if a TL;DW summary panel was shown for this video (affects skip verdict). */
   sawSummary: boolean;
   video: { url: string; title?: string; channel?: string; avatarUrl?: string };
-};
-
-/** Response to GET_CHANNEL_STATUS. */
-export type ChannelStatusResponse = {
-  isBlocked: boolean;
-  channelName: string | null;
 };
 
 /** One sponsor segment from SponsorBlock: a [start, end] time range in seconds. */
@@ -480,7 +491,6 @@ export type RuntimeMessage =
   | AiSummaryMessage
   | OpenOptionsMessage
   | OpenOrFocusDestinationMessage
-  | GetChannelStatusMessage
   | WatchProgressMessage
   | GetSponsorSegmentsMessage
   | SponsorSkippedMessage;

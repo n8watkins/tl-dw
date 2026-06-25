@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import type {
-  ChannelStatusResponse,
   DeliveryStatus,
   OpenSearch,
   PromptProfile,
@@ -97,7 +96,6 @@ export function App() {
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   const [statuses, setStatuses] = useState<DeliveryStatus[]>([]);
   const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({ totalCalls: 0, allTimeCalls: 0, todayCalls: 0 });
-  const [channelStatus, setChannelStatus] = useState<ChannelStatusResponse | null>(null);
   // Whether the user has made an in-popup choice this session. Once they have,
   // a settings write (e.g. ticking Direct API) must NOT revert it back to the
   // saved default via the storage.onChanged listener below.
@@ -127,15 +125,6 @@ export function App() {
       setStatuses(stat);
       setGeminiUsage(usage);
       setReady(true);
-      // Ask the content script if this channel is blocked
-      if (activeTab?.id && isYouTubeVideoUrl(activeTab.url)) {
-        try {
-          const status = await chrome.tabs.sendMessage(activeTab.id, { type: "GET_CHANNEL_STATUS" }) as ChannelStatusResponse;
-          setChannelStatus(status);
-        } catch {
-          // Content script not ready or not a video page — ignore
-        }
-      }
     })();
   }, []);
 
@@ -316,29 +305,28 @@ export function App() {
       </header>
 
       {settings && !settings.firstRunNoticeSeen && (
-        <div className="first-run-notice" role="note">
+        <button
+          className="first-run-notice"
+          role="note"
+          title="Dismiss"
+          onClick={() => {
+            const next = { ...settings, firstRunNoticeSeen: true };
+            setSettings(next);
+            void saveSettings(next);
+          }}
+        >
           <p>
-            Heads up: TL;DW auto-skips sponsor segments — which sends the current
-            video&apos;s ID to the free SponsorBlock service — and measures your
-            watch-time locally to rate videos Engaged / Skimmed / Skipped.
-            Everything stays on your device; nothing is sent to us.
-          </p>
-          <div className="first-run-actions">
-            <button
-              className="first-run-ok"
-              onClick={() => {
-                const next = { ...settings, firstRunNoticeSeen: true };
-                setSettings(next);
-                void saveSettings(next);
-              }}
+            Auto-skips sponsors (sends video ID to SponsorBlock) and rates videos
+            from your local watch-time — all on-device.{" "}
+            <span
+              className="first-run-link"
+              role="link"
+              onClick={(e) => { e.stopPropagation(); openOptions(); }}
             >
-              Got it
-            </button>
-            <button className="first-run-link" onClick={openOptions}>
-              Turn these off in Settings
-            </button>
-          </div>
-        </div>
+              Settings
+            </span>
+          </p>
+        </button>
       )}
 
       {!ready ? (
@@ -383,20 +371,6 @@ export function App() {
               <span className="status-note-time">({timeAgo(g.at)})</span>
             </div>
           ))}
-        </div>
-      )}
-
-      {onVideo && channelStatus && channelStatus.isBlocked && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "var(--border)", borderRadius: 8, fontSize: 12, color: "var(--text-muted)" }}>
-          <span style={{ flex: 1 }}>
-            {channelStatus.channelName ?? "This channel"} is on your skip list (summaries)
-          </span>
-          <button
-            onClick={openOptions}
-            style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 6, border: "none", background: "var(--text-muted)", color: "var(--bg)", cursor: "pointer" }}
-          >
-            View Blacklist
-          </button>
         </div>
       )}
 
@@ -563,6 +537,15 @@ export function App() {
           </div>
         </div>
       )}
+
+      <a
+        className="kofi-link"
+        href="https://ko-fi.com/n8watkins"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        ☕ Buy me a Ko-fi
+      </a>
     </div>
   );
 }

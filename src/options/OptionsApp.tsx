@@ -26,6 +26,7 @@ const NAV: { id: NavItem; label: string; icon: string }[] = [
 ];
 
 const ICON_URL = chrome.runtime.getURL("icons/tl-dw-48.png");
+const VERSION = chrome.runtime.getManifest().version;
 
 const NAV_IDS = NAV.map((n) => n.id);
 function hashToNav(): NavItem | null {
@@ -59,7 +60,28 @@ export function OptionsApp() {
         <div className="sidebar-logo">
           <img className="sidebar-icon" src={ICON_URL} alt="" />
           <div>
-            <span className="logo-text">TL;DW</span>
+            <span className="logo-text">
+              TL;DW
+              <span
+                title="Extension version"
+                style={{
+                  marginLeft: 8,
+                  verticalAlign: "middle",
+                  display: "inline-block",
+                  background: "rgba(124,58,237,0.18)",
+                  border: "1px solid rgba(167,139,250,0.25)",
+                  borderRadius: 20,
+                  padding: "2px 8px",
+                  fontSize: 10,
+                  fontWeight: 600,
+                  letterSpacing: "0.04em",
+                  color: "var(--accent)",
+                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                }}
+              >
+                v{VERSION}
+              </span>
+            </span>
             <span className="logo-sub">Too Long; Didn't Watch</span>
           </div>
         </div>
@@ -75,10 +97,6 @@ export function OptionsApp() {
             </button>
           ))}
         </nav>
-        <div className="sidebar-footer">
-          <span>Version</span>
-          <strong>v{chrome.runtime.getManifest().version}</strong>
-        </div>
       </aside>
 
       <main className="content">

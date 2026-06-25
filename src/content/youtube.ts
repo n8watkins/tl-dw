@@ -416,22 +416,14 @@ function getVideoMeta(): { durationSeconds: number; channel: string; channelId?:
   return { durationSeconds, channel, channelId, avatarUrl };
 }
 
-// --- auto-run / blocked channel helpers (direct storage; no lib imports in content script) --
+// --- auto-run channel helpers (direct storage; no lib imports in content script) --
 
 const AUTO_RUN_CHANNELS_KEY = "autoRunChannels";
-const BLOCKED_CHANNELS_KEY = "tldwBlockedChannels";
 
 type AutoRunChannelEntry = {
   id: string; name: string; avatarUrl: string; addedAt: string;
   autoRunSummary: boolean;
 };
-
-type BlockedChannelEntry = { id: string; name: string; avatarUrl: string; addedAt: string };
-
-async function readBlockedChannels(): Promise<BlockedChannelEntry[]> {
-  const r = await chrome.storage.local.get(BLOCKED_CHANNELS_KEY);
-  return (r[BLOCKED_CHANNELS_KEY] as BlockedChannelEntry[]) ?? [];
-}
 
 /**
  * Cache a summary that arrived via SET_SUMMARY (the tab-scrape path). The
@@ -453,24 +445,6 @@ async function cacheScrapedSummary(vid: string, tldw: TldwSummary): Promise<void
   // the cache unbounded.
   pruneCache(cache);
   await chrome.storage.local.set({ tldwSummaryCache: cache });
-}
-
-async function clearCachedSummariesForChannel(channelName: string): Promise<void> {
-  const r = await chrome.storage.local.get("tldwSummaryCache");
-  const cache = (r["tldwSummaryCache"] as Record<string, { channelName?: string }>) ?? {};
-  const updated: Record<string, unknown> = {};
-  for (const [vid, entry] of Object.entries(cache)) {
-    if (entry.channelName !== channelName) updated[vid] = entry;
-  }
-  await chrome.storage.local.set({ tldwSummaryCache: updated });
-}
-
-async function addBlockedChannelEntry(info: ChannelInfo): Promise<void> {
-  const existing = await readBlockedChannels();
-  const filtered = existing.filter((c) => c.id !== info.id && c.name !== info.name);
-  const entry: BlockedChannelEntry = { ...info, addedAt: new Date().toISOString() };
-  await chrome.storage.local.set({ [BLOCKED_CHANNELS_KEY]: [entry, ...filtered] });
-  await clearCachedSummariesForChannel(info.name);
 }
 
 async function readAutoRunChannels(): Promise<AutoRunChannelEntry[]> {
@@ -573,8 +547,8 @@ function serializeTagWrite<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-/** The key a channel's tags live under — the SAME id auto-run/blocked lookups
- *  use (getChannelInfo().id, falling back to the display name) so Agent A's
+/** The key a channel's tags live under — the SAME id the auto-run lookup
+ *  uses (getChannelInfo().id, falling back to the display name) so Agent A's
  *  background weaving lines up with what the widget writes here. */
 function channelTagKey(info: ChannelInfo): string {
   return info.id || info.name;
@@ -660,17 +634,26 @@ let summaryPanel: HTMLElement | null = null;
 // Which kind of panel is currently injected into the host. Drives mutual
 // exclusion with the standalone rating bar:
 //  - "summary": a real summary, owns the rating row → bar hidden.
-//  - "loading": skeleton while the API call is in flight → bar hidden (the
-//    summary that replaces it owns the rating).
 //  - "idle": the "Get Summary" placeholder, no rating row → bar shown alongside.
 //  - null: no panel → bar shown.
-let summaryPanelKind: "summary" | "loading" | "idle" | null = null;
+// Note: the in-flight ("analyzing") state is NOT a panel kind anymore — there is
+// no skeleton panel. The inline TL;DW button is the sole loading indicator; the
+// `runInFlight` flag below tracks that state.
+let summaryPanelKind: "summary" | "idle" | null = null;
+
+// True while a summary run is in flight (request sent, no SET_SUMMARY /
+// SET_SUMMARY_ERROR / timeout yet). The inline TL;DW button shows the
+// "Analyzing…" cue; this flag — not a panel kind — gates the loading timeout and
+// the SET_SUMMARY_ERROR handler so errors/timeouts still surface even though
+// there's no skeleton panel. MUST be cleared on every terminal path (result,
+// error, timeout, navigation) so the button never sticks on "Analyzing…".
+let runInFlight = false;
 
 // The current "run a summary" action, captured so the loading-timeout error
-// panel can offer a one-click Retry. Set whenever the idle/loading flow runs.
+// panel can offer a one-click Retry. Set whenever a run flow is armed.
 let currentSummarizeAction: (() => Promise<void>) | null = null;
-// Fires if a loading panel sits unfilled too long (a tab-scrape that never
-// returned, a dead API call). Cleared whenever the panel is replaced/removed.
+// Fires if a run sits unfinished too long (a tab-scrape that never returned, a
+// dead API call). Cleared whenever a run resolves or the panel is removed.
 let loadingTimeoutTimer: number | undefined;
 // How long to wait for a result before showing the retry panel. Tab-mode
 // scrapes (open destination, wait for generation, scrape) can be slow, so this
@@ -682,6 +665,16 @@ function clearLoadingTimeout(): void {
     window.clearTimeout(loadingTimeoutTimer);
     loadingTimeoutTimer = undefined;
   }
+}
+
+/**
+ * End the in-flight run state: clear the flag + timeout. Callers that hit a
+ * terminal path (result landed, error, timeout, navigation) call this so the
+ * inline button can drop the "Analyzing…" cue and never sticks on it.
+ */
+function endRunInFlight(): void {
+  runInFlight = false;
+  clearLoadingTimeout();
 }
 
 function removeSummaryPanel(): void {
@@ -709,29 +702,6 @@ function verdictColor(verdict: string): string {
 // Neutral-dark fill used for the "quiet" header actions (Open tab / Gemini
 // source) on hover — readable white-on-dark in both light and dark themes.
 const NEUTRAL_FILL = "#3f3f3f";
-
-/**
- * Shared "fill on hover" treatment for header action pills (F4). On hover the
- * pill fills SOLID with `fillColor` and switches to white text, then returns to
- * its resting look on leave. The
- * resting background/text/border are captured at call time, so callers just
- * style the resting pill and add this.
- */
-function pillHover(btn: HTMLElement, fillColor: string): void {
-  const restBg = btn.style.background;
-  const restColor = btn.style.color;
-  const restBorder = btn.style.borderColor;
-  btn.addEventListener("mouseenter", () => {
-    btn.style.background = fillColor;
-    btn.style.color = "#fff";
-    btn.style.borderColor = fillColor;
-  });
-  btn.addEventListener("mouseleave", () => {
-    btn.style.background = restBg;
-    btn.style.color = restColor;
-    btn.style.borderColor = restBorder;
-  });
-}
 
 /**
  * Uniform geometry shared by every injected pill-shaped control (rating
@@ -790,8 +760,8 @@ function panelHost(): Element | null {
 // The persistent inline button mounted right of Subscribe (next to vidIQ). It's
 // the manual entry point for a summary on a cold video, and a live status cue
 // ("Analyzing…") while any run is in flight. Kept alive across YouTube's
-// owner-row re-renders by the onNavigate poll; suppressed for blocked channels
-// and non-summarizable live streams via watchButtonAllowed.
+// owner-row re-renders by the onNavigate poll; suppressed for non-summarizable
+// live streams via watchButtonAllowed.
 const WATCH_BTN_ID = "tldw-watch-btn";
 let watchButton: HTMLButtonElement | null = null;
 let watchButtonAllowed = true;
@@ -834,7 +804,7 @@ function removeWatchButton(): void {
 
 /** Mount (idempotently) the inline TL;DW button in the subscribe row. */
 function ensureWatchButton(): void {
-  // Watch pages only, and only when allowed (not blocked / not a live stream).
+  // Watch pages only, and only when allowed (not a non-summarizable live stream).
   if (!currentVideoId() || !watchButtonAllowed) { removeWatchButton(); return; }
 
   const existing = document.getElementById(WATCH_BTN_ID) as HTMLButtonElement | null;
@@ -852,13 +822,25 @@ function ensureWatchButton(): void {
     background: "#1a73e8", color: "#fff", border: "none",
     cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
     ...pillGeom,
+    // Override the shared PILL_HEIGHT (30px) AFTER spreading pillGeom: this
+    // inline button gets its own taller height so it aligns with YouTube's
+    // ~36px Subscribe pill, without resizing every other injected pill.
+    height: "36px",
   });
   btn.addEventListener("mouseenter", () => { if (btn.style.cursor === "pointer") btn.style.background = "#1557b0"; });
   btn.addEventListener("mouseleave", () => { btn.style.background = "#1a73e8"; });
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
-    // A panel already up (loading / cached / summary): jump to it, don't re-run.
+    // A panel already up (cached / summary): jump to it, don't re-run.
     if (summaryPanel) { summaryPanel.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+    // Already analyzing (loading lives in the button now): a second click must
+    // not kick a duplicate run.
+    if (runInFlight) return;
+    // Flip the button to "Analyzing…" synchronously so a double-click before the
+    // async run registers can't launch two runs. maybeStartDirectApiRun re-affirms
+    // this when it actually starts the call (and resets it on a cold/cached exit).
+    runInFlight = true;
+    setWatchButtonState("analyzing");
     // forceRun serves cache first, then runs even on a non-auto channel.
     void maybeStartDirectApiRun({ forceRun: true });
   });
@@ -870,7 +852,11 @@ function ensureWatchButton(): void {
 
   watchButton = btn;
   // A mid-analysis re-render must keep the cue, so sync state on (re)mount.
-  setWatchButtonState(summaryPanelKind === "loading" ? "analyzing" : summaryPanel ? "ready" : "idle");
+  // Derive from runInFlight / summaryPanelKind — NOT from `summaryPanel != null`,
+  // since an error panel ("idle") is a panel too and must not read as "ready".
+  setWatchButtonState(
+    runInFlight ? "analyzing" : summaryPanelKind === "summary" ? "ready" : "idle",
+  );
 }
 
 // --- popover menu primitive (overflow "⋯" menu + tag picker) ------------------
@@ -1095,7 +1081,7 @@ function buildPanelHead(
 
   const icon = document.createElement("img");
   icon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
-  Object.assign(icon.style, { width: "28px", height: "28px", borderRadius: "6px", flexShrink: "0" });
+  Object.assign(icon.style, { width: "32px", height: "32px", borderRadius: "7px", flexShrink: "0" });
 
   const title = document.createElement("span");
   title.textContent = "TL;DW";
@@ -1257,75 +1243,30 @@ function refreshSponsorPanel(): void {
 // sponsorblock.ts fires this whenever segments are fetched, skipped, or undone.
 window.addEventListener("tldw-sponsor-update", refreshSponsorPanel);
 
-/** "⚡ Gemini" header link that deep-links to the Direct API options section. */
 /**
- * "Get instant results" CTA — shown while analyzing and on results when Direct
- * API isn't set up, nudging the user to the free Gemini API (no tab, no wait).
- * A gray pill with a feature-color outline on hover, consistent with the other
- * header pills. Links to the Direct API setup.
+ * Enter the in-flight ("Analyzing…") state. There's no skeleton panel anymore —
+ * the inline TL;DW button is the sole loading indicator (it renders "Analyzing…"
+ * + the tldw-shimmer animation via setWatchButtonState). We still arm a generous
+ * timeout so a run that never returns (e.g. a tab-mode scrape that produced no
+ * parseable answer) surfaces a retry panel instead of spinning the button
+ * forever — gated on `runInFlight`, not a panel kind.
  */
-function buildGeminiLink(t: ReturnType<typeof theme>): HTMLButtonElement {
-  const b = document.createElement("button");
-  b.textContent = "⚡ Get instant results";
-  Object.assign(b.style, {
-    fontSize: "13px", fontWeight: "700", padding: "0 12px", borderRadius: "999px",
-    border: "2px solid transparent", background: t.border, color: "#1a73e8",
-    cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
-    transition: "background 0.15s, border-color 0.15s, color 0.15s", ...pillGeom,
-  });
-  b.title = "Get summaries instantly from the free Gemini API — no tab opens, no waiting. Click to set it up.";
-  pillHover(b, NEUTRAL_FILL);
-  b.addEventListener("click", (e) => {
-    e.stopPropagation();
-    void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" });
-  });
-  return b;
-}
-
-/** Show an instant skeleton panel while the API call is in flight. */
-function showLoadingPanel(): void {
-  const host = panelHost();
-  if (!host) return;
-  removeSummaryPanel();
+function startRunInFlight(): void {
   ensureShimmerStyle();
-
-  const t = theme();
-  const panel = document.createElement("div");
-  panel.id = "tldw-summary";
-  Object.assign(panel.style, {
-    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
-    padding: "10px 14px", marginTop: "12px", marginBottom: "16px",
-    font: "14px/1.4 Roboto, system-ui, sans-serif",
-  });
-
-  const analyzing = document.createElement("span");
-  analyzing.textContent = "Analyzing…";
-  Object.assign(analyzing.style, { fontSize: "12px", color: t.sub, animation: "tldw-shimmer 1.4s infinite" });
-
-  // Minimal loading state — just the header with a live "Analyzing…" cue. No
-  // shimmer skeleton, no rating row (voting is its own injection now); the
-  // summary simply replaces this when it lands. The "Get instant results" CTA
-  // shows only when Direct API isn't set up (encouraging the headless path).
-  const head = buildPanelHead(
-    t, [analyzing], currentChannelInfo, false, true,
-    currentDirectApiEnabled ? [] : [buildGeminiLink(t)],
-  );
-
-  panel.append(head);
-
-  summaryPanel = panel;
-  summaryPanelKind = "loading";
-  host.prepend(panel);
+  // Any stale panel (e.g. a prior error panel) shouldn't sit under the button
+  // while a fresh run is analyzing; the real summary will re-inject on SET_SUMMARY.
+  removeSummaryPanel();
+  runInFlight = true;
   setWatchButtonState("analyzing");
-  log("loading panel shown");
-  refreshSponsorPanel();
+  log("run in flight (inline button shows Analyzing…)");
 
-  // Don't let the skeleton spin forever (e.g. a tab-mode scrape that never
-  // produced a parseable answer). After a grace period, surface a retry panel.
+  // Don't let the run spin forever. After a grace period, surface a retry panel —
+  // but only if THIS run is still the active one (same video, still in flight).
   clearLoadingTimeout();
   const loadingVid = currentVideoId();
   loadingTimeoutTimer = window.setTimeout(() => {
-    if (summaryPanelKind === "loading" && currentVideoId() === loadingVid) {
+    if (runInFlight && currentVideoId() === loadingVid) {
+      endRunInFlight();
       showSummaryErrorPanel();
     }
   }, LOADING_TIMEOUT_MS);
@@ -1931,10 +1872,10 @@ function buildSummaryPanel(
     headerControls.push(pill(tldw.verdict, verdictColor(tldw.verdict), "#fff"));
   }
 
-  // F1: collapse the secondary actions (Open tab / Clear cache / Block channel /
-  // source badge) into a right-aligned "⋯" popover. The primary controls
-  // (verdict, plus the Auto-summarize toggle added by buildPanelHead) stay
-  // inline; the Tags row lives at the bottom of the panel, not here.
+  // F1: collapse the secondary actions (Open tab / Clear cache / source badge)
+  // into a right-aligned "⋯" popover. The primary controls (verdict, plus the
+  // Auto-summarize toggle added by buildPanelHead) stay inline; the Tags row
+  // lives at the bottom of the panel, not here.
   const menuItems: Array<{ label: string; title?: string; danger?: boolean; onClick: () => void }> = [];
 
   // ↗ Open tab — jump to the AI destination tab (reuses the scraped one if open).
@@ -1951,19 +1892,6 @@ function buildSummaryPanel(
     danger: true,
     onClick: () => { void regenerateSummary(vid, {}); },
   });
-
-  // ⊘ Block channel — never show TL;DW for this channel again. Replaces the old
-  // "Skip channel" button; re-enable in Settings → Channels. Low-prominence by
-  // design (tucked in the menu, not a top-level pill).
-  if (currentChannelInfo) {
-    const blockInfo = currentChannelInfo;
-    menuItems.push({
-      label: "⊘ Block channel",
-      title: `Never show TL;DW for ${blockInfo.name}. Re-enable in Settings → Channels.`,
-      danger: true,
-      onClick: () => { void addBlockedChannelEntry(blockInfo).then(() => removeSummaryPanel()); },
-    });
-  }
 
   // Source / Cached badge as a menu row — honest about origin, pointing where it
   // makes sense. When Direct API isn't set up, offer the "Get instant results"
@@ -2163,6 +2091,10 @@ function showSummaryPanel(
     const h = panelHost();
     if (!h) return;
     removeSummaryPanel();
+    // A result landed — the run is no longer in flight (clears the timeout +
+    // the inline button's "Analyzing…" cue, which setWatchButtonState("ready")
+    // below replaces).
+    endRunInFlight();
     const panel = buildSummaryPanel(tldw, channelStats, userRating, vid, toggles);
     summaryPanel = panel;
     summaryPanelKind = "summary";
@@ -2309,10 +2241,10 @@ function sendAutoAsk(vid: string): boolean {
  * Direct API path: fires on navigation.
  * - Reads the channel auto-run list and cache from storage.
  * - If there's a cached result: show it immediately.
- * - If the channel is on the auto-run list: show the loading skeleton and fire
- *   the Gemini API call automatically.
- * - Otherwise: show an idle panel with a "Get Summary" button and a per-channel
- *   auto-run toggle so the user can opt in for future visits.
+ * - If the channel is on the auto-run list: flip the inline button to
+ *   "Analyzing…" and fire the Gemini API call automatically.
+ * - Otherwise: show NO panel — the inline TL;DW button is the cold-video entry
+ *   point; the per-channel auto-run toggle lives in the summary panel header.
  *
  * `forceRun` (F8 Regenerate) makes the non-auto branch run immediately instead of
  * landing the idle CTA, so the run decision lives here rather than being re-derived
@@ -2333,13 +2265,14 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
     watchButtonAllowed = false;
     removeWatchButton();
     removeSummaryPanel();
+    endRunInFlight();
     return;
   }
 
-  // Set currentChannelInfo early so the blocked-channel check and auto-run toggle can use it even when we return early.
+  // Set currentChannelInfo early so the auto-run toggle can use it even when we return early.
   currentChannelInfo = getChannelInfo();
 
-  const r = await chrome.storage.local.get(["settings", "tldwSummaryCache", AUTO_RUN_CHANNELS_KEY, BLOCKED_CHANNELS_KEY]);
+  const r = await chrome.storage.local.get(["settings", "tldwSummaryCache", AUTO_RUN_CHANNELS_KEY]);
   if (stale()) return;
   // The on-page widget shows whether or not Direct API is configured. With no
   // key the TL;DW button and auto-summarize run the tab-scrape flow (open the
@@ -2358,20 +2291,8 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
     }
   }
 
-  // If the user has blocked this channel from summary, skip injection entirely —
-  // and don't show the inline TL;DW button either.
-  if (currentChannelInfo) {
-    const blocked = (r[BLOCKED_CHANNELS_KEY] as BlockedChannelEntry[]) ?? [];
-    if (blocked.some((c) => c.id === currentChannelInfo!.id || c.name === currentChannelInfo!.name)) {
-      log("channel blocked from summary, skipping panel injection:", currentChannelInfo.name);
-      watchButtonAllowed = false;
-      removeWatchButton();
-      return;
-    }
-  }
-
-  // Channel is allowed — make sure the inline TL;DW button is mounted (the
-  // manual entry point on a cold video; a status cue during auto/cached runs).
+  // Make sure the inline TL;DW button is mounted (the manual entry point on a
+  // cold video; a status cue during auto/cached runs).
   watchButtonAllowed = true;
   ensureWatchButton();
 
@@ -2396,22 +2317,24 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
 
   // Helper: check cache first (re-reads storage for freshness), then fall back to API.
   // Note: invoked synchronously below for auto-run, or later from a user click
-  // (idle/retry button) — in the click case the panel only exists for the current
-  // video, so acting on it is correct.
+  // (inline button / retry button) — in the click case the run only exists for the
+  // current video, so acting on it is correct.
   // `auto` true => automatic run (channel auto-run). It shares the per-visit
   // sendAutoAsk dedup with the length-threshold path so the two can't both fire
-  // ASK for the same video; the loading panel still shows and the result arrives
-  // via SET_SUMMARY. Manual runs (idle button / retry) pass auto=false so a user
-  // click always re-sends, even after a prior failure.
+  // ASK for the same video; the inline button shows "Analyzing…" and the result
+  // arrives via SET_SUMMARY. Manual runs (inline button / retry) pass auto=false so a
+  // user click always re-sends, even after a prior failure.
   const startApiCall = async (auto = false) => {
     const freshR = await chrome.storage.local.get("tldwSummaryCache");
-    if (stale()) return;
+    if (stale()) { endRunInFlight(); return; }
     const freshCache = (freshR["tldwSummaryCache"] as Record<string, CacheEntry> | undefined)?.[vid];
     if (freshCache && Date.now() - new Date(freshCache.cachedAt).getTime() < CACHE_TTL_MS) {
       serveCached(freshCache);
       return;
     }
-    showLoadingPanel();
+    // The inline TL;DW button is the sole loading indicator now (no skeleton
+    // panel); this arms the "Analyzing…" cue + the loading timeout.
+    startRunInFlight();
     void getTranscript();
     log("summary run started");
     if (auto) {
@@ -2457,6 +2380,9 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
   // Cold video (no cache, channel not auto-summarize): show NO panel. The inline
   // TL;DW button mounted above is the entry point — clicking it re-enters here
   // via forceRun and runs the configured backend (headless Gemini or tab-scrape).
+  // Clear any in-flight state (this is a terminal, non-running outcome) so the
+  // button doesn't sit on "Analyzing…".
+  endRunInFlight();
   setWatchButtonState("idle");
 }
 
@@ -2512,11 +2438,15 @@ function onNavigate(): void {
   // The "save these tags for the channel?" offer is per-video; drop it on nav.
   pendingTagPromptVid = null;
   removeSummaryPanel();
+  // A run for the previous video is no longer relevant — clear the in-flight
+  // flag + timeout so the inline button doesn't carry "Analyzing…" onto the new
+  // video (loading lives in the button now, not a panel).
+  endRunInFlight();
   activeTranscriptFetch = null;
   currentChannelInfo = null;
   currentAutoRunSummary = false;
   // Re-allow the inline button for the new video; maybeStartDirectApiRun flips it
-  // back off if this channel turns out to be blocked / a live stream.
+  // back off if this video turns out to be a non-summarizable live stream.
   watchButtonAllowed = true;
   void maybeStartDirectApiRun();
   setTimeout(() => { void autoRunIfLong(); }, 2500);
@@ -2550,21 +2480,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse(getVideoMeta());
     return false;
   }
-  if (type === "GET_CHANNEL_STATUS") {
-    const info = currentChannelInfo ?? getChannelInfo();
-    if (!info) {
-      sendResponse({ isBlocked: false, channelName: null });
-      return false;
-    }
-    void chrome.storage.local.get(BLOCKED_CHANNELS_KEY).then((r1) => {
-      const blocked = (r1[BLOCKED_CHANNELS_KEY] as BlockedChannelEntry[]) ?? [];
-      sendResponse({
-        isBlocked: blocked.some((c) => c.id === info.id || c.name === info.name),
-        channelName: info.name,
-      });
-    });
-    return true; // async response
-  }
   if (type === "SET_SUMMARY") {
     const msg = message as { tldw?: TldwSummary; source?: string; channelStats?: ChannelComparison; videoId?: string };
     const tldw = msg?.tldw;
@@ -2590,13 +2505,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   if (type === "SET_SUMMARY_ERROR") {
-    // The Direct-API call failed or returned an unparseable response. Replace the
-    // spinning skeleton with an accurate error + retry instead of letting it hang
-    // 90s and then show the misleading tab-flow message — but only if we're still
-    // on the video the error is for.
+    // The Direct-API call failed or returned an unparseable response. Surface an
+    // accurate error + retry instead of letting the inline button spin out to the
+    // 90s timeout and then show the misleading tab-flow message — but only if a
+    // run is still in flight for the video the error is for. (Loading lives in the
+    // button now; `runInFlight`, not a panel kind, is the gate.)
     const msg = message as { videoId?: string; reason?: string };
     if (!msg.videoId || msg.videoId === currentVideoId()) {
-      if (summaryPanelKind === "loading") showSummaryErrorPanel(msg.reason);
+      if (runInFlight) {
+        endRunInFlight();
+        showSummaryErrorPanel(msg.reason);
+      }
     }
     sendResponse({ ok: true });
     return false;

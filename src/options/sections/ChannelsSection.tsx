@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from "react";
-import type { AutoRunChannel, BlockedChannel, SearchHistoryEntry } from "../../types";
-import { getHistory, getAutoRunChannels, setAutoRunChannels as persistAutoRunChannels, getBlockedChannels, removeBlockedChannel, getSettings } from "../../lib/storage";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import type { AutoRunChannel, SearchHistoryEntry, Tag } from "../../types";
+import { getHistory, getAutoRunChannels, setAutoRunChannels as persistAutoRunChannels, getSettings, getTags } from "../../lib/storage";
+import { CHANNEL_TAGS_KEY } from "../../lib/constants";
 import { computeChannelStats, type ChannelStats } from "../../lib/history";
 import { USER_RATING_LABELS, scoreToVerdict, userAvgToLabel } from "../../lib/constants";
 import { TierBadge } from "../components/TierBadge";
@@ -47,6 +48,22 @@ function verdictPillStyle(verdict: string): { background: string; color: string 
 }
 
 type SortKey = "count" | "rating" | "recent";
+type TabKey = "all" | "auto";
+
+/** Resolve the channel-tag map (channelKey -> tagId[]) against the tag library
+ *  into a name-keyed lookup of resolved Tag[]. The widget keys channel tags by
+ *  `getChannelInfo().id || name`, so name-keyed entries (the common fallback)
+ *  line up directly with a ChannelStats.channel; id-keyed entries simply won't
+ *  match here, which is acceptable for a client-side name search/filter. */
+function resolveChannelTags(map: Record<string, string[]>, library: Tag[]): Map<string, Tag[]> {
+  const byId = new Map(library.map((t) => [t.id, t]));
+  const out = new Map<string, Tag[]>();
+  for (const [key, ids] of Object.entries(map)) {
+    const tags = ids.map((id) => byId.get(id)).filter((t): t is Tag => t !== undefined);
+    if (tags.length) out.set(key, tags);
+  }
+  return out;
+}
 
 // ---- Avatar component -------------------------------------------------------
 
@@ -86,6 +103,31 @@ function ChannelAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }
   );
 }
 
+// ---- Tag chip (read-only, shown on channel cards / as filter pills) ---------
+
+function TagChip({ label, active, onClick }: { label: string; active?: boolean; onClick?: () => void }) {
+  const interactive = !!onClick;
+  return (
+    <span
+      onClick={onClick}
+      style={{
+        fontSize: 11,
+        fontWeight: 600,
+        padding: "2px 8px",
+        borderRadius: 999,
+        whiteSpace: "nowrap",
+        border: "1px solid var(--border)",
+        background: active ? "var(--accent, #1a73e8)" : "var(--surface)",
+        color: active ? "#fff" : "var(--muted)",
+        cursor: interactive ? "pointer" : "default",
+        userSelect: "none",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
 // ---- Auto-run channel card --------------------------------------------------
 
 function AutoRunCard({
@@ -119,7 +161,7 @@ function AutoRunCard({
         >
           {channel.name}
         </div>
-        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
           Added {timeAgo(channel.addedAt)}
         </div>
       </div>
@@ -132,83 +174,11 @@ function AutoRunCard({
           borderRadius: 6,
           border: "1px solid var(--border)",
           background: "transparent",
-          color: "var(--text-muted)",
+          color: "var(--muted)",
           cursor: "pointer",
         }}
       >
         Remove
-      </button>
-    </div>
-  );
-}
-
-// ---- Blocked channel card ---------------------------------------------------
-
-function BlockedCard({
-  channel,
-  onUnblock,
-}: {
-  channel: BlockedChannel;
-  onUnblock: (id: string) => void;
-}) {
-  return (
-    <div
-      className="card"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "10px 14px",
-        opacity: 0.8,
-      }}
-    >
-      <ChannelAvatar name={channel.name} avatarUrl={channel.avatarUrl} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontWeight: 700,
-            fontSize: 14,
-            color: "var(--text)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {channel.name}
-        </div>
-        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-          Blocked {timeAgo(channel.addedAt)}
-        </div>
-      </div>
-      <span
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          padding: "2px 6px",
-          borderRadius: 999,
-          background: "#dc2626",
-          color: "#fff",
-          whiteSpace: "nowrap",
-          letterSpacing: "0.04em",
-          flexShrink: 0,
-        }}
-      >
-        BLOCKED
-      </span>
-      <button
-        onClick={() => onUnblock(channel.id)}
-        style={{
-          flexShrink: 0,
-          fontSize: 12,
-          padding: "4px 10px",
-          borderRadius: 6,
-          border: "1px solid var(--border)",
-          background: "transparent",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-        }}
-      >
-        Unblock
       </button>
     </div>
   );
@@ -296,7 +266,7 @@ function VideoRow({ entry, trackMyAverage }: { entry: SearchHistoryEntry; trackM
         style={{
           flexShrink: 0,
           fontSize: 11,
-          color: "var(--text-muted)",
+          color: "var(--muted)",
           whiteSpace: "nowrap",
           minWidth: 40,
           textAlign: "right",
@@ -308,18 +278,20 @@ function VideoRow({ entry, trackMyAverage }: { entry: SearchHistoryEntry; trackM
   );
 }
 
-// ---- History channel card ---------------------------------------------------
+// ---- Channel card -----------------------------------------------------------
 
 function ChannelCard({
   stats,
   isAutoRun,
   onToggleAutoRun,
   trackMyAverage,
+  tags,
 }: {
   stats: ChannelStats;
   isAutoRun: boolean;
   onToggleAutoRun: (stats: ChannelStats, enable: boolean) => void;
   trackMyAverage: boolean;
+  tags: Tag[];
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -420,9 +392,13 @@ function ChannelCard({
                 Auto: usually {userAvgToLabel(stats.avgUserRating)}
               </span>
             )}
+            {/* Channel tags */}
+            {tags.map((t) => (
+              <TagChip key={t.id} label={t.label} />
+            ))}
             {/* Last watched */}
             {stats.lastWatched && (
-              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              <span style={{ fontSize: 11, color: "var(--muted)" }}>
                 {timeAgo(stats.lastWatched)}
               </span>
             )}
@@ -438,13 +414,13 @@ function ChannelCard({
             flexShrink: 0,
           }}
         >
-          <span style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" }}>
             {stats.count} {stats.count === 1 ? "video" : "videos"}
           </span>
           <span
             style={{
               fontSize: 14,
-              color: "var(--text-muted)",
+              color: "var(--muted)",
               transition: "transform 0.2s",
               display: "inline-block",
               transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
@@ -497,10 +473,10 @@ function ChannelCard({
               />
               <label
                 htmlFor={`auto-run-${stats.channel}`}
-                style={{ fontSize: 12, color: "var(--text-muted)", cursor: "pointer", userSelect: "none" }}
+                style={{ fontSize: 12, color: "var(--muted)", cursor: "pointer", userSelect: "none" }}
                 onClick={(e) => e.stopPropagation()}
               >
-                Auto-run for this channel
+                Auto-summarize this channel
               </label>
             </div>
           </div>
@@ -510,25 +486,72 @@ function ChannelCard({
   );
 }
 
+// ---- Tab strip --------------------------------------------------------------
+
+function TabButton({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        background: "transparent",
+        border: "none",
+        borderBottom: active ? "2px solid var(--accent, #1a73e8)" : "2px solid transparent",
+        color: active ? "var(--accent, #1a73e8)" : "var(--muted)",
+        fontSize: 13,
+        fontWeight: 600,
+        padding: "8px 14px",
+        cursor: "pointer",
+        marginBottom: -1,
+        transition: "color 0.15s, border-color 0.15s",
+      }}
+    >
+      {label}
+      {count > 0 && (
+        <span style={{ marginLeft: 6, fontSize: 11, color: active ? "inherit" : "var(--faint)" }}>
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
 // ---- Main section -----------------------------------------------------------
 
 export function ChannelsSection() {
   const [channels, setChannels] = useState<ChannelStats[]>([]);
   const [autoRunChannels, setAutoRunChannels] = useState<AutoRunChannel[]>([]);
-  const [blockedChannels, setBlockedChannels] = useState<BlockedChannel[]>([]);
+  const [channelTags, setChannelTags] = useState<Map<string, Tag[]>>(new Map());
   const [totalVideos, setTotalVideos] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("count");
   const [loading, setLoading] = useState(true);
   const [trackMyAverage, setTrackMyAverage] = useState(true);
 
+  const [activeTab, setActiveTab] = useState<TabKey>("all");
+  const [search, setSearch] = useState("");
+
   const reload = useCallback(async () => {
-    const [history, autoRun, blocked, settings] = await Promise.all([
-      getHistory(), getAutoRunChannels(), getBlockedChannels(), getSettings(),
+    const [history, autoRun, settings, library, tagMapRaw] = await Promise.all([
+      getHistory(),
+      getAutoRunChannels(),
+      getSettings(),
+      getTags(),
+      chrome.storage.local.get(CHANNEL_TAGS_KEY),
     ]);
     const stats = computeChannelStats(history);
+    const tagMap = (tagMapRaw[CHANNEL_TAGS_KEY] as Record<string, string[]>) ?? {};
     setChannels(stats);
     setAutoRunChannels(autoRun);
-    setBlockedChannels(blocked);
+    setChannelTags(resolveChannelTags(tagMap, library));
     setTotalVideos(history.filter((e) => !!e.channel).length);
     setTrackMyAverage(settings.trackMyAverage);
     setLoading(false);
@@ -541,11 +564,6 @@ export function ChannelsSection() {
     const updated = current.filter((c) => c.id !== channelId && c.name !== channelId);
     await persistAutoRunChannels(updated);
     setAutoRunChannels(updated);
-  }, []);
-
-  const handleUnblock = useCallback(async (channelId: string) => {
-    await removeBlockedChannel(channelId);
-    setBlockedChannels((prev) => prev.filter((c) => c.id !== channelId && c.name !== channelId));
   }, []);
 
   const handleToggleAutoRun = useCallback(async (stats: ChannelStats, enable: boolean) => {
@@ -570,129 +588,191 @@ export function ChannelsSection() {
     setAutoRunChannels(updated);
   }, []);
 
-  const autoRunNames = new Set(autoRunChannels.map((c) => c.name));
+  const autoRunNames = useMemo(
+    () => new Set(autoRunChannels.map((c) => c.name)),
+    [autoRunChannels],
+  );
 
-  const sorted = [...channels].sort((a, b) => {
-    if (sortKey === "count") return b.count - a.count;
-    if (sortKey === "rating") {
-      const ra = a.avgAiRating ?? -Infinity;
-      const rb = b.avgAiRating ?? -Infinity;
-      return rb - ra;
-    }
-    // recent
-    return new Date(b.lastWatched).getTime() - new Date(a.lastWatched).getTime();
-  });
+  const tagsFor = useCallback(
+    (channelName: string): Tag[] => channelTags.get(channelName) ?? [],
+    [channelTags],
+  );
+
+  // ---- All-channels tab: sort, then filter by search (name OR tag label) ----
+  const sortedAll = useMemo(() => {
+    return [...channels].sort((a, b) => {
+      if (sortKey === "count") return b.count - a.count;
+      if (sortKey === "rating") {
+        const ra = a.avgAiRating ?? -Infinity;
+        const rb = b.avgAiRating ?? -Infinity;
+        return rb - ra;
+      }
+      // recent
+      return new Date(b.lastWatched).getTime() - new Date(a.lastWatched).getTime();
+    });
+  }, [channels, sortKey]);
+
+  const q = search.trim().toLowerCase();
+  const visibleAll = useMemo(() => {
+    if (!q) return sortedAll;
+    return sortedAll.filter((ch) => {
+      if (ch.channel.toLowerCase().includes(q)) return true;
+      const tags = tagsFor(ch.channel);
+      return tags.some((t) => t.label.toLowerCase().includes(q));
+    });
+  }, [sortedAll, q, tagsFor]);
+
+  const visibleAuto = useMemo(() => {
+    if (!q) return autoRunChannels;
+    return autoRunChannels.filter((ch) => ch.name.toLowerCase().includes(q));
+  }, [autoRunChannels, q]);
+
+  // Shared toolbar (search) — both tabs filter by name; All also filters tags.
+  const searchToolbar = (
+    <div className="history-toolbar" style={{ marginBottom: 16 }}>
+      <input
+        type="text"
+        placeholder={activeTab === "all" ? "Search channels by name or tag…" : "Search auto-summarize channels…"}
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+    </div>
+  );
 
   return (
     <div>
-      {/* Auto-run section */}
+      {/* Section header */}
       <div className="section-header">
-        <h1 className="section-title">Auto-run Channels</h1>
+        <h1 className="section-title">Channels</h1>
         <p className="section-desc">
-          TL;DW automatically summarizes new videos from these channels when you open them.
-          Toggle auto-run from any YouTube watch page, or from the history list below.
+          Channels you've watched with TL;DW, and the ones TL;DW auto-summarizes for you.
         </p>
+      </div>
+
+      {/* Tab strip */}
+      <div
+        style={{
+          display: "flex",
+          gap: 4,
+          borderBottom: "1px solid var(--border)",
+          marginBottom: 20,
+        }}
+      >
+        <TabButton
+          label="All channels"
+          count={channels.length}
+          active={activeTab === "all"}
+          onClick={() => setActiveTab("all")}
+        />
+        <TabButton
+          label="Auto-summarize"
+          count={autoRunChannels.length}
+          active={activeTab === "auto"}
+          onClick={() => setActiveTab("auto")}
+        />
       </div>
 
       {loading ? (
         <div className="empty-state">Loading…</div>
-      ) : autoRunChannels.length === 0 ? (
-        <div className="empty-state">
-          No channels tracked yet. Open a YouTube video and use the Auto-run toggle in the TL;DW panel to add one.
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 32 }}>
-          {autoRunChannels.map((ch) => (
-            <AutoRunCard
-              key={ch.id}
-              channel={ch}
-              onRemove={(id) => void handleRemoveAutoRun(id)}
-            />
-          ))}
-        </div>
-      )}
+      ) : activeTab === "all" ? (
+        /* ---- All channels tab ---- */
+        <div>
+          <p className="section-desc" style={{ marginBottom: 12 }}>
+            Channels you've watched with TL;DW. Expand a channel to see its videos and turn on auto-summarize.
+          </p>
 
-      {/* Blocked summary channels section */}
-      {!loading && blockedChannels.length > 0 && (
-        <>
-          <div className="section-header" style={{ marginTop: 8 }}>
-            <h1 className="section-title">Blocked — AI Summaries</h1>
-            <p className="section-desc">
-              TL;DW will never show an AI summary panel for videos from these channels.
-              Click Unblock to restore it.
-            </p>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 32 }}>
-            {blockedChannels.map((ch) => (
-              <BlockedCard
-                key={ch.id}
-                channel={ch}
-                onUnblock={(id) => void handleUnblock(id)}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* History section */}
-      <div className="section-header" style={{ marginTop: autoRunChannels.length > 0 ? 8 : 0 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-          <div>
-            <h1 className="section-title">Channel History</h1>
-            <p className="section-desc">
-              Channels you've watched with TL;DW. Expand a channel to see its video history and toggle auto-run.
-            </p>
-          </div>
           {channels.length > 0 && (
-            <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-              <span style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>Sort:</span>
-              <select
-                className="setting-select"
-                value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as SortKey)}
-                style={{ fontSize: 12 }}
-              >
-                <option value="count">Most watched</option>
-                <option value="rating">Highest rated</option>
-                <option value="recent">Recent</option>
-              </select>
+            <>
+              {searchToolbar}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 12, flexWrap: "wrap" }}>
+                <p style={{ fontSize: 12, color: "var(--muted)" }}>
+                  {visibleAll.length === channels.length
+                    ? `${channels.length} ${channels.length === 1 ? "channel" : "channels"} · ${totalVideos} ${totalVideos === 1 ? "video" : "videos"} total`
+                    : `${visibleAll.length} of ${channels.length} channels`}
+                </p>
+                <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" }}>Sort:</span>
+                  <select
+                    className="setting-select"
+                    value={sortKey}
+                    onChange={(e) => setSortKey(e.target.value as SortKey)}
+                    style={{ fontSize: 12 }}
+                  >
+                    <option value="count">Most watched</option>
+                    <option value="rating">Highest rated</option>
+                    <option value="recent">Recent</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11, color: "var(--muted)" }}>
+                  <strong>You</strong> ratings
+                </span>
+                <TierBadge tier="basic" />
+                <span style={{ fontSize: 11, color: "var(--muted)", marginLeft: 4 }}>
+                  <strong>AI</strong> &amp; <strong>Audience</strong>
+                </span>
+                <TierBadge tier="integrated" label="Direct API" />
+              </div>
+            </>
+          )}
+
+          {channels.length === 0 ? (
+            <div className="empty-state">
+              No channel data yet. Watch some YouTube videos with TL;DW and your channels will appear here.
+            </div>
+          ) : visibleAll.length === 0 ? (
+            <div className="empty-state">
+              No channels match “{search}”.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {visibleAll.map((ch) => (
+                <ChannelCard
+                  key={ch.channel}
+                  stats={ch}
+                  isAutoRun={autoRunNames.has(ch.channel)}
+                  onToggleAutoRun={(stats, enable) => void handleToggleAutoRun(stats, enable)}
+                  trackMyAverage={trackMyAverage}
+                  tags={tagsFor(ch.channel)}
+                />
+              ))}
             </div>
           )}
         </div>
-        {!loading && channels.length > 0 && (
-          <>
-            <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
-              {channels.length} {channels.length === 1 ? "channel" : "channels"} · {totalVideos} {totalVideos === 1 ? "video" : "videos"} total
-            </p>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                <strong>You</strong> ratings
-              </span>
-              <TierBadge tier="basic" />
-              <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 4 }}>
-                <strong>AI</strong> &amp; <strong>Audience</strong>
-              </span>
-              <TierBadge tier="integrated" label="Direct API" />
-            </div>
-          </>
-        )}
-      </div>
-
-      {!loading && channels.length === 0 ? (
-        <div className="empty-state">
-          No channel data yet. Watch some YouTube videos with TL;DW and your channel history will appear here.
-        </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {sorted.map((ch) => (
-            <ChannelCard
-              key={ch.channel}
-              stats={ch}
-              isAutoRun={autoRunNames.has(ch.channel)}
-              onToggleAutoRun={(stats, enable) => void handleToggleAutoRun(stats, enable)}
-              trackMyAverage={trackMyAverage}
-            />
-          ))}
+        /* ---- Auto-summarize tab ---- */
+        <div>
+          <p className="section-desc" style={{ marginBottom: 12 }}>
+            TL;DW automatically summarizes new videos from these channels when you open them.
+            Turn auto-summarize on or off from any YouTube watch page, or from the All channels tab.
+          </p>
+
+          {autoRunChannels.length === 0 ? (
+            <div className="empty-state">
+              No auto-summarize channels yet. Turn on auto-summarize from any video's TL;DW panel,
+              or from a channel in the All channels tab.
+            </div>
+          ) : (
+            <>
+              {autoRunChannels.length > 1 && searchToolbar}
+              {visibleAuto.length === 0 ? (
+                <div className="empty-state">
+                  No auto-summarize channels match “{search}”.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {visibleAuto.map((ch) => (
+                    <AutoRunCard
+                      key={ch.id}
+                      channel={ch}
+                      onRemove={(id) => void handleRemoveAutoRun(id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

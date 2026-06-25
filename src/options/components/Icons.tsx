@@ -21,7 +21,10 @@ export type IconProps = {
     | "sparkles"
     | "eye"
     | "ghost"
-    | "bar-chart";
+    | "bar-chart"
+    | "kofi"
+    | "globe"
+    | "briefcase";
 };
 
 const PATHS: Record<IconProps["name"], string[]> = {
@@ -57,6 +60,10 @@ const PATHS: Record<IconProps["name"], string[]> = {
     "M15 10h.01",
   ],
   "bar-chart": ["M3 3v18h18", "M7 16v-4", "M11 16V8", "M15 16v-7", "M19 16v-2"],
+  // Ko-fi: a warm cup with a heart, evoking the Ko-fi "support" cup.
+  kofi: ["M4 8h12v5a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8z", "M16 9h2a3 3 0 0 1 0 6h-2", "M9 11.5a1.6 1.6 0 0 1 3-.8 1.6 1.6 0 0 1 3 .8c0 1.4-3 3-3 3s-3-1.6-3-3z", "M4 21h13"],
+  globe: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "M3 12h18", "M12 3c2.5 2.5 3.8 5.7 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.7-3.8-9S9.5 5.5 12 3z"],
+  briefcase: ["M4 8h16v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8z", "M9 8V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2", "M4 13h16"],
 };
 
 export { DestinationIcon } from "../../lib/DestinationIcon";

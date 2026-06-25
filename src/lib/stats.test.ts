@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { trimActivity, verdictCounterDelta, watchedSecondsFromHistory } from "./storage";
-import type { SearchHistoryEntry } from "../types";
+import {
+  engagedRatio,
+  mostEngagedChannels,
+  topChannelsByTime,
+  trimChannelStats,
+} from "./stats";
+import type { ChannelStat, SearchHistoryEntry } from "../types";
 
 // ---------------------------------------------------------------------------
 // watchedSecondsFromHistory (F3 — restore watch progress on reload)
@@ -132,5 +138,116 @@ describe("verdictCounterDelta — upgrade transitions", () => {
 
   it("skim → watch: decrements skimmed, increments engaged", () => {
     expect(verdictCounterDelta("skim", "watch")).toEqual({ engaged: 1, skimmed: -1, skipped: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-channel stats (D13) — trim / rank / ratio
+// ---------------------------------------------------------------------------
+
+function ch(over: Partial<ChannelStat> & { name: string; lastWatched: string }): ChannelStat {
+  return {
+    secondsWatched: 0,
+    videosWatched: 0,
+    engaged: 0,
+    skimmed: 0,
+    skipped: 0,
+    avatarUrl: undefined,
+    ...over,
+  };
+}
+
+describe("trimChannelStats — evict least-recently-watched", () => {
+  it("returns the same map when at or below the cap", () => {
+    const map = {
+      a: ch({ name: "A", lastWatched: "2025-01-01T00:00:00Z" }),
+      b: ch({ name: "B", lastWatched: "2025-01-02T00:00:00Z" }),
+    };
+    expect(trimChannelStats(map, 5)).toBe(map);
+  });
+
+  it("keeps only the newest `cap` channels by lastWatched", () => {
+    const map: Record<string, ChannelStat> = {};
+    for (let i = 0; i < 10; i++) {
+      const d = new Date("2025-01-01T00:00:00Z");
+      d.setDate(d.getDate() + i);
+      map[`c${i}`] = ch({ name: `C${i}`, lastWatched: d.toISOString() });
+    }
+    const trimmed = trimChannelStats(map, 3);
+    expect(Object.keys(trimmed).sort()).toEqual(["c7", "c8", "c9"]);
+  });
+
+  it("evicts entries with an unparseable lastWatched first (sorted oldest)", () => {
+    const map = {
+      good: ch({ name: "Good", lastWatched: "2025-06-01T00:00:00Z" }),
+      bad: ch({ name: "Bad", lastWatched: "not-a-date" }),
+    };
+    const trimmed = trimChannelStats(map, 1);
+    expect(Object.keys(trimmed)).toEqual(["good"]);
+  });
+});
+
+describe("engagedRatio", () => {
+  it("returns engaged / total-rated", () => {
+    expect(engagedRatio(ch({ name: "A", lastWatched: "x", engaged: 3, skimmed: 1, skipped: 0 }))).toBe(0.75);
+  });
+
+  it("returns null when nothing is rated", () => {
+    expect(engagedRatio(ch({ name: "A", lastWatched: "x" }))).toBeNull();
+  });
+});
+
+describe("topChannelsByTime", () => {
+  const map = {
+    a: ch({ name: "A", lastWatched: "2025-01-01T00:00:00Z", secondsWatched: 100 }),
+    b: ch({ name: "B", lastWatched: "2025-01-02T00:00:00Z", secondsWatched: 300 }),
+    c: ch({ name: "C", lastWatched: "2025-01-03T00:00:00Z", secondsWatched: 0 }),
+  };
+
+  it("ranks by secondsWatched descending and drops zero-time channels", () => {
+    const ranked = topChannelsByTime(map, 5);
+    expect(ranked.map((r) => r.key)).toEqual(["b", "a"]);
+    expect(ranked[0]!.name).toBe("B");
+  });
+
+  it("respects the limit", () => {
+    expect(topChannelsByTime(map, 1).map((r) => r.key)).toEqual(["b"]);
+  });
+
+  it("returns [] for an undefined map", () => {
+    expect(topChannelsByTime(undefined)).toEqual([]);
+  });
+
+  it("breaks ties by most-recently-watched", () => {
+    const tie = {
+      x: ch({ name: "X", lastWatched: "2025-01-01T00:00:00Z", secondsWatched: 50 }),
+      y: ch({ name: "Y", lastWatched: "2025-02-01T00:00:00Z", secondsWatched: 50 }),
+    };
+    expect(topChannelsByTime(tie).map((r) => r.key)).toEqual(["y", "x"]);
+  });
+});
+
+describe("mostEngagedChannels", () => {
+  it("ranks by engaged count descending and drops zero-engaged channels", () => {
+    const map = {
+      a: ch({ name: "A", lastWatched: "x", engaged: 2 }),
+      b: ch({ name: "B", lastWatched: "x", engaged: 9 }),
+      c: ch({ name: "C", lastWatched: "x", engaged: 0, skipped: 4 }),
+    };
+    const ranked = mostEngagedChannels(map, 5);
+    expect(ranked.map((r) => r.key)).toEqual(["b", "a"]);
+  });
+
+  it("breaks equal engaged counts by higher engaged ratio", () => {
+    const map = {
+      // both 3 engaged, but A has a cleaner ratio (3/3 vs 3/6).
+      a: ch({ name: "A", lastWatched: "x", engaged: 3 }),
+      b: ch({ name: "B", lastWatched: "x", engaged: 3, skipped: 3 }),
+    };
+    expect(mostEngagedChannels(map).map((r) => r.key)).toEqual(["a", "b"]);
+  });
+
+  it("returns [] for an undefined map", () => {
+    expect(mostEngagedChannels(undefined)).toEqual([]);
   });
 });
