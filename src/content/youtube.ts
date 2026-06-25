@@ -547,11 +547,13 @@ function serializeTagWrite<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-/** The key a channel's tags live under — the SAME id the auto-run lookup
- *  uses (getChannelInfo().id, falling back to the display name) so Agent A's
- *  background weaving lines up with what the widget writes here. */
+/** The key a channel's tags live under. Keyed by display NAME so it lines up
+ *  with the rest of the channel model — history, lifetime stats, and the
+ *  options Channels list all group by name, and the Channels UI looks tags up by
+ *  name. (Keying by id stranded tags: real channels have an id, so id-keyed tags
+ *  never matched the name-keyed Channels view.) */
 function channelTagKey(info: ChannelInfo): string {
-  return info.id || info.name;
+  return info.name;
 }
 
 async function readTagLibrary(): Promise<Tag[]> {
@@ -2496,6 +2498,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return false;
       }
       const vid = msg.videoId ?? cur;
+      // The result for the on-screen video has arrived — end the in-flight state
+      // here, unconditionally. showSummaryPanel's render can still bail if the
+      // panel host is transiently missing (YouTube re-rendering #below), but the
+      // run IS done and the summary is cached below; leaving runInFlight set would
+      // strand the button on "Analyzing…" and fire a bogus 90s timeout error.
+      endRunInFlight();
       // Persist tab-scrape results so a refresh serves from cache instead of
       // re-opening a tab. Don't re-cache a result that itself came from cache.
       if (vid && msg.source !== "cached") void cacheScrapedSummary(vid, tldw);

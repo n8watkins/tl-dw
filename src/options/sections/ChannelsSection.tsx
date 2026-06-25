@@ -50,11 +50,10 @@ function verdictPillStyle(verdict: string): { background: string; color: string 
 type SortKey = "count" | "rating" | "recent";
 type TabKey = "all" | "auto";
 
-/** Resolve the channel-tag map (channelKey -> tagId[]) against the tag library
+/** Resolve the channel-tag map (channelName -> tagId[]) against the tag library
  *  into a name-keyed lookup of resolved Tag[]. The widget keys channel tags by
- *  `getChannelInfo().id || name`, so name-keyed entries (the common fallback)
- *  line up directly with a ChannelStats.channel; id-keyed entries simply won't
- *  match here, which is acceptable for a client-side name search/filter. */
+ *  display name (`channelTagKey`), which lines up directly with a
+ *  ChannelStats.channel, so tag chips + tag search resolve for every channel. */
 function resolveChannelTags(map: Record<string, string[]>, library: Tag[]): Map<string, Tag[]> {
   const byId = new Map(library.map((t) => [t.id, t]));
   const out = new Map<string, Tag[]>();
@@ -662,13 +661,13 @@ export function ChannelsSection() {
           label="All channels"
           count={channels.length}
           active={activeTab === "all"}
-          onClick={() => setActiveTab("all")}
+          onClick={() => { setActiveTab("all"); setSearch(""); }}
         />
         <TabButton
           label="Auto-summarize"
           count={autoRunChannels.length}
           active={activeTab === "auto"}
-          onClick={() => setActiveTab("auto")}
+          onClick={() => { setActiveTab("auto"); setSearch(""); }}
         />
       </div>
 
