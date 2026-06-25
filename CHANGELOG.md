@@ -9,7 +9,7 @@ Notable changes to TL;DW. Format loosely follows
 > milestones**, not every patch. Full commit-level history is in git, and completed
 > planning docs live in [`docs/archive/`](docs/archive/).
 
-## 0.1.164 — 2026-06-25
+## 0.1.166 — 2026-06-25
 
 ### Added
 - **Inline TL;DW button in the subscribe row** — replaces the always-on idle box;
