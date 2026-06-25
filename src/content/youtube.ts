@@ -1259,6 +1259,12 @@ function startRunInFlight(): void {
   // while a fresh run is analyzing; the real summary will re-inject on SET_SUMMARY.
   removeSummaryPanel();
   runInFlight = true;
+  // Make sure the button is mounted before flagging it: setWatchButtonState is a
+  // no-op when the button isn't in the DOM yet (the owner row can render late on
+  // a cold page load), which would leave an auto/cold run with no on-page cue.
+  // If the row still isn't ready, the 500ms onNavigate poll re-mounts and the
+  // remount derives "analyzing" from runInFlight.
+  ensureWatchButton();
   setWatchButtonState("analyzing");
   log("run in flight (inline button shows Analyzing…)");
 

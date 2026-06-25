@@ -98,6 +98,9 @@ async function startupStorageSweep(): Promise<void> {
         await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
       }
     }
+    // One-time cleanup: the "block channel" feature was removed, so drop its
+    // now-orphaned storage key for users who had blocked channels (no-op after).
+    await chrome.storage.local.remove("tldwBlockedChannels");
   } catch {
     /* never let a maintenance sweep throw on startup */
   }

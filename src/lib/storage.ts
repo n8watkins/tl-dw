@@ -633,10 +633,14 @@ export async function bumpLifetimeStats(
  * Apply a watch-progress delta to the per-channel aggregate inside a
  * LifetimeStats draft. Pure mutation over `s.channels` so it can ride the
  * existing `bumpLifetimeStats` write-lock alongside the global counters. Keyed
- * by `channelKey` (channelId ?? name). `videoIsNew` increments the channel's
- * distinct-video count exactly when a brand-new video starts accruing time.
- * Verdict transitions mirror the global engaged/skimmed/skipped logic so the
- * per-channel tallies move in lock-step (never below zero).
+ * by `channelKey` (the channel display name — the only id the watch-time engine
+ * reliably has here). `videoIsNew` bumps the channel's video count when a video
+ * first appears in history; it counts once per video per watch session, but a
+ * re-watch AFTER that video's history row has been pruned (age/limit) can recount
+ * it — so the tally is an at-a-glance lifetime approximation, not an exact
+ * distinct-video count. Verdict transitions mirror the global
+ * engaged/skimmed/skipped logic so per-channel tallies move in lock-step (never
+ * below zero).
  */
 export function bumpChannelStat(
   s: LifetimeStats,
