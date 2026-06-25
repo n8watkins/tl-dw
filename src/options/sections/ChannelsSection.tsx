@@ -447,9 +447,21 @@ function ChannelCard({
               padding: "4px 16px 8px 16px",
             }}
           >
-            {stats.videos.map((v) => (
-              <VideoRow key={v.id} entry={v} trackMyAverage={trackMyAverage} />
-            ))}
+            {/* Render the video rows only while open (the accordion otherwise
+                mounts EVERY channel's full list even when collapsed) and window
+                them, so a channel with hundreds of watched videos under
+                "unlimited" history stays cheap. Bounded height keeps the outer
+                channel-list measurement stable. */}
+            {expanded && (
+              <VirtualList
+                items={stats.videos}
+                getKey={(v) => v.id}
+                estimateSize={40}
+                gap={0}
+                style={{ maxHeight: 320 }}
+                renderItem={(v) => <VideoRow entry={v} trackMyAverage={trackMyAverage} />}
+              />
+            )}
             {/* Auto-run toggle at the bottom of expanded card */}
             <div
               style={{
