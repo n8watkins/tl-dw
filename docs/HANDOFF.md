@@ -8,29 +8,32 @@ _Last updated: 2026-06-25._
 
 ## Project summary
 
-**TL;DW** ("Too Long; Didn't Watch") is a **Manifest V3 Chrome extension** — now a
-focused **YouTube summarizer**. It summarizes the YouTube video you're watching so
-you can decide if it's worth your time. Two modes: **Direct API** (your own free
-Gemini key → summary rendered on the YouTube page, no tab opens) and
-**open-in-a-tab** (Gemini/ChatGPT/Claude/NotebookLM, prompt auto-filled + submitted,
-answer read back onto the page). Plus SponsorBlock auto-skip and **summary-centric
-stats** (# summaries created, top channels by summaries, profile/destination usage,
-most-used tags, and a GitHub-style summary-activity heatmap + streak). **No backend,
-no accounts, no analytics** — everything is local.
+**TL;DW** ("Too Long; Didn't Watch") is a **Manifest V3 Chrome extension** — a pure,
+**un-opinionated YouTube summarizer**. It turns the transcript of the video you're
+watching into an AI **summary** (SUMMARY + DETAILS), shaped by your **profiles + tags**.
+Two modes: **Direct API** (your own free Gemini key → summary rendered on the YouTube
+page, no tab opens) and **open-in-a-tab** (Gemini/ChatGPT/Claude/NotebookLM, prompt
+auto-filled + submitted, answer read back onto the page). Plus SponsorBlock auto-skip
+and **summary-centric stats** (# summaries created, top channels by summaries,
+profile/destination usage, most-used tags, and a GitHub-style summary-activity heatmap
++ streak). It does **not** tell you whether to watch — no verdict, no rating, no
+worth-watching gate (users can ask for that in their own prompt). **No backend, no
+accounts, no analytics** — everything is local.
 
 > **The split is DONE on TL;DW's side (2026-06-25).** The post-watch **watch-time +
 > engagement analytics moved out** to a separate local-only companion extension,
 > **Watchprint** (its own repo `github.com/n8watkins/watchprint`, local at
 > `../watchprint` — steps 1–3 done; it now captures watch-time + engagement). On TL;DW:
 > - **Stats / Channels are summary-centric** — no watch-time/engagement display.
-> - **The watch-time engine `watchtime.ts` is DELETED**, the `WATCH_PROGRESS` recorder
->   is gone, and **the on-page panel is summary-only** — no AI WATCH/SKIM/SKIP verdict
->   pill and no `📊 vs channel` engagement cue (decoupled in `93f8b7b`). TL;DW no longer
->   tracks watch-time/engagement at all (a data-collection reduction — privacy win).
-> - ⚠️ **Orphaned dead code pending a cleanup pass:** `src/lib/engagement.ts`,
->   `recordWatchProgress` + the per-channel stat helpers in `storage.ts`, the per-channel
->   helpers in `stats.ts`, `dashboards.ts`, and the watch/engagement fields on the types
->   are no longer wired to anything (left in place to avoid a cascade). See Next Steps B3.
+> - **The watch-time engine and its data-layer modules are DELETED** — `watchtime.ts`,
+>   `engagement.ts`, `dashboards.ts`, and `stats.ts` (plus their tests) are gone, and the
+>   `WATCH_PROGRESS` recorder with them. **The on-page panel is summary-only** — no AI
+>   WATCH/SKIM/SKIP verdict pill, no AI rating, no worth-watching gate, no `📊 vs channel`
+>   engagement cue. The summarization prompt now requests only SUMMARY/DETAILS; the
+>   default profiles are neutral summarizers. TL;DW no longer tracks watch-time/engagement
+>   at all (a data-collection reduction — privacy win).
+> - Residual watch/engagement fields on the types (`userRating`, `verdict`, …) are
+>   legacy/optional, kept only so older stored entries parse; not written or surfaced.
 > The summary panel, SponsorBlock auto-skip, profiles, and tags are unchanged. Full
 > rationale / feature-map / migration: [`ANALYTICS_SPLIT.md`](ANALYTICS_SPLIT.md) +
 > `../watchprint/HANDOFF.md`.
@@ -44,7 +47,7 @@ no accounts, no analytics** — everything is local.
   rsyncs `dist/` to `/mnt/c/Users/natha/Projects/Tools/tldw` (the Windows
   load-unpacked folder). `npm run package` builds the clean Web Store zip
   (`web-store/tldw-<version>.zip`, no version bump, no Windows copy).
-- **Gate (run before every commit):** `npm run typecheck` && `npm test` (**113
+- **Gate (run before every commit):** `npm run typecheck` && `npm test` (**49
   tests**). For UI/content-script changes also walk [`SMOKE_TEST.md`](SMOKE_TEST.md).
 
 ## State
@@ -88,8 +91,9 @@ pass (~10 commits, `88098e5`…`c1bc979`) on top of the table above:
 | `1f3a1bb` | Re-scope copy + docs to "focused YouTube summarizer" |
 | `7aefe88` | Stats review fixes (heatmap cap 366→400, today count, stale copy) |
 | `93f8b7b` | **Decouple watch-time/engagement** — delete `watchtime.ts`, panel is summary-only |
+| (later)   | **Delete the orphaned data layer** — `engagement.ts`, `dashboards.ts`, `stats.ts` + their tests; remove the AI verdict/rating/worth-watching gate; trim the prompt to SUMMARY/DETAILS only |
 
-Net effect: version is now **0.1.171**, **113** unit tests, **4** destinations
+Net effect: version is now **0.1.173**, **49** unit tests, **4** destinations
 (Gemini/ChatGPT/Claude/NotebookLM — Perplexity removed), the block-channel feature
 is gone end-to-end (a one-time orphan-key cleanup of `tldwBlockedChannels` remains
 in `background/index.ts`), `claude-icon.png` is deleted (all four marks are inline
@@ -100,7 +104,7 @@ pages **summary-centric** (Channels now shows # summaries · last summarized · 
 sorted Most summarized) and pulled the watch/engagement dashboards out of the UI as
 step one of the Watchprint split — see the re-scope note above.
 
-**Verified working:** `npm run typecheck` clean, **113/113** Vitest tests pass,
+**Verified working:** `npm run typecheck` clean, **49/49** Vitest tests pass,
 `npm run package` builds a valid zip (manifest at root, 7 host permissions). A full
 **Chrome Web Store compliance audit** passed: 49 requirements pass, **0 code/policy
 blockers**.
@@ -122,11 +126,11 @@ blockers remain:
 2. Dev account: **$5** + **2-Step Verification** + verified email.
 3. Run the two live verifications above, then `npm run package`, paste the listing
    fields from `STORE_SUBMISSION.md`, set visibility, **submit**.
-- **Decision pending (user):** bump version `0.1.171` → `1.0.0` for the public
+- **Decision pending (user):** bump version `0.1.173` → `1.0.0` for the public
   listing (cosmetic).
 - **Now even cleaner for review:** the decoupling removed the watch-time tracking, so
   TL;DW collects *less* user data than the audited build — re-verify STORE_SUBMISSION /
-  PRIVACY disclosures match (already updated in `93f8b7b`).
+  PRIVACY disclosures match (already updated).
 
 ### B. Feature development (post-launch roadmap)
 From [`STATUS.md`](../STATUS.md) and the audits, in rough priority:
@@ -139,25 +143,17 @@ From [`STATUS.md`](../STATUS.md) and the audits, in rough priority:
    browsing. Add a summary-scoped line (e.g. "you've summarized N videos from this
    channel"); keep it summary-centric, not watch/engagement (that signal is leaving
    for Watchprint). Files: `src/popup/App.tsx`, `src/lib/` channel stats helpers.
-3. **Dead-code cleanup + migration (the split's remaining TL;DW work).** The watch-time
-   engine is already deleted and the engagement display is gone (`93f8b7b`); what
-   remains is to **remove the now-orphaned data-layer modules** — `src/lib/engagement.ts`,
-   `recordWatchProgress`/`bumpChannelStat`/`verdictCounterDelta` in `storage.ts`, the
-   per-channel helpers in `stats.ts`, `dashboards.ts` (+ their `.test.ts`), and the
-   watch/engagement fields on the types (`SearchHistoryEntry.userRating/watchedSeconds`,
-   `LifetimeStats.channels`/`secondsWatched`/`engaged…`). Left in place to avoid a
-   cascade — remove carefully, gate with typecheck + tests. **Before** dropping the
-   per-channel stats, ship a one-time **export → Watchprint import** migration so
-   existing users' accumulated `tldwStats` aren't stranded (chrome.storage is
-   per-extension). Plan: [`ANALYTICS_SPLIT.md`](ANALYTICS_SPLIT.md) §5–6 +
-   `../watchprint/HANDOFF.md`. (F7 Phase 2 "paid/hosted analytics" is **dropped** —
-   Watchprint is local-only/free.)
-4. **Stop the prompt requesting the AI verdict (optional).** The panel no longer shows
-   the WATCH/SKIM/SKIP verdict, but the summarization prompt still asks for it and
-   `src/lib/tldw.ts` still parses it (harmless, just unused). To make TL;DW *purely*
-   summaries end-to-end, trim VERDICT/RATING from the built-in profile templates
-   (`src/lib/profiles.ts`/`promptBuilder.ts`), the parser, and the worth-watching gate.
-5. **Split `youtube.ts`** (~2.7k LOC, now a bit smaller post-decoupling) into panel /
+3. **Migration bridge (the split's remaining TL;DW work).** The watch-time engine and
+   the orphaned data-layer modules (`engagement.ts`, `dashboards.ts`, `stats.ts`, +
+   their tests) are already **deleted**; the AI verdict/rating/worth-watching gate is
+   **gone** and the prompt requests only SUMMARY/DETAILS. What remains is a one-time
+   **export → Watchprint import** migration so existing users' accumulated `tldwStats`
+   watch/engagement data isn't stranded (chrome.storage is per-extension), then dropping
+   the residual legacy type fields (`SearchHistoryEntry.userRating`,
+   `LifetimeStats.channels`/`secondsWatched`/`engaged…`). Plan:
+   [`ANALYTICS_SPLIT.md`](ANALYTICS_SPLIT.md) §5–6 + `../watchprint/HANDOFF.md`.
+   (F7 Phase 2 "paid/hosted analytics" is **dropped** — Watchprint is local-only/free.)
+4. **Split `youtube.ts`** (~2.7k LOC, now a bit smaller post-decoupling) into panel /
    nav-mount / scrape modules — pure tech-debt refactor; gate with the smoke test.
 
 ### C. Optional pre-launch polish
@@ -173,11 +169,12 @@ From [`STATUS.md`](../STATUS.md) and the audits, in rough priority:
 - **Commit after each logical change** with a Conventional-style message + the
   trailer `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
   Push when working on `master` (this session pushed every commit).
-- **Dead code from the split:** `engagement.ts`, `recordWatchProgress`/`bumpChannelStat`/
-  `verdictCounterDelta` in `storage.ts`, the per-channel helpers in `stats.ts`, and
-  `dashboards.ts` are **no longer wired to anything** (the live versions run in
-  Watchprint). Don't build on them — they're slated for removal (B3). The on-page panel
-  is **summary-only** now (no verdict pill, no engagement cue).
+- **Watch/engagement is gone, not dormant:** `engagement.ts`, `dashboards.ts`,
+  `stats.ts`, and `watchtime.ts` were **deleted** (the live versions run in Watchprint).
+  Don't reintroduce them. The on-page panel is **summary-only** (no verdict pill, no AI
+  rating, no worth-watching gate, no engagement cue); the prompt requests only
+  SUMMARY/DETAILS. Any `userRating`/`verdict` fields still on the types are legacy/optional
+  — don't build on them.
 - **Storage writes** must go through `withWriteLock` / `mutateHistory` in
   `src/lib/storage.ts` — the service worker is **not** a single writer (Web Locks
   serialize concurrent RMW). Don't do raw `chrome.storage` read-modify-write.
@@ -210,13 +207,14 @@ From [`STATUS.md`](../STATUS.md) and the audits, in rough priority:
   `../watchprint/PLAN.md`.
 - `src/content/sponsorblock.ts` — SponsorBlock auto-skip (still surfaced, first-run
   notice discloses it). (`src/content/watchtime.ts` was **DELETED** in the decoupling —
-  the watch-time engine now lives in the Watchprint repo, not here.)
+  the watch-time engine, along with `src/lib/engagement.ts`/`dashboards.ts`/`stats.ts`,
+  now lives in the Watchprint repo, not here.)
 - `src/options/sections/StatsSection.tsx` — the summary-centric Stats page (summaries,
   heatmap+streak, top channels, profile/destination usage, most-used tags).
 - `src/popup/App.tsx` — popup; first-run notice (~L318). `src/popup/popup.css`.
 - `src/lib/constants.ts` — `DEFAULT_SETTINGS`. `src/lib/storage.ts` — storage + write
-  locks (still contains the now-dead `recordWatchProgress`/`bumpChannelStat`).
-- ⚠️ `src/lib/dashboards.ts`, `src/lib/engagement.ts`, and the per-channel helpers in
-  `stats.ts`/`storage.ts` — **orphaned dead code** post-decoupling (tests retained); the
-  live copies run in **Watchprint**. Slated for removal (Next Steps B3).
+  locks.
+- `src/lib/dashboards.ts`, `src/lib/engagement.ts`, `src/lib/stats.ts`,
+  `src/content/watchtime.ts` — **deleted** with the analytics split; the live copies run
+  in **Watchprint**. Don't reintroduce them here.
 - `scripts/package-store.mjs` — the Web Store zip builder.

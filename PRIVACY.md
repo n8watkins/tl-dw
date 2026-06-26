@@ -1,6 +1,6 @@
 # TL;DW — Privacy Policy
 
-_Last updated: 2026-06-25 (extension v0.1.164)_
+_Last updated: 2026-06-25 (extension v0.1.173)_
 
 TL;DW is a Chrome extension that summarizes the YouTube video you're watching. It
 has **no backend service, no user accounts, and no analytics or tracking.**
@@ -14,8 +14,7 @@ no "us" to send it to. This includes:
 
 - Your prompt **profiles** and settings.
 - **History** of summaries you've run — a **transcript-free** prompt plus video
-  metadata (title, URL, channel, timestamp, your rating). The full transcript is
-  **never** stored.
+  metadata (title, URL, channel, timestamp). The full transcript is **never** stored.
 - **Lifetime stats** (summary counts, cache hits, total duration summarized,
   sponsor segments skipped and seconds saved) and a per-day activity map. TL;DW
   does **not** track your watch-time or engagement — there is no watch-time

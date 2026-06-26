@@ -24,14 +24,14 @@ which bumps the patch version every run so the popup version always changes.
 
 ```bash
 npm run typecheck  # tsc --noEmit
-npm test           # vitest run — currently 113 passing unit tests
+npm test           # vitest run — currently 49 passing unit tests
 ```
 
-Tests cover the **pure helpers** in `src/lib/` (engagement, stats, dashboards,
-history, promptBuilder, tldw, profiles). DOM/content-script behavior and the React
-UI are not unit-tested, so for anything that touches the on-page widget, the popup,
-or the options pages, also walk the relevant sections of
-[`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) in a real browser.
+Tests cover the **pure helpers** in `src/lib/` (promptBuilder, tldw, profiles,
+history, storage). DOM/content-script behavior and the React UI are not unit-tested,
+so for anything that touches the on-page widget, the popup, or the options pages, also
+walk the relevant sections of [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) in a real
+browser.
 
 ## Where things live
 

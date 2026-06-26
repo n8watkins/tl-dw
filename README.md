@@ -2,8 +2,10 @@
 
 TL;DW means "Too Long; Didn't Watch." It is a Manifest V3 Chrome extension that
 summarizes the YouTube video you're watching — pulling the transcript and getting
-you an AI summary — so you can decide whether it's worth your time before you
-spend it.
+you an AI summary — so you can get the gist without watching the whole thing. It's
+an un-opinionated summarizer: it gives you a SUMMARY and the DETAILS, shaped by
+your own prompt profiles and tags. It doesn't tell you whether to watch (you can
+ask for that in your own prompt).
 
 ## What It Does
 
@@ -21,8 +23,7 @@ spend it.
     YouTube page. Falls back to copying the prompt if the composer can't be filled.
 - For AIs that can't watch a video, TL;DW extracts the full transcript (from
   YouTube's own intercepted caption data) and attaches it.
-- **Auto-summarize** videos over a configurable length, and an optional upfront
-  WATCH / SKIM / SKIP worth-watching verdict for long videos.
+- **Auto-summarize** videos over a configurable length.
 - **SponsorBlock auto-skip** — skips in-video sponsored segments using the free
   community SponsorBlock data.
 - **Summary-activity stats** — lifetime summaries, channels you summarize most,
@@ -35,6 +36,7 @@ spend it.
 
 - No backend service, no analytics, no accounts.
 - Everything is stored in Chrome's local storage on your machine.
+- No watch-time or engagement tracking. Stats are summary-centric only.
 - History saves a transcript-free prompt + video metadata — never the full
   transcript.
 - **Direct API mode** uses a Gemini API key you supply; it is stored locally and
@@ -132,7 +134,7 @@ number should match the latest build.
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the dev loop and conventions.
 [`STATUS.md`](STATUS.md) is the live status doc. In short: feature work lands on
 short-lived `feat/*` branches via PR, and every change is gated by `npm run
-typecheck` + `npm test` (currently 113 passing unit tests) plus the relevant
+typecheck` + `npm test` (currently 49 passing unit tests) plus the relevant
 [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) checks before committing.
 
 ## License

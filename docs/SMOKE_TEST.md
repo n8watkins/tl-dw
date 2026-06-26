@@ -1,6 +1,6 @@
 # TL;DW — Manual Smoke Test
 
-_Everything below is verified **statically** (typecheck + 113 unit tests + build +
+_Everything below is verified **statically** (typecheck + 49 unit tests + build +
 multiple adversarial reviews) but **not** in a real browser. This is the in-Chrome
 pass that closes that gap. Walk it after a build; check the boxes as you go._
 
@@ -25,7 +25,7 @@ feature path · 🟢 nice-to-have.
 
 - [ ] Open a normal YouTube **watch** page → an inline **"TL;DW" button** appears in
       the subscribe/owner row. Click it → the button shows **"Analyzing…"**, then a
-      **summary panel** appears (verdict pill + one-line summary).
+      **summary panel** appears (one-line summary + details — **no** verdict pill).
 - [ ] Click the panel → **details** expand/collapse.
 - [ ] Open the toolbar **popup** on a video → it shows the video title + destination
       buttons + a profile select.
@@ -52,41 +52,44 @@ feature path · 🟢 nice-to-have.
       and the toolbar badge is **not** a green ✓. Restore the key after.
 
 ### B3 — Parser
-- [ ] 🔴 A normal Direct-API summary parses cleanly (verdict + one-sentence summary +
-      details), even when the model bolds labels.
-- [ ] 🔴 **No "📊 vs channel" engagement cue** appears on the panel — that watch/
-      engagement readout was removed in the 2026-06-25 re-scope (it moves to the
-      Watchprint companion extension). The summary panel shows the verdict + summary
-      + details only.
+- [ ] 🔴 A normal Direct-API summary parses cleanly (one-sentence **SUMMARY** +
+      **DETAILS**), even when the model bolds labels. The prompt requests only
+      SUMMARY/DETAILS; the parser still tolerates a stray legacy VERDICT/RATING label
+      without bleeding it into the summary text.
+- [ ] 🔴 **No verdict pill, no AI rating, and no "📊 vs channel" engagement cue** appear
+      on the panel — those were removed in the 2026-06-25 re-scope (the watch/engagement
+      readout moved to the Watchprint companion extension). The summary panel shows the
+      **summary + details only**.
 
 ### B4 — Prose has no filler (F5)
 - [ ] 🔴 Summary + details **state the substance directly** — no "The video provides a
       masterclass in…", "This video covers/highlights/discusses…". They read like the
       claim itself.
 
-### B5 — Watch-time engine still runs headless (no UI surface)
-- [ ] 🟢 The watch-time engine still runs under the hood (pending removal) but is
-      **no longer surfaced** — there is nothing to eyeball on the page. Optional dev
-      check: with DevTools open on the YouTube tab, `[TL;DW WT]` logs still appear as
-      you watch. No engagement verdict, per-channel average, or "% watched" should
-      render in the panel.
+### B5 — No watch-time tracking (engine deleted)
+- [ ] 🟢 The watch-time engine and its data-layer modules were **deleted** — TL;DW no
+      longer tracks watch-time or engagement. Optional dev check: with DevTools open on
+      the YouTube tab, there are **no** `[TL;DW WT]` logs as you watch, and no engagement
+      verdict, per-channel average, or "% watched" renders anywhere. (That analytics now
+      lives in the Watchprint companion extension.)
 
 ### B6 — Popup doesn't revert your choices (F2/#18)
 - [ ] 🔴 In the popup: pick **ChatGPT**, then tick **⚡ Direct API**. **Expected:** the
-      destination stays ChatGPT and your worth-watching toggle isn't cleared (before,
-      it snapped back to Gemini).
+      destination stays ChatGPT and your other choices aren't cleared (before, it
+      snapped back to Gemini).
 
 ### B7 — History page doesn't wipe entries (#5)
 - [ ] 🔴 With **Options → History** open and a video playing/summarizing in another tab,
       change a history setting (the limit, or delete one entry). **Expected:** entries
       the background added stay; nothing gets silently wiped.
 
-### B8 — Settings inputs (#29/#31)
-- [ ] 🟡 Options → Settings → Engagement: clear the "Engaged %" field and retype — it
-      doesn't snap to the minimum mid-edit. The "Trusted channels" textarea types
-      smoothly (no per-keystroke lag). (The engagement *settings* still exist — the
-      watch-time engine still runs under the hood — even though its stats are no
-      longer displayed.)
+### B8 — Settings inputs
+- [ ] 🟡 Options → Settings shows the surviving groups only — **Behavior** (auto-submit,
+      switch-to-tab, pause-on-summarize), **Playback** (auto-skip sponsored segments),
+      **Summary cache**, **Privacy**, **Auto TL;DW** (the over-N-minutes auto-summarize
+      select), **Default destination**, and **Reset**. There is **no** Engagement group
+      anymore (no "Engaged %" field, no "Trusted channels" list) — those left with the
+      deleted watch-time engine. Toggling each setting persists across a page reload.
 
 ### B9 — mobile is out of scope
 - [ ] 🟢 Open a video on **m.youtube.com** (mobile) → TL;DW does **not** run there.
@@ -98,8 +101,8 @@ feature path · 🟢 nice-to-have.
 ## C. Feature sprint (🟡 tags / menu / regenerate)
 
 ### C1 — ⋯ overflow menu + fill-hover (F1/F4)
-- [ ] 🟡 The summary header shows verdict + summary + **Auto-summarize** inline, and a
-      **"⋯"** button.
+- [ ] 🟡 The summary header shows the **summary** + **Auto-summarize** inline, and a
+      **"⋯"** button (no verdict pill).
 - [ ] 🟡 Clicking "⋯" opens a menu with **Clear cache**, **⚡ Gemini/source**, **Open
       tab**. Closes on outside-click and **Esc**.
 - [ ] 🟡 Hover **Auto-summarize** → it **fills blue with white text** (not just a
@@ -190,9 +193,10 @@ the re-scope regressed._
 ## F. If something's wrong
 
 - Capture the **DevTools console** on the YouTube tab (content-script logs are
-  prefixed `[TL;DW]`, watch-time `[TL;DW WT]`, sponsor `[TL;DW SB]`).
+  prefixed `[TL;DW]`, sponsor `[TL;DW SB]`). (There are no more `[TL;DW WT]` watch-time
+  logs — that engine was deleted.)
 - The **popup** surfaces auto-fill failures (a red "last send didn't work" with the
-  site + reason) and gate notices — note those.
+  site + reason) — note those.
 - For background/worker errors: `chrome://extensions` → TL;DW → **service worker** →
   Inspect → Console.
 - Note **which path** (Direct API vs tab-flow) and **which video/channel**, and paste

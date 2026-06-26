@@ -25,8 +25,8 @@ Dashboard.
   declared scope == working scope.
 - ✅ Added a first-run in-popup notice disclosing SponsorBlock (sends the video ID to
   `sponsor.ajay.app`), with a link to turn it off. (TL;DW no longer tracks
-  watch-time/engagement — the watch-time engine was removed in `93f8b7b`, so there is
-  no engagement tracking left to disclose.)
+  watch-time/engagement — the watch-time engine and its modules were deleted, so there
+  is no engagement tracking left to disclose.)
 - ✅ `npm run package` produces a clean, uploadable zip with `manifest.json` at the
   root.
 
@@ -57,23 +57,23 @@ so choose deliberately.
 
 **Short description** (≤132 chars):
 
-> Summarize any YouTube video before you watch. On-page AI summary, custom profiles, SponsorBlock auto-skip, private local stats.
+> Summarize any YouTube video on the page. On-page AI summary, custom profiles, SponsorBlock auto-skip, private local stats.
 
-**Category:** **Productivity** (the value is reclaiming time / deciding what's worth
-watching — a focus tool, not entertainment).
+**Category:** **Productivity** (the value is reclaiming time / getting a video's gist
+fast — a focus tool, not entertainment).
 
 **Language:** English.
 
 **Detailed description:**
 
 ```
-Stop gambling your time on YouTube. TL;DW ("Too Long; Didn't Watch") summarizes a video BEFORE you commit to watching it - so you can decide in seconds whether it is worth your time.
+Get the gist of any YouTube video without watching the whole thing. TL;DW ("Too Long; Didn't Watch") gives you a clear AI summary of a video right on the page - the point, the key details, in seconds.
 
 Open any YouTube video, hit Alt+Shift+G, and get a clear AI summary right on the page. Read it, skip the filler, and reclaim the hours you would have lost to videos that never get to the point.
 
 WHY YOU'LL LIKE IT
 
-- Summarize before you watch. A short, on-page summary means no more 20-minute videos that could have been a paragraph.
+- Summarize on the page. A short, on-page summary means no more 20-minute videos that could have been a paragraph.
 - Zero new tabs (Direct API mode). With your own free Google Gemini key, the summary appears right on the YouTube page in a tidy widget - nothing else opens.
 - Use the AI you already pay for (open-in-a-tab mode). No key? TL;DW opens Gemini, ChatGPT, or Claude with the prompt already typed and submitted, reads the finished answer back, and drops the summary onto the video page for you - attaching the full transcript automatically for AIs that can't watch the video. NotebookLM is supported too: TL;DW adds the video as a source for you (no on-page summary in that mode).
 - Make it your own. Reusable prompt profiles (TL;DW, Research, Learning, Tutorial, or your own) plus tags that tweak the prompt for any channel or video.
@@ -105,7 +105,7 @@ TL;DW is not affiliated with, endorsed by, or sponsored by YouTube, Google, Open
 
 **Single purpose:**
 
-> TL;DW sends the YouTube video you are watching to an AI chat assistant (Gemini, ChatGPT, Claude, or NotebookLM) — or to your own Gemini API key — to generate an on-page summary, so you can decide what to watch without watching the whole thing. Supporting features (SponsorBlock sponsor-skip, local summary-activity stats, and local history) all serve that single purpose of triaging and summarizing YouTube videos.
+> TL;DW sends the YouTube video you are watching to an AI chat assistant (Gemini, ChatGPT, Claude, or NotebookLM) — or to your own Gemini API key — to generate an on-page summary, so you can get the gist without watching the whole thing. Supporting features (SponsorBlock sponsor-skip, local summary-activity stats, and local history) all serve that single purpose of summarizing YouTube videos.
 
 **Permission justifications** (paste per item):
 
@@ -126,7 +126,7 @@ TL;DW is not affiliated with, endorsed by, or sponsored by YouTube, Google, Open
 **Data use — categories to declare:**
 - **Website content** — the video transcript, title, channel, duration, and the AI summary. Stored locally; leaves the device only as the prompt the user sends to their chosen AI (or to the Gemini API in Direct mode). History stores a transcript-*free* copy; the full transcript is only sent live, never persisted.
 - **Authentication information** — the user's own Gemini API key. Stored locally; leaves the device only as the `key=` parameter on the user's own request to Google's Gemini endpoint. Never sent to the developer or anyone else.
-- **User activity** — summary counts, sponsor-skip counts, history. All local; none of it is transmitted anywhere. (TL;DW does **not** track watch-time or engagement — the watch-time engine was removed in `93f8b7b`, so the extension collects *less* activity data than earlier builds.)
+- **User activity** — summary counts, sponsor-skip counts, history. All local; none of it is transmitted anywhere. (TL;DW does **not** track watch-time or engagement — the watch-time engine and its data-layer modules were deleted, so the extension collects *less* activity data than earlier builds.)
 
 **The three required certifications — check all three (all true):**
 1. *I do not sell or transfer user data to third parties outside the approved use cases.* ✅ The only outbound flows are the user-initiated AI summary request and the key-less SponsorBlock video-ID lookup.
@@ -193,7 +193,7 @@ asks about the two "magnets," reply with:
   request removal on a public listing. Kept for now (used only to label destinations,
   nominative) — to de-risk, swap to neutral monogram chips and never put a third-party
   logo in the store screenshots/promo tile.
-- **Version.** `0.1.171` signals beta; consider bumping to `1.0.0` for the public
+- **Version.** `0.1.173` signals beta; consider bumping to `1.0.0` for the public
   listing (cosmetic, not a rejection issue).
 - **Live-key test.** The Gemini key now goes via the `x-goog-api-key` header — do a
   30-second Direct-API summary with a real key to confirm the call still works.

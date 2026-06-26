@@ -9,10 +9,13 @@ Notable changes to TL;DW. Format loosely follows
 > milestones**, not every patch. Full commit-level history is in git, and completed
 > planning docs live in [`docs/archive/`](docs/archive/).
 
-## Unreleased — 2026-06-25 (re-scope: focused YouTube summarizer)
+## Unreleased — 2026-06-25 (re-scope: pure, un-opinionated YouTube summarizer)
 
-TL;DW is now a focused **YouTube summarizer** and its stats are **summary-centric**
-(how much you've *summarized*, not how much you've *watched*).
+TL;DW is now a pure, **un-opinionated YouTube summarizer**: transcript → AI **summary**
+(SUMMARY + DETAILS), shaped by profiles + tags. It does **not** tell you whether to
+watch — no verdict, no rating, no worth-watching gate (a user can ask for that in their
+own prompt). Its stats are **summary-centric** (how much you've *summarized*, not how
+much you've *watched*).
 
 ### Added
 - **Summary-centric Stats page** — # summaries created, cache hits, summarized-today,
@@ -22,19 +25,28 @@ TL;DW is now a focused **YouTube summarizer** and its stats are **summary-centri
 - **Summary-centric Channels page** — each channel now shows **# summaries · last
   summarized · tags**, sorted **Most summarized**.
 
-### Removed (from the UI)
-- The **watch-time / engagement dashboards** — per-channel watch-time, the
+### Removed
+- **Watch-time / engagement tracking — deleted entirely.** The watch-time engine
+  (`src/content/watchtime.ts`) and its data-layer modules (`src/lib/engagement.ts`,
+  `src/lib/dashboards.ts`, `src/lib/stats.ts`) — and their unit tests — are **gone**.
+  TL;DW no longer measures content-seconds, auto-rates videos Engaged/Skimmed/Skipped,
+  or rolls up per-channel watch averages. The live versions now run in **Watchprint**
+  (the companion extension). This *reduces* the data TL;DW collects (a privacy win).
+- **The on-page WATCH/SKIM/SKIP verdict pill, the AI rating, and the worth-watching
+  gate** — removed. The summarization prompt now requests **only SUMMARY/DETAILS**, and
+  the default profiles are neutral summarizers; the parser still tolerates legacy
+  VERDICT/RATING labels so old responses don't bleed into the summary.
+- **The watch-time / engagement dashboards** — per-channel watch-time, the
   Engaged/Skimmed/Skipped readouts, "most engaged channels", the engagement donut,
   the **week/month/year windowed** engagement view, "time given back / time-saved",
   the watch-based activity heatmap, the AI-rating sort, and the panel's
-  `📊 vs channel` cue. (The **watch-time engine still runs under the hood** pending
-  removal — only the *display* was removed. The summary panel and SponsorBlock
-  auto-skip are unchanged.)
+  `📊 vs channel` cue. (The summary panel and SponsorBlock auto-skip are unchanged.)
 
 ### Note
-- This is **step one of a split**: the post-watch watch-time + engagement analytics
-  are moving to a **separate local-only companion extension ("Watchprint")**. TL;DW
-  keeps the summarizer + summary-scoped stats. Rationale + plan:
+- This completes **a split**: the post-watch watch-time + engagement analytics moved to
+  a **separate local-only companion extension, "Watchprint"** (`../watchprint`,
+  `github.com/n8watkins/watchprint`). TL;DW keeps the summarizer + summary-scoped stats.
+  Unit-test count dropped to **49** with the deleted suites. Rationale + plan:
   [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md) and `../watchprint/PLAN.md`.
 
 ## 0.1.166 — 2026-06-25

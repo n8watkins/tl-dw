@@ -11,14 +11,16 @@
 > directly (headless on-page summaries), and skips sponsors. History below is
 > preserved where still accurate._
 >
-> _**Re-scoped 2026-06-25 to a focused YouTube summarizer.** Its stats are now
-> **summary-centric** (# summaries created, top channels by summaries,
-> profile/destination usage, most-used tags, a summary-activity heatmap + streak) —
-> not watch/engagement. The **post-watch watch-time + engagement analytics are being
-> split out** into a separate local-only companion extension, **Watchprint**
-> (`../watchprint`); the watch-time engine still runs under the hood pending removal
-> but is no longer surfaced. Rationale + plan: [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md)
-> and `../watchprint/PLAN.md`._
+> _**Re-scoped 2026-06-25 to a pure, un-opinionated YouTube summarizer.** It produces a
+> **summary** (SUMMARY + DETAILS) shaped by profiles + tags — it does **not** tell you
+> whether to watch (no verdict, no rating, no worth-watching gate; a user can ask for
+> that in their own prompt). Its stats are **summary-centric** (# summaries created, top
+> channels by summaries, profile/destination usage, most-used tags, a summary-activity
+> heatmap + streak) — not watch/engagement. The **post-watch watch-time + engagement
+> analytics were split out** into a separate local-only companion extension, **Watchprint**
+> (`../watchprint`, `github.com/n8watkins/watchprint`); the watch-time engine and its
+> data-layer modules have been **deleted** from TL;DW. Rationale + plan:
+> [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md) and `../watchprint/PLAN.md`._
 
 ---
 
@@ -89,7 +91,7 @@ Selectors run most-specific first, then generic **visible-element** fallbacks (a
 
 ## 4. Transcript & metadata
 
-For destinations that can't watch the video, TL;DW extracts the transcript by intercepting YouTube's own InnerTube/`timedtext` network responses (survives DOM redesigns), with a rendered-panel DOM scrape as fallback. Duration + channel are read for the worth-watching gate (`<video>.duration`, falling back to the `.ytp-time-duration` label).
+For destinations that can't watch the video, TL;DW extracts the transcript by intercepting YouTube's own InnerTube/`timedtext` network responses (survives DOM redesigns), with a rendered-panel DOM scrape as fallback. Duration + channel are read for the auto-summarize length threshold and channel attribution (`<video>.duration`, falling back to the `.ytp-time-duration` label).
 
 ---
 
@@ -108,6 +110,7 @@ For destinations that can't watch the video, TL;DW extracts the transcript by in
 - [x] Transcript extraction (network interception + DOM fallback) appended for non-Gemini chats
 - [x] NotebookLM automation (drive the "Websites" source with the video link)
 - [x] Worth-watching verdict gate for long videos, with a trusted-channel bypass
+  _(later **removed** in the 2026-06-25 re-scope — TL;DW no longer imposes a verdict)_
 - [x] Auto-pause the video on summarize
 - [x] Open-search "jump back" + failure surfacing in the popup (badge + alert)
 - [x] Selector resilience (visibility-filtered matching, broadened fallbacks)
@@ -117,24 +120,25 @@ For destinations that can't watch the video, TL;DW extracts the transcript by in
 
 ### Shipped — Direct API, sponsors, stats & tags era
 
-- [x] **Direct API mode** — headless Gemini REST call on navigation, verdict +
-  summary rendered in an on-page widget, no destination tab opened; daily quota
-  bar (~500 RPD free tier) and a metadata-only-by-default call log
+- [x] **Direct API mode** — headless Gemini REST call on navigation, the **summary**
+  (SUMMARY + DETAILS) rendered in an on-page widget, no destination tab opened; daily
+  quota bar (~500 RPD free tier) and a metadata-only-by-default call log
   (`DirectApiSection.tsx`, `background/index.ts`)
 - [x] **SponsorBlock auto-skip** — skip in-video sponsor segments from the free
   community data, with inline timestamps + Undo and lifetime seconds-saved
   (`content/sponsorblock.ts`, `sponsor.ajay.app`)
 - [x] **Watch-time engine** — auto-rated each video Engaged / Skimmed / Skipped and
   rolled up per-channel averages (`content/watchtime.ts`, `lib/engagement.ts`).
-  **Re-scope 2026-06-25:** this and its dashboards were **pulled out of the UI**
-  (heading to the Watchprint companion extension); the engine still runs under the
-  hood pending removal.
+  **Re-scope 2026-06-25:** this, its dashboards, and the data-layer modules were
+  **deleted** (`watchtime.ts`, `engagement.ts`, `dashboards.ts`, `stats.ts`). The
+  watch-analytics now live in the **Watchprint** companion extension; TL;DW no longer
+  tracks watch-time or engagement at all.
 - [x] **Stats dashboard (summary-centric)** — # summaries created, cache hits,
   summarized-today, top channels by # summaries, profile usage, destination usage,
   most-used tags, and a GitHub-style **summary-activity heatmap + streak**
   (`StatsSection.tsx`). The F7 Phase 1 week/month/year/all-time **engagement**
-  rollups + finish-rate donut (`lib/dashboards.ts`) were **removed from the UI** in
-  the re-scope (logic retained, headed for Watchprint).
+  rollups + finish-rate donut (`lib/dashboards.ts`) were **deleted** in the re-scope
+  (the logic now lives in Watchprint).
 - [x] **Channels + per-channel tags** — channel cards, an auto-summarize list,
   and a tags layer (channel ∪ video tags) surfaced on the widget and the
   options Tags page (`ChannelsSection.tsx`, `TagsSection.tsx`, `lib/storage.ts`).
