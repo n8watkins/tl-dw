@@ -431,7 +431,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label">Show your usual engagement per channel</div>
             <div className="setting-sub">
-              Show your per-channel engagement average on the panel and in Channels (computed from auto-tracked ratings).
+              Show your per-channel engagement average on the video panel (computed from auto-tracked ratings).
             </div>
           </div>
           <div className="setting-control">

@@ -360,9 +360,9 @@ export function StatsSection() {
 
         <div className="stat-card" style={{ "--ca": "#06b6d4", "--cg": "rgba(6,182,212,0.22)" } as React.CSSProperties}>
           <div className="stat-card-label">Summarized today</div>
-          <div className="stat-card-num" style={{ color: "#22d3ee" }}>{fmtCount(usage.todayCalls)}</div>
+          <div className="stat-card-num" style={{ color: "#22d3ee" }}>{fmtCount(stats.activity[localDateKey(new Date())] ?? 0)}</div>
           <div className="stat-card-sub">
-            {streak > 0 ? `🔥 ${streak}-day streak` : "of ~500 free API calls/day"}
+            {streak > 0 ? `🔥 ${streak}-day streak` : "start a daily streak"}
           </div>
         </div>
       </div>

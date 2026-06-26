@@ -584,7 +584,7 @@ function emptyLifetimeStats(): LifetimeStats {
  */
 export function trimActivity(
   activity: Record<string, number>,
-  maxKeys = 366,
+  maxKeys = 400, // > the 53-week (371-day) summary-activity heatmap window
 ): Record<string, number> {
   const keys = Object.keys(activity);
   if (keys.length <= maxKeys) return activity;
