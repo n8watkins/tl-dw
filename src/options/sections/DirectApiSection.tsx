@@ -170,7 +170,7 @@ export function DirectApiSection() {
           <TierBadge tier="integrated" label="Integrated" />
           <span style={{ fontSize: 12, color: "var(--muted)" }}>
             Everything on this page is part of the Integrated tier — it needs the Direct API
-            (Gemini) key. The on-page summary panel and AI verdict come from the model's
+            (Gemini) key. The on-page summary panel is rendered from the model's
             structured output.
           </span>
         </div>
@@ -385,68 +385,6 @@ export function DirectApiSection() {
                 type="checkbox"
                 checked={settings.keepFullCallLog}
                 onChange={(e) => void update({ keepFullCallLog: e.target.checked })}
-              />
-              <span className="toggle-track" />
-            </label>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Integrated: AI rating (requires the API key) */}
-      <div className="settings-group">
-        <div className="settings-group-title">
-          <Icon name="sparkles" /> Integrated
-          <TierBadge tier="integrated" label="Needs API key" style={{ marginLeft: 8 }} />
-        </div>
-        <div className="setting-sub" style={{ marginBottom: 12 }}>
-          The AI verdict is derived from the model's structured output, so it only exists when
-          the Direct API is configured. The per-channel AI average is computed locally from
-          those results.
-        </div>
-
-        {/* AI rating: collect/show (A) */}
-        <div className="setting-row">
-          <div className="setting-info">
-            <div className="setting-label">Show AI recommendation</div>
-            <div className="setting-sub">
-              Show the AI verdict (Watch/Skim/Skip) and numeric score on the panel.
-            </div>
-          </div>
-          <div className="setting-control">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={settings.showAiRecommendation}
-                onChange={(e) =>
-                  void update(
-                    e.target.checked
-                      ? { showAiRecommendation: true }
-                      : { showAiRecommendation: false, trackAiAverage: false },
-                  )
-                }
-                disabled={!hasKey}
-              />
-              <span className="toggle-track" />
-            </label>
-          </div>
-        </div>
-
-        {/* AI rating: track average (B, requires A) */}
-        <div className="setting-row" style={{ opacity: settings.showAiRecommendation ? 1 : 0.5 }}>
-          <div className="setting-info">
-            <div className="setting-label">Track AI average</div>
-            <div className="setting-sub">
-              Average the AI score per channel and show a this-video-vs-channel cue.
-            </div>
-          </div>
-          <div className="setting-control">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                disabled={!hasKey || !settings.showAiRecommendation}
-                checked={settings.trackAiAverage}
-                onChange={(e) => void update({ trackAiAverage: e.target.checked })}
               />
               <span className="toggle-track" />
             </label>

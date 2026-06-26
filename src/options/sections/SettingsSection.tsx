@@ -4,9 +4,7 @@ import {
   DEFAULT_SETTINGS,
   DESTINATIONS,
   STORAGE_KEYS,
-  WATCH_THRESHOLD_OPTIONS,
 } from "../../lib/constants";
-import type { WatchThresholdMinutes } from "../../types";
 import { getSettings, setSettings } from "../../lib/storage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DestinationIcon, Icon } from "../components/Icons";
@@ -16,9 +14,6 @@ export function SettingsSection() {
   const [saved, setSaved] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [cacheCount, setCacheCount] = useState(0);
-  // Transient text for the trusted-terms textarea so it doesn't rewrite the whole
-  // settings object per character. null = not editing; show the persisted value.
-  const [bypassDraft, setBypassDraft] = useState<string | null>(null);
 
   function refreshCacheCount() {
     void chrome.storage.local.get("tldwSummaryCache").then((r) => {
@@ -211,7 +206,7 @@ export function SettingsSection() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group-title"><Icon name="eye" /> Auto TL;DW &amp; worth watching</div>
+        <div className="settings-group-title"><Icon name="eye" /> Auto TL;DW</div>
 
         <div className="setting-row">
           <div className="setting-info">
@@ -231,75 +226,6 @@ export function SettingsSection() {
                 <option key={m} value={m}>{m} min</option>
               ))}
             </select>
-          </div>
-        </div>
-
-        <div className="setting-row">
-          <div className="setting-info">
-            <div className="setting-label">Verdict for long videos</div>
-            <div className="setting-sub">
-              Long videos lead with a WATCH / SKIM / SKIP verdict. Chat destinations only.
-            </div>
-          </div>
-          <div className="setting-control">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={settings.worthWatchingGate}
-                onChange={(e) => void update({ worthWatchingGate: e.target.checked })}
-              />
-              <span className="toggle-track" />
-            </label>
-          </div>
-        </div>
-
-        <div className="setting-row">
-          <div className="setting-info">
-            <div className="setting-label">Length threshold</div>
-            <div className="setting-sub">
-              Videos longer than this get the verdict.
-            </div>
-          </div>
-          <div className="setting-control">
-            <select
-              className="setting-select"
-              value={String(settings.worthWatchingMinutes)}
-              onChange={(e) =>
-                void update({
-                  worthWatchingMinutes: Number(e.target.value) as WatchThresholdMinutes,
-                })
-              }
-            >
-              {WATCH_THRESHOLD_OPTIONS.map((m) => (
-                <option key={m} value={m}>
-                  {m} minutes
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="setting-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 10 }}>
-          <div className="setting-info">
-            <div className="setting-label">Trusted channels &amp; keywords</div>
-            <div className="setting-sub">
-              One per line. Matching channels or titles always get a full summary.
-            </div>
-          </div>
-          <div style={{ width: "100%" }}>
-            <textarea
-              rows={4}
-              value={bypassDraft ?? settings.gateBypassTerms}
-              onChange={(e) => setBypassDraft(e.target.value)}
-              onBlur={() => {
-                if (bypassDraft !== null && bypassDraft !== settings.gateBypassTerms) {
-                  void update({ gateBypassTerms: bypassDraft });
-                }
-                setBypassDraft(null);
-              }}
-              placeholder={"Veritasium\n3blue1brown\nlecture"}
-              style={{ width: "100%", minHeight: 90, resize: "vertical", fontFamily: "inherit", fontSize: 14 }}
-            />
           </div>
         </div>
       </div>

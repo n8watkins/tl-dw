@@ -55,7 +55,7 @@ export function SetupSection() {
           <div className="step-num">Step 3</div>
           <div className="step-title">Read the summary</div>
           <div className="step-body">
-            The summary lands on the page (and long videos get a worth-watching verdict). Skip what doesn't matter. Your time, your call.
+            The summary lands right on the page — a one-line takeaway plus the key details. Skip what doesn't matter. Your time, your call.
           </div>
         </div>
       </div>
@@ -97,7 +97,7 @@ export function SetupSection() {
             Calls Google's Gemini API directly, so the summary appears right on
             the video — <strong>no tab ever opens</strong>. The free
             tier covers ~500 videos a day with no credit card. This powers the on-page summary
-            widget, the worth-watching verdict, and auto-summarize.
+            widget and auto-summarize.
           </div>
           <button className="btn btn-primary" style={{ marginTop: 4 }} onClick={goToDirectApi}>
             Set up Direct API →

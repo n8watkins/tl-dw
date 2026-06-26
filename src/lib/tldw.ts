@@ -1,14 +1,17 @@
 import type { TldwSummary } from "../types";
 
 /** The labels that start a new field. Anything else with a colon is treated as
- *  continuation text, so an all-caps "API:" inside the prose doesn't truncate it. */
+ *  continuation text, so an all-caps "API:" inside the prose doesn't truncate it.
+ *  VERDICT/RATING are still recognized as field starts (so an older response or a
+ *  user prompt that asks for them doesn't bleed those lines into the SUMMARY/DETAILS
+ *  values), but TL;DW no longer requests or surfaces them. */
 const TLDW_FIELDS = new Set(["VERDICT", "RATING", "SUMMARY", "DETAILS"]);
 
 /**
- * Parse the VERDICT/RATING/SUMMARY/DETAILS lines from the inside of a TL;DW
- * block. Returns null if there's no SUMMARY. Tolerates Markdown the model adds
- * around the LABELS (e.g. "**SUMMARY:**") but preserves the VALUE text verbatim
- * so legitimate `*` `_` backticks in the prose aren't deleted.
+ * Parse the SUMMARY/DETAILS lines from the inside of a TL;DW block. Returns null
+ * if there's no SUMMARY. Tolerates Markdown the model adds around the LABELS
+ * (e.g. "**SUMMARY:**") but preserves the VALUE text verbatim so legitimate
+ * `*` `_` backticks in the prose aren't deleted.
  */
 function parseFields(inner: string): TldwSummary | null {
   const fields: Record<string, string> = {};
@@ -35,12 +38,10 @@ function parseFields(inner: string): TldwSummary | null {
     }
   }
   if (!fields.SUMMARY) return null;
-  const raw = fields.VERDICT ?? "";
-  const verdict = /SKIP/i.test(raw) ? "SKIP" : /SKIM/i.test(raw) ? "SKIM" : "WATCH";
+  // TL;DW no longer requests a verdict/rating; the panel and cache types keep the
+  // fields optional, so a parsed summary just leaves them empty.
   return {
-    verdict,
     summary: fields.SUMMARY,
-    rating: fields.RATING ?? "",
     details: fields.DETAILS || undefined,
   };
 }

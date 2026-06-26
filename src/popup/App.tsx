@@ -91,7 +91,6 @@ export function App() {
   const [copyStatus, setCopyStatus] = useState("");
   const [destinationId, setDestinationId] = useState("gemini");
   const [curiosity, setCuriosity] = useState("");
-  const [gate, setGate] = useState(false);
   const [openSearches, setOpenSearches] = useState<OpenSearch[]>([]);
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   const [statuses, setStatuses] = useState<DeliveryStatus[]>([]);
@@ -100,7 +99,6 @@ export function App() {
   // a settings write (e.g. ticking Direct API) must NOT revert it back to the
   // saved default via the storage.onChanged listener below.
   const destOverridden = useRef(false);
-  const gateOverridden = useRef(false);
 
   useEffect(() => {
     void (async () => {
@@ -119,7 +117,6 @@ export function App() {
       setTab(activeTab);
       setSelectedId(s.defaultProfileId ?? p[0]?.id ?? "");
       setDestinationId(s.destinationId ?? "gemini");
-      setGate(s.worthWatchingGate ?? false);
       setOpenSearches(open);
       setHistory(hist);
       setStatuses(stat);
@@ -130,20 +127,19 @@ export function App() {
 
   // Keep settings in sync if the options page (or any other tab) writes them
   // while the popup is open. Re-read the fresh value and update the derived
-  // state that drives the Direct API indicator and key presence. Gate and
-  // destination are session-local overrides — they're only updated when the
-  // user hasn't made an in-popup choice yet (i.e. still at default).
+  // state that drives the Direct API indicator and key presence. The destination
+  // is a session-local override — only updated when the user hasn't made an
+  // in-popup choice yet (i.e. still at default).
   useEffect(() => {
     const handleChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
       if (area !== "local") return;
       if (changes[STORAGE_KEYS.settings]?.newValue) {
         const fresh: Settings = { ...DEFAULT_SETTINGS, ...(changes[STORAGE_KEYS.settings].newValue as Settings) };
         setSettings(fresh);
-        // Only sync gate/destination from storage if the user hasn't overridden
-        // them in this popup session — otherwise ticking "Direct API" (which
-        // writes settings, firing this listener) would silently reset their
-        // just-picked destination and gate choice.
-        if (!gateOverridden.current) setGate(fresh.worthWatchingGate ?? false);
+        // Only sync destination from storage if the user hasn't overridden it in
+        // this popup session — otherwise ticking "Direct API" (which writes
+        // settings, firing this listener) would silently reset their just-picked
+        // destination.
         if (!destOverridden.current) setDestinationId(fresh.destinationId ?? "gemini");
       }
     };
@@ -161,7 +157,6 @@ export function App() {
   }
   const current = [...latest.values()];
   const failures = current.filter((s) => (s.kind ?? "delivery") === "delivery" && !s.ok);
-  const gateSkips = current.filter((s) => s.kind === "gate" && !s.ok);
 
   async function dismissFailures() {
     await clearDeliveryStatuses();
@@ -195,7 +190,6 @@ export function App() {
       type: "ASK",
       profileId: selectedId,
       destinationId: dest.id,
-      worthWatchingGate: gate,
       userCuriosity: curiosity.trim() || undefined,
       // "Send to <destination>" is an explicit request to open that destination,
       // so this opens a tab even when Direct API is enabled (unlike auto-runs).
@@ -363,17 +357,6 @@ export function App() {
         </div>
       )}
 
-      {gateSkips.length > 0 && (
-        <div className="status-note">
-          {gateSkips.slice(0, 2).map((g, i) => (
-            <div key={i}>
-              ℹ {g.reason ?? "verdict gate skipped"}{" "}
-              <span className="status-note-time">({timeAgo(g.at)})</span>
-            </div>
-          ))}
-        </div>
-      )}
-
       {onVideo && (
         <>
           {isShort && (
@@ -467,15 +450,6 @@ export function App() {
                     onChange={(e) => setCuriosity(e.target.value)}
                     rows={3}
                   />
-                </label>
-
-                <label className="check-field">
-                  <input
-                    type="checkbox"
-                    checked={gate}
-                    onChange={(e) => { gateOverridden.current = true; setGate(e.target.checked); }}
-                  />
-                  <span>Worth-watching verdict first (long videos)</span>
                 </label>
               </>
             )}

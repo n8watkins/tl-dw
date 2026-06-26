@@ -53,22 +53,6 @@ export function buildPrompt(
 }
 
 /**
- * Prepend a "worth watching?" directive so the response leads with a verdict
- * before the summary — used for videos over the configured length.
- */
-export function prependWorthWatchingGate(
-  prompt: string,
-  minutes: number,
-): string {
-  const directive =
-    `This video is long (about ${Math.round(minutes)} minutes). Before anything else, ` +
-    `start your response with a single line — exactly "Verdict: WATCH", ` +
-    `"Verdict: SKIM", or "Verdict: SKIP" — followed by one sentence saying why. ` +
-    `Then give the full summary below.`;
-  return `${directive}\n\n${prompt}`;
-}
-
-/**
  * Append the verbatim transcript to a prompt, when one is available. The
  * transcript is untrusted user content, so it's fenced in explicit markers and
  * the model is told to treat it strictly as data — a video whose captions say
@@ -92,8 +76,8 @@ export function appendTranscript(
 }
 
 /**
- * Append a structured TL;DW block request so the AI always outputs parseable
- * verdict / rating / summary / details fields at the end of its response.
+ * Append a structured TL;DW block request so the AI always outputs a parseable
+ * summary / details block at the end of its response.
  */
 export function appendTldwBlock(prompt: string): string {
   return (
@@ -108,8 +92,6 @@ export function appendTldwBlock(prompt: string): string {
     "bottlenecks before scaling ad spend\" — not \"The video provides a masterclass in " +
     "incremental improvement, focusing on fixing conversion bottlenecks.\"\n\n" +
     "---TLDW---\n" +
-    "VERDICT: WATCH, SKIM, or SKIP\n" +
-    "RATING: a single whole number from 1 to 10 for how worth-watching the video is\n" +
     "SUMMARY: [one sentence stating the video's actual conclusion or claim directly]\n" +
     "DETAILS: [2-4 sentences of the actual substance, stated directly as claims/advice — no meta-framing about 'the video']\n" +
     "---END TLDW---"

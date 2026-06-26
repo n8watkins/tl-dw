@@ -64,14 +64,14 @@ export function AboutSection() {
           </div>
         </div>
 
-        {/* On-page summary + verdict */}
+        {/* On-page summary */}
         <div className="about-card" style={{"--ca": "#f97316", "--cg": "rgba(249,115,22,0.1)"} as React.CSSProperties}>
           <div className="about-card-icon" style={{background:"rgba(249,115,22,0.12)", color:"#fb923c"}}>
             <Icon name="eye" />
           </div>
           <div className="about-card-title">Summary on the page</div>
           <div className="about-card-desc">
-            The summary lands right on the YouTube video. Long videos also get an upfront WATCH / SKIM / SKIP verdict.
+            The summary lands right on the YouTube video — a one-line takeaway plus the key details, so you decide what's worth your time.
           </div>
         </div>
 

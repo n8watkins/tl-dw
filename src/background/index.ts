@@ -1,4 +1,4 @@
-import { buildDestinationPrompt, prependWorthWatchingGate } from "../lib/promptBuilder";
+import { buildDestinationPrompt } from "../lib/promptBuilder";
 import { parseTldwBlock } from "../lib/tldw";
 import { GEMINI_URL, getDestination, isYouTubeVideoUrl, localDateKey, pruneCache, STORAGE_KEYS, SUMMARY_CACHE_KEY } from "../lib/constants";
 import { addHistoryEntry, expireOldEntries, trimToLimit } from "../lib/history";
@@ -124,7 +124,7 @@ chrome.contextMenus.onClicked.addListener((info) => {
     // info.linkUrl is set when the click landed on a link (e.g. a thumbnail).
     // The menu reads "Send to <destination> with..." — an explicit request to
     // open that destination — so it always opens a tab, even with Direct API on.
-    void runSummary(info.menuItemId as string, info.linkUrl, undefined, undefined, undefined, undefined, "menu");
+    void runSummary(info.menuItemId as string, info.linkUrl, undefined, undefined, undefined, "menu");
   }
 });
 
@@ -174,16 +174,6 @@ async function getVideoMeta(tabId: number): Promise<VideoMeta | null> {
   } catch {
     return null;
   }
-}
-
-/** Whether a channel/title is on the gate's bypass (trusted) list. */
-function isTrusted(bypassTerms: string, channel: string, title?: string): boolean {
-  const haystack = `${channel} ${title ?? ""}`.toLowerCase();
-  return bypassTerms
-    .split(/[\n,]/)
-    .map((t) => t.trim().toLowerCase())
-    .filter(Boolean)
-    .some((term) => haystack.includes(term));
 }
 
 /** Call the Gemini REST API directly and return the response text. */
@@ -254,7 +244,6 @@ async function runSummary(
   profileId?: string,
   linkUrl?: string,
   destinationOverride?: string,
-  gateOverride?: boolean,
   userCuriosity?: string,
   senderTabId?: number,
   source: SummarySource = "auto",
@@ -322,10 +311,10 @@ async function runSummary(
   }
 
   // Fetch video metadata ONCE for any non-thumbnail prompt destination — used for
-  // channel-tracking stats, the worth-watching gate, the duration stat, AND tag
-  // resolution. It must run on EVERY prompt path (not just Direct-API/gate) so
-  // channel tags resolve even on the plain tab-flow. Consolidated from the two
-  // separate fetches this had before.
+  // channel-tracking stats, the duration-summarized stat, AND tag resolution. It
+  // must run on EVERY prompt path (not just Direct-API) so channel tags resolve
+  // even on the plain tab-flow. Consolidated from the two separate fetches this
+  // had before.
   let videoDurationSeconds = 0;
   if (isPromptDest && !isThumbnail && activeTab?.id !== undefined) {
     const meta = await getVideoMeta(activeTab.id);
@@ -333,33 +322,6 @@ async function runSummary(
     if (meta?.channelId) video.channelId = meta.channelId;
     if (meta?.avatarUrl) video.avatarUrl = meta.avatarUrl;
     if (meta?.durationSeconds) videoDurationSeconds = meta.durationSeconds;
-  }
-
-  // Worth-watching gate: for chat destinations (a "prompt" payload), on videos
-  // over the threshold whose channel/title isn't trusted, ask for a verdict first.
-  const gateEnabled = gateOverride ?? settings.worthWatchingGate;
-  let gateMinutes = 0;
-  if (gateEnabled && isPromptDest && !isThumbnail && activeTab?.id !== undefined) {
-    const minutes = videoDurationSeconds / 60;
-    // Record the duration read as a "gate" status every run: a failed read
-    // surfaces a notice (the selector may need a look), and a later good read
-    // clears that stale notice rather than letting it stick around.
-    await recordDeliveryStatus({
-      site: destination.label,
-      kind: "gate",
-      ok: minutes > 0,
-      reason:
-        minutes > 0
-          ? undefined
-          : "couldn't read the video length — verdict gate skipped",
-      at: new Date().toISOString(),
-    });
-    if (
-      minutes >= settings.worthWatchingMinutes &&
-      !isTrusted(settings.gateBypassTerms, video.channel ?? "", title)
-    ) {
-      gateMinutes = minutes;
-    }
   }
 
   // Resolve the user's active tags for this video (F6): channel tags ∪ video
@@ -377,10 +339,7 @@ async function runSummary(
   // This covers both the headless REST path and the tab flow (incl. Gemini).
   const promptDest =
     willUseDirectApi || transcript ? { ...destination, canWatch: false } : destination;
-  let prompt = buildDestinationPrompt(profile, video, promptDest, transcript, userCuriosity, activeTags);
-  if (gateMinutes > 0) {
-    prompt = prependWorthWatchingGate(prompt, gateMinutes);
-  }
+  const prompt = buildDestinationPrompt(profile, video, promptDest, transcript, userCuriosity, activeTags);
 
   // For headless runs, use the designated Direct API profile if one is set.
   if (willUseDirectApi && settings.directApiProfileId) {
@@ -390,8 +349,7 @@ async function runSummary(
   // --- headless path: call Gemini API directly (no tab) -------------------
   if (willUseDirectApi) {
     // Build the transcript-free prompt once for both the call log and history.
-    let logPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity, activeTags);
-    if (gateMinutes > 0) logPrompt = prependWorthWatchingGate(logPrompt, gateMinutes);
+    const logPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity, activeTags);
 
     const videoId = extractVideoId(url);
 
@@ -410,7 +368,6 @@ async function runSummary(
     // --- live call: fetch from Gemini, then write to cache ---
     let responseText: string | undefined;
     let tldw: ReturnType<typeof parseTldwBlock> | undefined;
-    let aiRating: number | undefined;
     try {
       responseText = await callGeminiApi(prompt, apiKey!);
       await recordGeminiCall(video, logPrompt, responseText);
@@ -439,10 +396,6 @@ async function runSummary(
         return;
       }
 
-      // Parse the AI rating (e.g. "8/10" → 8) for history storage.
-      const aiRatingMatch = tldw.rating ? /^(\d+)/.exec(tldw.rating) : null;
-      aiRating = aiRatingMatch ? parseInt(aiRatingMatch[1], 10) : undefined;
-
       // Save history. Wrapped in its own try so a storage error never prevents
       // the summary from being shown.
       if (settings.saveHistoryOnSearch) {
@@ -450,7 +403,6 @@ async function runSummary(
           await addHistoryEntry({
             video, profile, prompt: logPrompt, settings,
             destinationId: destination.id,
-            aiRating,
             channelAvatarUrl: video.avatarUrl,
           });
         } catch { /* storage failure: skip history, don't block summary */ }
@@ -520,10 +472,7 @@ async function runSummary(
     // KB, and persisting it per entry would bloat chrome.storage.local toward
     // its ~5 MB quota (and means "Copy prompt" wouldn't quietly drag the whole
     // transcript along). Rebuild the prompt with no transcript for the log.
-    let historyPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity, activeTags);
-    if (gateMinutes > 0) {
-      historyPrompt = prependWorthWatchingGate(historyPrompt, gateMinutes);
-    }
+    const historyPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity, activeTags);
     await addHistoryEntry({
       video,
       profile,
@@ -564,7 +513,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 chrome.commands.onCommand.addListener((command) => {
   // Alt+Shift+G opens the destination tab with the default profile — same as the
   // toolbar/menu, and unaffected by an in-page auto-summary running on Direct API.
-  if (command === "ask-gemini") void runSummary(undefined, undefined, undefined, undefined, undefined, undefined, "command");
+  if (command === "ask-gemini") void runSummary(undefined, undefined, undefined, undefined, undefined, "command");
 });
 
 chrome.runtime.onMessage.addListener(
@@ -577,7 +526,6 @@ chrome.runtime.onMessage.addListener(
         message.profileId,
         undefined,
         message.destinationId,
-        message.worthWatchingGate,
         message.userCuriosity,
         sender.tab?.id,
         message.source ?? "auto",
@@ -691,7 +639,7 @@ chrome.runtime.onMessage.addListener(
         }
         // None open — run a fresh summary that opens the destination tab, and
         // force-focus it (this is an explicit "take me there" click).
-        await runSummary(undefined, undefined, undefined, undefined, undefined, ytTabId, "popup", true);
+        await runSummary(undefined, undefined, undefined, undefined, ytTabId, "popup", true);
         sendResponse({ opened: true });
       })();
       return true; // async response

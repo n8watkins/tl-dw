@@ -71,9 +71,9 @@ export type DeliveryStatus = {
   reason?: string;
   at: string;
   /**
-   * What this status is about. "delivery" (default) = an auto-fill attempt;
-   * "gate" = the worth-watching verdict's duration read. They're shown
-   * separately so a skipped gate doesn't masquerade as a failed delivery.
+   * What this status is about. "delivery" (default) = an auto-fill attempt.
+   * ("gate" was the removed worth-watching verdict's duration read; kept in the
+   * union so older session-stored statuses still type-check.)
    */
   kind?: "delivery" | "gate";
 };
@@ -177,9 +177,6 @@ export type LifetimeStats = {
   activity: Record<string, number>;
 };
 
-/** Minutes thresholds the worth-watching gate offers (see WATCH_THRESHOLD_OPTIONS). */
-export type WatchThresholdMinutes = 15 | 20 | 30 | 45 | 60;
-
 /**
  * What gets handed to a destination. "prompt" (default) sends the analysis
  * prompt, with the transcript appended when the destination can't watch the
@@ -220,12 +217,6 @@ export type Settings = {
   focusGeminiTab: boolean;
   /** Pause the YouTube video when a summary is sent. */
   autoPauseOnSummarize: boolean;
-  /** Ask for a WATCH/SKIM/SKIP verdict first on videos over the threshold. */
-  worthWatchingGate: boolean;
-  /** Duration (minutes) above which the worth-watching verdict is requested. */
-  worthWatchingMinutes: WatchThresholdMinutes;
-  /** Channels/keywords (one per line) that bypass the gate — always full summary. */
-  gateBypassTerms: string;
   /** Which destination a summary is sent to (see DESTINATIONS). */
   destinationId: string;
   /** Open chats in incognito/temporary mode — not saved to the AI's history. */
@@ -242,10 +233,6 @@ export type Settings = {
   firstRunNoticeSeen: boolean;
   /** Profile to use for Direct API auto-runs; falls back to the default profile if unset. */
   directApiProfileId?: string;
-  /** AI dimension — collect/show: render the AI verdict + numeric score pills in the panel. */
-  showAiRecommendation: boolean;
-  /** AI dimension — track-average: show the per-channel AI rating average + cue. Requires showAiRecommendation. */
-  trackAiAverage: boolean;
   /** Auto-skip in-video sponsored segments using the free SponsorBlock community data. */
   skipSponsors: boolean;
   /**
@@ -273,7 +260,8 @@ export type VideoContext = {
   avatarUrl?: string;
 };
 
-/** Metadata read from the YouTube page for the worth-watching gate. */
+/** Metadata read from the YouTube page — channel info, duration (for the
+ *  duration-summarized stat and auto-summarize threshold), and avatar. */
 export type VideoMeta = {
   durationSeconds: number;
   channel: string;
@@ -294,8 +282,6 @@ export type AskMessage = {
   type: "ASK";
   profileId?: string;
   destinationId?: string;
-  /** Per-send override for the worth-watching verdict gate. */
-  worthWatchingGate?: boolean;
   /** Optional one-off question to weave into the prompt for this send. */
   userCuriosity?: string;
   /**
@@ -328,14 +314,17 @@ export type InjectResultMessage = {
 
 /** Compact structured data extracted from the AI response and injected onto the YouTube page. */
 export type TldwSummary = {
-  /** WATCH, SKIM, or SKIP */
-  verdict: string;
   /** One sentence stating the video's core conclusion or argument. */
   summary: string;
-  /** e.g. "8/10" */
-  rating: string;
   /** 1-2 sentences of supporting evidence or key context. */
   details?: string;
+  /**
+   * Legacy AI-verdict fields. TL;DW no longer requests or surfaces these (the
+   * panel is summary-only), but they're kept optional so older cached/stored
+   * summaries and the inject content-script's local type still read back cleanly.
+   */
+  verdict?: string;
+  rating?: string;
 };
 
 /**

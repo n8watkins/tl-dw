@@ -25,8 +25,8 @@ export function createDefaultProfiles(): PromptProfile[] {
     base(
       "tldw",
       "TL;DW",
-      "The too long; didn't watch version: a verdict, a one-line summary, and key details.",
-      `You watched this YouTube video so I don't have to. Tell me whether it's worth my time and what it actually concludes — not just what topics it covers.
+      "The too long; didn't watch version: a one-line summary and the key details.",
+      `You watched this YouTube video so I don't have to. Tell me what it actually concludes and the key details — not just what topics it covers.
 
 Video: {{title}}
 Channel: {{channel}}
@@ -95,7 +95,7 @@ Write the response in a practical, readable style. Use steps only when there is 
 
 Explain what the video teaches me to do, what prerequisites or tools are needed, and what I could realistically try first. Include the tradeoffs: time cost, complexity, likely payoff, opportunity cost, and alternative ways to get the same improvement.
 
-If the video is vague, motivational, repetitive, or not actually actionable, say that directly. End with the best next action I should take and whether the video is worth watching for execution.
+If the video is vague, motivational, repetitive, or not actually actionable, say that directly. End with the best next action I should take.
 
 Do not invent steps, tools, costs, or outcomes that are not supported by the video.`,
     ),
@@ -119,7 +119,7 @@ Present each moment as a readable card-style section. Include the timestamp if i
 
 When possible, include a clickable YouTube timestamp link using the video URL and timestamp. Include an exact quote only if clearly supported by the transcript. Otherwise, include a short "quotable concept" as a paraphrase.
 
-Keep the number of moments selective. Prefer 3 to 5 strong moments over a long list of weak ones. End by saying whether watching only these moments is enough or whether the full video is worth watching.
+Keep the number of moments selective. Prefer 3 to 5 strong moments over a long list of weak ones. End by saying whether these moments capture the key substance or whether the full video adds materially more.
 
 Do not invent timestamps, quotes, or moments.`,
     ),
