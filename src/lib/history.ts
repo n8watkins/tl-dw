@@ -71,6 +71,11 @@ export async function addHistoryEntry(args: {
   });
 }
 
+/** A real summary (vs a watch-stub the watch-time engine writes with prompt:""). */
+export function isSummaryEntry(e: SearchHistoryEntry): boolean {
+  return !!(e.prompt && e.prompt.trim());
+}
+
 export type ChannelStats = {
   channel: string;
   avatarUrl?: string;

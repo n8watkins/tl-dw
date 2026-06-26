@@ -1,10 +1,8 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import type { AutoRunChannel, SearchHistoryEntry, Tag } from "../../types";
-import { getHistory, getAutoRunChannels, setAutoRunChannels as persistAutoRunChannels, getSettings, getTags } from "../../lib/storage";
+import { getHistory, getAutoRunChannels, setAutoRunChannels as persistAutoRunChannels, getTags } from "../../lib/storage";
 import { CHANNEL_TAGS_KEY } from "../../lib/constants";
-import { computeChannelStats, type ChannelStats } from "../../lib/history";
-import { USER_RATING_LABELS, scoreToVerdict, userAvgToLabel } from "../../lib/constants";
-import { TierBadge } from "../components/TierBadge";
+import { computeChannelStats, isSummaryEntry, type ChannelStats } from "../../lib/history";
 import { VirtualList } from "../components/VirtualList";
 
 // ---- helpers ----------------------------------------------------------------
@@ -41,14 +39,7 @@ function channelColor(name: string): string {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length]!;
 }
 
-/** Pill colors for a WATCH/SKIM/SKIP verdict (shared by AI + audience pills). */
-function verdictPillStyle(verdict: string): { background: string; color: string } {
-  if (verdict === "WATCH") return { background: "#16a34a", color: "#fff" };
-  if (verdict === "SKIM") return { background: "#d97706", color: "#fff" };
-  return { background: "#dc2626", color: "#fff" };
-}
-
-type SortKey = "count" | "rating" | "recent";
+type SortKey = "count" | "recent";
 type TabKey = "all" | "auto";
 
 /** Resolve the channel-tag map (channelName -> tagId[]) against the tag library
@@ -186,10 +177,7 @@ function AutoRunCard({
 
 // ---- Video row inside expanded card -----------------------------------------
 
-function VideoRow({ entry, trackMyAverage }: { entry: SearchHistoryEntry; trackMyAverage: boolean }) {
-  const hasAi = entry.aiRating !== undefined;
-  const hasUserRating = trackMyAverage && entry.userRating !== undefined;
-
+function VideoRow({ entry }: { entry: SearchHistoryEntry }) {
   return (
     <div
       style={{
@@ -225,42 +213,6 @@ function VideoRow({ entry, trackMyAverage }: { entry: SearchHistoryEntry; trackM
         {entry.videoTitle ?? entry.videoUrl}
       </button>
 
-      {/* AI verdict pill */}
-      {hasAi && (
-        <span
-          style={{
-            flexShrink: 0,
-            fontSize: 11,
-            fontWeight: 700,
-            padding: "2px 7px",
-            borderRadius: 999,
-            whiteSpace: "nowrap",
-            ...verdictPillStyle(scoreToVerdict(entry.aiRating!)),
-          }}
-        >
-          AI {scoreToVerdict(entry.aiRating!)}
-        </span>
-      )}
-
-      {/* Auto-tracked engagement pill */}
-      {hasUserRating && (
-        <span
-          style={{
-            flexShrink: 0,
-            fontSize: 11,
-            fontWeight: 700,
-            padding: "2px 7px",
-            borderRadius: 999,
-            whiteSpace: "nowrap",
-            background: "var(--border)",
-            color: "var(--text)",
-          }}
-          title="Auto-tracked engagement"
-        >
-          Auto: {USER_RATING_LABELS[entry.userRating!]}
-        </span>
-      )}
-
       {/* Date */}
       <span
         style={{
@@ -284,13 +236,11 @@ function ChannelCard({
   stats,
   isAutoRun,
   onToggleAutoRun,
-  trackMyAverage,
   tags,
 }: {
   stats: ChannelStats;
   isAutoRun: boolean;
   onToggleAutoRun: (stats: ChannelStats, enable: boolean) => void;
-  trackMyAverage: boolean;
   tags: Tag[];
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -359,39 +309,6 @@ function ChannelCard({
               flexWrap: "wrap",
             }}
           >
-            {/* AI verdict pill */}
-            {stats.avgAiRating !== null && (
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: "2px 8px",
-                  borderRadius: 999,
-                  whiteSpace: "nowrap",
-                  ...verdictPillStyle(scoreToVerdict(stats.avgAiRating)),
-                }}
-                title={`Based on ${stats.count} ${stats.count === 1 ? "video" : "videos"}`}
-              >
-                AI usually {scoreToVerdict(stats.avgAiRating)}
-              </span>
-            )}
-            {/* Auto-tracked engagement pill */}
-            {trackMyAverage && stats.avgUserRating !== null && (
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: "2px 8px",
-                  borderRadius: 999,
-                  whiteSpace: "nowrap",
-                  background: "var(--border)",
-                  color: "var(--text)",
-                }}
-                title={`Auto-tracked: Engaged ${stats.userBreakdown.engaged} · Skimmed ${stats.userBreakdown.skimmed} · Skipped ${stats.userBreakdown.skipped}`}
-              >
-                Auto: usually {userAvgToLabel(stats.avgUserRating)}
-              </span>
-            )}
             {/* Channel tags */}
             {tags.map((t) => (
               <TagChip key={t.id} label={t.label} />
@@ -415,7 +332,7 @@ function ChannelCard({
           }}
         >
           <span style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" }}>
-            {stats.count} {stats.count === 1 ? "video" : "videos"}
+            {stats.count} {stats.count === 1 ? "summary" : "summaries"}
           </span>
           <span
             style={{
@@ -459,7 +376,7 @@ function ChannelCard({
                 estimateSize={40}
                 gap={0}
                 style={{ maxHeight: 320 }}
-                renderItem={(v) => <VideoRow entry={v} trackMyAverage={trackMyAverage} />}
+                renderItem={(v) => <VideoRow entry={v} />}
               />
             )}
             {/* Auto-run toggle at the bottom of expanded card */}
@@ -546,26 +463,24 @@ export function ChannelsSection() {
   const [totalVideos, setTotalVideos] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("count");
   const [loading, setLoading] = useState(true);
-  const [trackMyAverage, setTrackMyAverage] = useState(true);
 
   const [activeTab, setActiveTab] = useState<TabKey>("all");
   const [search, setSearch] = useState("");
 
   const reload = useCallback(async () => {
-    const [history, autoRun, settings, library, tagMapRaw] = await Promise.all([
+    const [history, autoRun, library, tagMapRaw] = await Promise.all([
       getHistory(),
       getAutoRunChannels(),
-      getSettings(),
       getTags(),
       chrome.storage.local.get(CHANNEL_TAGS_KEY),
     ]);
-    const stats = computeChannelStats(history);
+    const summaries = history.filter(isSummaryEntry);
+    const stats = computeChannelStats(summaries);
     const tagMap = (tagMapRaw[CHANNEL_TAGS_KEY] as Record<string, string[]>) ?? {};
     setChannels(stats);
     setAutoRunChannels(autoRun);
     setChannelTags(resolveChannelTags(tagMap, library));
-    setTotalVideos(history.filter((e) => !!e.channel).length);
-    setTrackMyAverage(settings.trackMyAverage);
+    setTotalVideos(summaries.filter((e) => !!e.channel).length);
     setLoading(false);
   }, []);
 
@@ -614,11 +529,6 @@ export function ChannelsSection() {
   const sortedAll = useMemo(() => {
     return [...channels].sort((a, b) => {
       if (sortKey === "count") return b.count - a.count;
-      if (sortKey === "rating") {
-        const ra = a.avgAiRating ?? -Infinity;
-        const rb = b.avgAiRating ?? -Infinity;
-        return rb - ra;
-      }
       // recent
       return new Date(b.lastWatched).getTime() - new Date(a.lastWatched).getTime();
     });
@@ -657,7 +567,7 @@ export function ChannelsSection() {
       <div className="section-header">
         <h1 className="section-title">Channels</h1>
         <p className="section-desc">
-          Channels you've watched with TL;DW, and the ones TL;DW auto-summarizes for you.
+          Channels you've summarized with TL;DW, and the ones TL;DW auto-summarizes for you.
         </p>
       </div>
 
@@ -690,7 +600,7 @@ export function ChannelsSection() {
         /* ---- All channels tab ---- */
         <div>
           <p className="section-desc" style={{ marginBottom: 12 }}>
-            Channels you've watched with TL;DW. Expand a channel to see its videos and turn on auto-summarize.
+            Channels you've summarized with TL;DW. Expand a channel to see its videos and turn on auto-summarize.
           </p>
 
           {channels.length > 0 && (
@@ -699,7 +609,7 @@ export function ChannelsSection() {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 12, flexWrap: "wrap" }}>
                 <p style={{ fontSize: 12, color: "var(--muted)" }}>
                   {visibleAll.length === channels.length
-                    ? `${channels.length} ${channels.length === 1 ? "channel" : "channels"} · ${totalVideos} ${totalVideos === 1 ? "video" : "videos"} total`
+                    ? `${channels.length} ${channels.length === 1 ? "channel" : "channels"} · ${totalVideos} ${totalVideos === 1 ? "summary" : "summaries"} total`
                     : `${visibleAll.length} of ${channels.length} channels`}
                 </p>
                 <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
@@ -710,28 +620,17 @@ export function ChannelsSection() {
                     onChange={(e) => setSortKey(e.target.value as SortKey)}
                     style={{ fontSize: 12 }}
                   >
-                    <option value="count">Most watched</option>
-                    <option value="rating">Highest rated</option>
+                    <option value="count">Most summarized</option>
                     <option value="recent">Recent</option>
                   </select>
                 </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 11, color: "var(--muted)" }}>
-                  <strong>You</strong> ratings
-                </span>
-                <TierBadge tier="basic" />
-                <span style={{ fontSize: 11, color: "var(--muted)", marginLeft: 4 }}>
-                  <strong>AI</strong> &amp; <strong>Audience</strong>
-                </span>
-                <TierBadge tier="integrated" label="Direct API" />
               </div>
             </>
           )}
 
           {channels.length === 0 ? (
             <div className="empty-state">
-              No channel data yet. Watch some YouTube videos with TL;DW and your channels will appear here.
+              No channel data yet. Summarize some YouTube videos with TL;DW and your channels will appear here.
             </div>
           ) : visibleAll.length === 0 ? (
             <div className="empty-state">
@@ -748,7 +647,6 @@ export function ChannelsSection() {
                   stats={ch}
                   isAutoRun={autoRunNames.has(ch.channel)}
                   onToggleAutoRun={(stats, enable) => void handleToggleAutoRun(stats, enable)}
-                  trackMyAverage={trackMyAverage}
                   tags={tagsFor(ch.channel)}
                 />
               )}

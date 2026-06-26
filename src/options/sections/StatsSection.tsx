@@ -1,39 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
-import type { LifetimeStats, GeminiUsage, SearchHistoryEntry } from "../../types";
-import { getLifetimeStats, getGeminiUsage, getHistory } from "../../lib/storage";
-import { computeChannelStats } from "../../lib/history";
+import { useEffect, useState } from "react";
+import type { LifetimeStats, GeminiUsage, Tag } from "../../types";
+import { getLifetimeStats, getGeminiUsage, getHistory, getTags } from "../../lib/storage";
+import { computeChannelStats, isSummaryEntry, type ChannelStats } from "../../lib/history";
 import {
-  engagedRatio,
-  mostEngagedChannels,
-  topChannelsByTime,
-  type RankedChannel,
-} from "../../lib/stats";
-import { GEMINI_USAGE_KEY, localDateKey, STORAGE_KEYS, TLDW_STATS_KEY } from "../../lib/constants";
-import {
-  compareWindows,
-  computeTimeSaved,
-  pctDelta,
-  type Delta,
-  type WindowKind,
-  type WindowStats,
-} from "../../lib/dashboards";
+  CHANNEL_TAGS_KEY,
+  GEMINI_USAGE_KEY,
+  localDateKey,
+  STORAGE_KEYS,
+  TLDW_STATS_KEY,
+  VIDEO_TAGS_KEY,
+} from "../../lib/constants";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
-
-/** Format seconds → "Xh Ym" / "Ym" / "<1m" */
-function fmtSeconds(totalSeconds: number): string {
-  const s = Math.round(totalSeconds);
-  if (s <= 0) return "0m";
-  const m = Math.floor(s / 60);
-  if (m < 1) return "<1m";
-  const h = Math.floor(m / 60);
-  const rem = m % 60;
-  if (h === 0) return `${rem}m`;
-  if (rem === 0) return `${h}h`;
-  return `${h}h ${rem}m`;
-}
 
 function fmtCount(n: number): string {
   return n.toLocaleString();
@@ -41,7 +21,10 @@ function fmtCount(n: number): string {
 
 function fmtHours(totalSeconds: number): string {
   const h = totalSeconds / 3600;
-  if (h < 1) return fmtSeconds(totalSeconds);
+  if (h < 1) {
+    const m = Math.round(totalSeconds / 60);
+    return m < 1 ? "<1m" : `${m}m`;
+  }
   return `${h.toFixed(1)}h`;
 }
 
@@ -82,128 +65,6 @@ function computeStreak(activity: Record<string, number>): number {
   return streak;
 }
 
-// computeTimeSaved now lives in lib/dashboards.ts (shared with the windowed views).
-
-// ---------------------------------------------------------------------------
-// 12-week activity heatmap helpers
-// ---------------------------------------------------------------------------
-
-/** Build a 7×12 grid (rows=day-of-week, cols=week) from the activity map. */
-function buildHeatmapGrid(activity: Record<string, number>): { date: string; count: number }[][] {
-  // 84 days total (12 weeks), ending today.
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  // Start from the beginning of the week (Sunday) 12 weeks ago.
-  const startDay = new Date(today);
-  startDay.setDate(startDay.getDate() - today.getDay()); // rewind to Sunday of current week
-  startDay.setDate(startDay.getDate() - 11 * 7);         // 11 more weeks back = 12 weeks total
-
-  const cols: { date: string; count: number }[][] = [];
-  for (let col = 0; col < 12; col++) {
-    const week: { date: string; count: number }[] = [];
-    for (let row = 0; row < 7; row++) {
-      const d = new Date(startDay);
-      d.setDate(d.getDate() + col * 7 + row);
-      const key = localDateKey(d); // match the writer's local-date keys
-      week.push({ date: key, count: activity[key] ?? 0 });
-    }
-    cols.push(week);
-  }
-  return cols;
-}
-
-function heatmapColor(count: number): string {
-  if (count === 0) return "rgba(124,58,237,0.07)";
-  if (count === 1) return "rgba(124,58,237,0.28)";
-  if (count <= 3) return "rgba(124,58,237,0.55)";
-  return "rgba(124,58,237,0.9)";
-}
-
-// ---------------------------------------------------------------------------
-// Donut chart (pure SVG)
-// ---------------------------------------------------------------------------
-type DonutSlice = { value: number; color: string; label: string };
-
-function DonutChart({ slices, size = 120 }: { slices: DonutSlice[]; size?: number }) {
-  const total = slices.reduce((s, d) => s + d.value, 0);
-  if (total === 0) return null;
-
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = (size / 2) * 0.72;
-  const stroke = r * 0.46;
-  const circumference = 2 * Math.PI * r;
-
-  let offset = 0;
-  // Skip zero-value slices: a round line-cap paints a visible dot even on a
-  // zero-length dash (a stray dot when only one category has a value — common in
-  // the short windowed views).
-  const arcs = slices.filter((s) => s.value > 0).map((slice) => {
-    const pct = slice.value / total;
-    const dashArray = `${pct * circumference} ${(1 - pct) * circumference}`;
-    const dashOffset = -offset * circumference;
-    offset += pct;
-    return { ...slice, dashArray, dashOffset, pct };
-  });
-
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ overflow: "visible" }}>
-      {arcs.map((arc, i) => (
-        <circle
-          key={i}
-          cx={cx}
-          cy={cy}
-          r={r}
-          fill="none"
-          stroke={arc.color}
-          strokeWidth={stroke}
-          strokeDasharray={arc.dashArray}
-          strokeDashoffset={arc.dashOffset}
-          strokeLinecap="round"
-          style={{ transform: "rotate(-90deg)", transformOrigin: `${cx}px ${cy}px` }}
-        />
-      ))}
-      <text x={cx} y={cy - 6} textAnchor="middle" fill="#f1f5f9" fontSize="18" fontWeight="800">
-        {fmtCount(total)}
-      </text>
-      <text x={cx} y={cy + 12} textAnchor="middle" fill="#94a3b8" fontSize="9">
-        videos
-      </text>
-    </svg>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Windowed-view helpers (F7 Phase 1)
-// ---------------------------------------------------------------------------
-
-const WINDOW_LABEL: Record<WindowKind, string> = { week: "week", month: "month", year: "year" };
-
-/** A ▲/▼ pill comparing this window to the prior one. `good` flips the color so
- *  "down" is green for a metric where less is better (we don't use that here, but
- *  it keeps the chip honest). */
-function DeltaChip({ delta, suffix = "vs last", unit = "%" }: { delta: Delta; suffix?: string; unit?: string }) {
-  if (delta.dir === "new") {
-    return <span className="stat-delta new">new</span>;
-  }
-  if (delta.dir === "flat" || delta.pct === null) return null;
-  const arrow = delta.dir === "up" ? "▲" : "▼";
-  return (
-    <span className={`stat-delta ${delta.dir}`}>
-      {arrow} {Math.abs(Math.round(delta.pct))}{unit} {suffix}
-    </span>
-  );
-}
-
-/** A finish-rate (0..1) is a ratio, so compare it in percentage POINTS — a prior
- *  rate of exactly 0% is real data (all skim/skip), not absence, so it must never
- *  read as "new". */
-function ratePointsDelta(cur: number, prev: number): Delta {
-  const pts = (cur - prev) * 100;
-  return { pct: pts, dir: pts > 0.5 ? "up" : pts < -0.5 ? "down" : "flat" };
-}
-
 /** Channel avatar with a graceful fallback to a plain circle — YouTube's signed
  *  CDN avatar URLs expire (see STATUS.md), and a bare <img> would show a broken
  *  glyph. Falls back to the same .stat-channel-av placeholder on missing/expired. */
@@ -213,169 +74,31 @@ function ChannelAv({ url }: { url?: string }) {
   return <img className="stat-channel-av" src={url} alt="" onError={() => setErr(true)} />;
 }
 
-/**
- * A ranked list of persisted channels (top-by-time / most-engaged). Each row
- * shows the avatar, name, and a meta line built by `meta`. Empty list renders an
- * inline empty-state. Pure-presentational over RankedChannel from lib/stats.
- */
-function RankedChannelList({
-  channels,
-  meta,
-  emptyText,
-}: {
-  channels: RankedChannel[];
-  meta: (c: RankedChannel) => string;
-  emptyText: string;
-}) {
-  if (channels.length === 0) {
-    return <div className="stat-empty">{emptyText}</div>;
+// ---------------------------------------------------------------------------
+// Most-used tags: tally how many channel/video assignments reference each tag,
+// resolve ids → labels, return the top N.
+// ---------------------------------------------------------------------------
+type TagUsage = { id: string; label: string; count: number };
+
+function computeTagUsage(
+  library: Tag[],
+  channelTags: Record<string, string[]>,
+  videoTags: Record<string, string[]>,
+  limit: number,
+): TagUsage[] {
+  const labelById = new Map(library.map((t) => [t.id, t.label]));
+  const counts = new Map<string, number>();
+  for (const ids of [...Object.values(channelTags), ...Object.values(videoTags)]) {
+    for (const id of ids) {
+      // Skip ids whose tag has been deleted from the library.
+      if (!labelById.has(id)) continue;
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
   }
-  return (
-    <div>
-      {channels.map((c) => (
-        <div key={c.key} className="stat-channel-row">
-          <ChannelAv url={c.avatarUrl} />
-          <span className="stat-channel-name">{c.name}</span>
-          <span className="stat-channel-meta">{meta(c)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** Finish-rate = engaged / rated (0..1, or null when nothing rated). */
-function finishRate(e: { engaged: number; skimmed: number; skipped: number }): number | null {
-  const rated = e.engaged + e.skimmed + e.skipped;
-  return rated > 0 ? e.engaged / rated : null;
-}
-
-/** The week/month/year view. Pure-presentational: all data is precomputed. */
-function WindowedView({
-  kind, cur, prev,
-}: {
-  kind: WindowKind;
-  cur: WindowStats;
-  prev: WindowStats;
-}) {
-  const label = WINDOW_LABEL[kind];
-  const finCur = finishRate(cur.engagement);
-  const finPrev = finishRate(prev.engagement);
-  const ratedTotal = cur.engagement.engaged + cur.engagement.skimmed + cur.engagement.skipped;
-  const donutSlices: DonutSlice[] = [
-    { value: cur.engagement.engaged, color: "#22c55e", label: "Engaged" },
-    { value: cur.engagement.skimmed, color: "#eab308", label: "Skimmed" },
-    { value: cur.engagement.skipped, color: "#ef4444", label: "Skipped" },
-  ];
-
-  if (cur.summaries === 0 && cur.videosWithMeta === 0) {
-    return <div className="empty-state" style={{ marginTop: 8 }}>Nothing summarized this {label} yet.</div>;
-  }
-
-  return (
-    <div>
-      {/* Hero — time saved this period */}
-      <div className="stat-card" style={{ "--ca": "#14b8a6", "--cg": "rgba(20,184,166,0.22)", marginBottom: 16 } as React.CSSProperties}>
-        <div className="stat-card-label">Time TL;DW gave back this {label}</div>
-        <div className="stat-card-num" style={{ color: "#2dd4bf" }}>
-          {fmtSeconds(cur.timeSavedSeconds)}{" "}
-          <DeltaChip delta={pctDelta(cur.timeSavedSeconds, prev.timeSavedSeconds)} />
-        </div>
-        <div className="stats-hero-line">
-          <strong>{fmtCount(cur.videosWithMeta)}</strong>{" "}
-          {cur.videosWithMeta === 1 ? "video" : "videos"} you skimmed or skipped instead of watching in full.
-        </div>
-      </div>
-
-      {/* Finish-rate donut + what you watched */}
-      <div className="stats-grid stats-mid-row">
-        <div className="stat-card stat-card-donut" style={{ "--ca": "#8b5cf6", "--cg": "rgba(139,92,246,0.15)" } as React.CSSProperties}>
-          <div className="stat-card-label">
-            Finish rate
-            {finCur !== null && finPrev !== null && (
-              <span style={{ marginLeft: 8 }}><DeltaChip delta={ratePointsDelta(finCur, finPrev)} unit="pts" /></span>
-            )}
-          </div>
-          {ratedTotal === 0 ? (
-            <div className="stat-empty">Nothing rated this {label} yet.</div>
-          ) : (
-            <div className="stat-donut-body">
-              <DonutChart slices={donutSlices} size={130} />
-              <div className="stat-donut-legend">
-                {donutSlices.map((s) => (
-                  <div key={s.label} className="stat-legend-row">
-                    <span className="stat-legend-dot" style={{ background: s.color }} />
-                    <span className="stat-legend-label">{s.label}</span>
-                    <span className="stat-legend-count">{fmtCount(s.value)}</span>
-                    <span className="stat-legend-pct">{Math.round((s.value / ratedTotal) * 100)}%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="stat-card" style={{ "--ca": "#f43f5e", "--cg": "rgba(244,63,94,0.12)" } as React.CSSProperties}>
-          <div className="stat-card-label">What you watched</div>
-          {cur.topChannels.length === 0 ? (
-            <div className="stat-empty">No channels this {label}.</div>
-          ) : (
-            <div>
-              {cur.topChannels.slice(0, 5).map((c) => {
-                const b = c.userBreakdown;
-                const rated = b.engaged + b.skimmed + b.skipped;
-                const eng = rated > 0 ? Math.round((b.engaged / rated) * 100) : null;
-                return (
-                  <div key={c.channel} className="stat-channel-row">
-                    <ChannelAv url={c.avatarUrl} />
-                    <span className="stat-channel-name">{c.channel}</span>
-                    <span className="stat-channel-meta">
-                      {c.count} {c.count === 1 ? "video" : "videos"}{eng !== null ? ` · ${eng}% engaged` : ""}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Small tiles */}
-      <div className="stats-grid stats-small-row">
-        <div className="stat-card stat-card-sm" style={{ "--ca": "#7c3aed", "--cg": "rgba(124,58,237,0.15)" } as React.CSSProperties}>
-          <div className="stat-sm-icon">📋</div>
-          <div className="stat-sm-num" style={{ color: "#a78bfa" }}>{fmtCount(cur.summaries)}</div>
-          <div className="stat-sm-label">Summaries</div>
-          <div className="stat-sm-sub"><DeltaChip delta={pctDelta(cur.summaries, prev.summaries)} /></div>
-        </div>
-        <div className="stat-card stat-card-sm" style={{ "--ca": "#06b6d4", "--cg": "rgba(6,182,212,0.15)" } as React.CSSProperties}>
-          <div className="stat-sm-icon">🗓</div>
-          <div className="stat-sm-num" style={{ color: "#22d3ee" }}>
-            {cur.activeDays}<span style={{ fontSize: 14, color: "#64748b" }}> / {cur.totalDays}</span>
-          </div>
-          <div className="stat-sm-label">Active days</div>
-          <div className="stat-sm-sub">this {label}</div>
-        </div>
-        <div className="stat-card stat-card-sm" style={{ "--ca": "#22c55e", "--cg": "rgba(34,197,94,0.15)" } as React.CSSProperties}>
-          <div className="stat-sm-icon">📺</div>
-          <div className="stat-sm-num" style={{ color: "#4ade80" }}>{fmtHours(cur.hoursPreviewedSeconds)}</div>
-          <div className="stat-sm-label">Hours previewed</div>
-          <div className="stat-sm-sub">of content summarized</div>
-        </div>
-        <div className="stat-card stat-card-sm" style={{ "--ca": "#a78bfa", "--cg": "rgba(167,139,250,0.15)" } as React.CSSProperties}>
-          <div className="stat-sm-icon">📡</div>
-          <div className="stat-sm-num" style={{ color: "#c4b5fd" }}>{fmtCount(cur.uniqueChannels)}</div>
-          <div className="stat-sm-label">Channels</div>
-          <div className="stat-sm-sub">this {label}</div>
-        </div>
-      </div>
-
-      {kind === "year" && (
-        <div className="stats-window-note">
-          Year view reflects your retained history — older entries may be pruned by your history limit / auto-delete settings.
-        </div>
-      )}
-    </div>
-  );
+  return [...counts.entries()]
+    .map(([id, count]) => ({ id, label: labelById.get(id)!, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
 }
 
 // ---------------------------------------------------------------------------
@@ -385,32 +108,41 @@ function WindowedView({
 export function StatsSection() {
   const [stats, setStats] = useState<LifetimeStats | null>(null);
   const [usage, setUsage] = useState<GeminiUsage | null>(null);
-  const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
-  const [view, setView] = useState<WindowKind | "all">("week");
-
-  // Windowed comparison — derived only, recomputed when data or window changes
-  // (no extra storage reads; the storage listener already keeps history/stats fresh).
-  const comparison = useMemo(
-    () => (view !== "all" && stats ? compareWindows(history, stats.activity, view) : null),
-    [view, stats, history],
-  );
+  const [topChannels, setTopChannels] = useState<ChannelStats[]>([]);
+  const [topTags, setTopTags] = useState<TagUsage[]>([]);
 
   async function loadAll() {
-    const [s, u, h] = await Promise.all([
-      getLifetimeStats(), getGeminiUsage(), getHistory(),
+    const [s, u, h, library, channelMapRaw, videoMapRaw] = await Promise.all([
+      getLifetimeStats(),
+      getGeminiUsage(),
+      getHistory(),
+      getTags(),
+      chrome.storage.local.get(CHANNEL_TAGS_KEY),
+      chrome.storage.local.get(VIDEO_TAGS_KEY),
     ]);
+    const summaries = h.filter(isSummaryEntry);
+    const channelTags = (channelMapRaw[CHANNEL_TAGS_KEY] as Record<string, string[]>) ?? {};
+    const videoTags = (videoMapRaw[VIDEO_TAGS_KEY] as Record<string, string[]>) ?? {};
+
     setStats(s);
     setUsage(u);
-    setHistory(h);
+    // computeChannelStats already returns count-desc; take the top few.
+    setTopChannels(computeChannelStats(summaries).slice(0, 8));
+    setTopTags(computeTagUsage(library, channelTags, videoTags, 8));
   }
 
   useEffect(() => {
     void loadAll();
 
-    // Only reload for the keys this page renders, and debounce: watch-time fires
-    // frequent storage writes, and reloading everything (3 storage reads +
-    // channel-stat recompute) on each is wasteful.
-    const RELEVANT = new Set<string>([TLDW_STATS_KEY, GEMINI_USAGE_KEY, STORAGE_KEYS.history]);
+    // Only reload for the keys this page renders, and debounce: history writes
+    // can fire in bursts, and reloading everything on each is wasteful.
+    const RELEVANT = new Set<string>([
+      TLDW_STATS_KEY,
+      GEMINI_USAGE_KEY,
+      STORAGE_KEYS.history,
+      CHANNEL_TAGS_KEY,
+      VIDEO_TAGS_KEY,
+    ]);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
       if (area !== "local") return;
@@ -433,216 +165,83 @@ export function StatsSection() {
     );
   }
 
-  // Derived values. Per-channel rankings draw from the PERSISTED stats.channels
-  // map (the never-pruned source of truth) so "most engaged" / "time spent"
-  // survive history pruning — unlike computeChannelStats(history), which only
-  // sees the retained window. `channelStats` (history-derived) is still used for
-  // "Channels explored" so that count matches the rest of the history views.
-  const channelStats = computeChannelStats(history);
-  const timeRanked = topChannelsByTime(stats.channels, 5);
-  const engagedRanked = mostEngagedChannels(stats.channels, 5);
-  // Lifetime "Top channel" = most time spent (engagement-meaningful), from the
-  // persisted map — not most-videos from the windowed history as before.
-  const topChannel = timeRanked[0];
-  const uniqueChannels = channelStats.length;
-  const timeSavedSeconds = computeTimeSaved(history);
   const streak = computeStreak(stats.activity);
-  const heatmapGrid = buildHeatmapGrid(stats.activity);
-
-  const donutSlices: DonutSlice[] = [
-    { value: stats.engaged, color: "#22c55e", label: "Engaged" },
-    { value: stats.skimmed, color: "#eab308", label: "Skimmed" },
-    { value: stats.skipped, color: "#ef4444", label: "Skipped" },
-  ];
-  const donutTotal = stats.engaged + stats.skimmed + stats.skipped;
-
-  const hasAnyStats = stats.summaries > 0 || donutTotal > 0;
+  const hasAnyStats = stats.summaries > 0;
 
   return (
     <div>
       <div className="section-header">
         <div className="section-title">Your stats</div>
         <div className="section-desc">
-          What TL;DW has saved you. All counted locally — nothing leaves your browser.
+          Your summary activity. All counted locally — nothing leaves your browser.
         </div>
       </div>
 
-      <div className="stats-window-toggle" role="tablist" aria-label="Stats window">
-        {(["week", "month", "year", "all"] as const).map((w) => (
-          <button
-            key={w}
-            role="tab"
-            aria-selected={view === w}
-            className={view === w ? "active" : ""}
-            onClick={() => setView(w)}
-          >
-            {w === "all" ? "All-time" : w === "week" ? "This week" : w === "month" ? "This month" : "This year"}
-          </button>
-        ))}
-      </div>
-
-      {view !== "all" && comparison && (
-        <WindowedView
-          kind={view}
-          cur={comparison.current}
-          prev={comparison.previous}
-        />
-      )}
-
-      {view === "all" && (
-      <>
-      {/* keeps the original All-time layout byte-identical */}
-
-      {/* ── Hero row ───────────────────────────────────────────── */}
+      {/* ── Headline stats ─────────────────────────────────────── */}
       <div className="stats-grid stats-hero-row">
 
         <div className="stat-card" style={{ "--ca": "#7c3aed", "--cg": "rgba(124,58,237,0.25)" } as React.CSSProperties}>
-          <div className="stat-card-label">Videos summarized</div>
+          <div className="stat-card-label">Summaries created</div>
           <div className="stat-card-num" style={{ color: "#a78bfa" }}>{fmtCount(stats.summaries)}</div>
           <div className="stat-card-sub">
-            {stats.cacheHits > 0 && <>{fmtCount(stats.cacheHits)} instant from cache</>}
+            {fmtHours(stats.durationSummarizedSeconds)} of content distilled
           </div>
         </div>
 
-        <div className="stat-card" style={{ "--ca": "#14b8a6", "--cg": "rgba(20,184,166,0.22)" } as React.CSSProperties}>
-          <div className="stat-card-label">Time saved</div>
-          <div className="stat-card-num" style={{ color: "#2dd4bf" }}>{fmtSeconds(timeSavedSeconds)}</div>
-          <div className="stat-card-sub">from videos you skipped or skimmed</div>
+        <div className="stat-card" style={{ "--ca": "#eab308", "--cg": "rgba(234,179,8,0.22)" } as React.CSSProperties}>
+          <div className="stat-card-label">Instant from cache</div>
+          <div className="stat-card-num" style={{ color: "#fde047" }}>{fmtCount(stats.cacheHits)}</div>
+          <div className="stat-card-sub">served instantly — zero API wait</div>
         </div>
 
-        <div className="stat-card" style={{ "--ca": "#f97316", "--cg": "rgba(249,115,22,0.22)" } as React.CSSProperties}>
-          <div className="stat-card-label">Sponsor time skipped</div>
-          <div className="stat-card-num" style={{ color: "#fb923c" }}>{fmtSeconds(stats.sponsorSecondsSaved)}</div>
+        <div className="stat-card" style={{ "--ca": "#06b6d4", "--cg": "rgba(6,182,212,0.22)" } as React.CSSProperties}>
+          <div className="stat-card-label">Summarized today</div>
+          <div className="stat-card-num" style={{ color: "#22d3ee" }}>{fmtCount(usage.todayCalls)}</div>
           <div className="stat-card-sub">
-            across {fmtCount(stats.sponsorSkips)} {stats.sponsorSkips === 1 ? "skip" : "skips"}
+            {streak > 0 ? `🔥 ${streak}-day streak` : "of ~500 free API calls/day"}
           </div>
         </div>
       </div>
 
-      {/* ── Middle row: donut + heatmap ────────────────────────── */}
+      {/* ── Top channels + most-used tags ──────────────────────── */}
       <div className="stats-grid stats-mid-row">
 
-        {/* Engagement donut */}
-        <div className="stat-card stat-card-donut" style={{ "--ca": "#8b5cf6", "--cg": "rgba(139,92,246,0.15)" } as React.CSSProperties}>
-          <div className="stat-card-label">Engagement breakdown</div>
-          {donutTotal === 0 ? (
-            <div className="stat-empty">Watch some videos — TL;DW rates them automatically</div>
+        <div className="stat-card" style={{ "--ca": "#7c3aed", "--cg": "rgba(124,58,237,0.12)" } as React.CSSProperties}>
+          <div className="stat-card-label">Channels you summarize most</div>
+          {topChannels.length === 0 ? (
+            <div className="stat-empty">No summaries yet — summarize a video to get started.</div>
           ) : (
-            <div className="stat-donut-body">
-              <DonutChart slices={donutSlices} size={130} />
-              <div className="stat-donut-legend">
-                {donutSlices.map((s) => {
-                  const pct = donutTotal > 0 ? Math.round((s.value / donutTotal) * 100) : 0;
-                  return (
-                    <div key={s.label} className="stat-legend-row">
-                      <span className="stat-legend-dot" style={{ background: s.color }} />
-                      <span className="stat-legend-label">{s.label}</span>
-                      <span className="stat-legend-count">{fmtCount(s.value)}</span>
-                      <span className="stat-legend-pct">{pct}%</span>
-                    </div>
-                  );
-                })}
-              </div>
+            <div>
+              {topChannels.map((c) => (
+                <div key={c.channel} className="stat-channel-row">
+                  <ChannelAv url={c.avatarUrl} />
+                  <span className="stat-channel-name">{c.channel}</span>
+                  <span className="stat-channel-meta">
+                    {c.count} {c.count === 1 ? "summary" : "summaries"}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </div>
 
-        {/* Activity heatmap */}
-        <div className="stat-card stat-card-heatmap" style={{ "--ca": "#7c3aed", "--cg": "rgba(124,58,237,0.12)" } as React.CSSProperties}>
-          <div className="stat-card-label">
-            Activity
-            {streak > 0 && (
-              <span className="stat-streak">🔥 {streak}-day streak</span>
-            )}
-          </div>
-          <div className="stat-heatmap">
-            {heatmapGrid.map((week, wi) => (
-              <div key={wi} className="stat-heatmap-col">
-                {week.map((day) => (
-                  <div
-                    key={day.date}
-                    className="stat-heatmap-cell"
-                    title={day.count > 0 ? `${day.date}: ${day.count} summar${day.count === 1 ? "y" : "ies"}` : day.date}
-                    style={{ background: heatmapColor(day.count) }}
-                  />
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Per-channel engagement: time spent + most engaged ───── */}
-      <div className="stats-grid stats-mid-row">
-
         <div className="stat-card" style={{ "--ca": "#14b8a6", "--cg": "rgba(20,184,166,0.12)" } as React.CSSProperties}>
-          <div className="stat-card-label">Top channels by time spent</div>
-          <RankedChannelList
-            channels={timeRanked}
-            emptyText="No watch time tracked per channel yet."
-            meta={(c) => {
-              const vids = `${fmtCount(c.videosWatched)} ${c.videosWatched === 1 ? "video" : "videos"}`;
-              return `${fmtSeconds(c.secondsWatched)} · ${vids}`;
-            }}
-          />
+          <div className="stat-card-label">Most-used tags</div>
+          {topTags.length === 0 ? (
+            <div className="stat-empty">No tags yet — tag a channel or video to see them here.</div>
+          ) : (
+            <div>
+              {topTags.map((t) => (
+                <div key={t.id} className="stat-channel-row">
+                  <span className="stat-channel-name">{t.label}</span>
+                  <span className="stat-channel-meta">
+                    {t.count} {t.count === 1 ? "assignment" : "assignments"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-
-        <div className="stat-card" style={{ "--ca": "#22c55e", "--cg": "rgba(34,197,94,0.12)" } as React.CSSProperties}>
-          <div className="stat-card-label">Most engaged channels</div>
-          <RankedChannelList
-            channels={engagedRanked}
-            emptyText="No engaged videos tracked per channel yet."
-            meta={(c) => {
-              const ratio = engagedRatio(c);
-              const eng = `${fmtCount(c.engaged)} engaged`;
-              return ratio !== null ? `${eng} · ${Math.round(ratio * 100)}%` : eng;
-            }}
-          />
-        </div>
-      </div>
-
-      {/* ── Small tile row ──────────────────────────────────────── */}
-      <div className="stats-grid stats-small-row">
-
-        <div className="stat-card stat-card-sm" style={{ "--ca": "#eab308", "--cg": "rgba(234,179,8,0.15)" } as React.CSSProperties}>
-          <div className="stat-sm-icon">⚡</div>
-          <div className="stat-sm-num" style={{ color: "#fde047" }}>{fmtCount(stats.cacheHits)}</div>
-          <div className="stat-sm-label">Instant summaries</div>
-          <div className="stat-sm-sub">served from cache — zero wait</div>
-        </div>
-
-        <div className="stat-card stat-card-sm" style={{ "--ca": "#22c55e", "--cg": "rgba(34,197,94,0.15)" } as React.CSSProperties}>
-          <div className="stat-sm-icon">📺</div>
-          <div className="stat-sm-num" style={{ color: "#4ade80" }}>{fmtHours(stats.durationSummarizedSeconds)}</div>
-          <div className="stat-sm-label">Hours previewed</div>
-          <div className="stat-sm-sub">of content summarized</div>
-        </div>
-
-        <div className="stat-card stat-card-sm" style={{ "--ca": "#f43f5e", "--cg": "rgba(244,63,94,0.15)" } as React.CSSProperties}>
-          <div className="stat-sm-icon">🎯</div>
-          <div className="stat-sm-num" style={{ color: "#fb7185", fontSize: topChannel ? "15px" : undefined }}>
-            {topChannel ? topChannel.name : "—"}
-          </div>
-          <div className="stat-sm-label">Top channel</div>
-          <div className="stat-sm-sub">
-            {topChannel ? `${fmtSeconds(topChannel.secondsWatched)} watched` : "no data yet"}
-          </div>
-        </div>
-
-        <div className="stat-card stat-card-sm" style={{ "--ca": "#06b6d4", "--cg": "rgba(6,182,212,0.15)" } as React.CSSProperties}>
-          <div className="stat-sm-icon">📡</div>
-          <div className="stat-sm-num" style={{ color: "#22d3ee" }}>{fmtCount(uniqueChannels)}</div>
-          <div className="stat-sm-label">Channels explored</div>
-          <div className="stat-sm-sub">in your history</div>
-        </div>
-
-        <div className="stat-card stat-card-sm" style={{ "--ca": "#a78bfa", "--cg": "rgba(167,139,250,0.15)" } as React.CSSProperties}>
-          <div className="stat-sm-icon">🔮</div>
-          <div className="stat-sm-num" style={{ color: "#c4b5fd" }}>{fmtCount(usage.todayCalls)}</div>
-          <div className="stat-sm-label">API calls today</div>
-          <div className="stat-sm-sub">of ~500 free</div>
-        </div>
-
       </div>
 
       {/* ── Footer ─────────────────────────────────────────────── */}
@@ -650,8 +249,6 @@ export function StatsSection() {
         <div className="stats-since">
           Tracking since {fmtDate(stats.since)}
         </div>
-      )}
-      </>
       )}
     </div>
   );
