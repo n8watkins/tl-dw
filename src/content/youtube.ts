@@ -623,7 +623,7 @@ function promoteVideoTags(vid: string, channelKey: string, tagIds: string[]): Pr
 
 // --- TL;DW summary panel -------------------------------------------------
 
-type TldwSummary = { verdict: string; summary: string; rating: string; details?: string; source?: string };
+type TldwSummary = { verdict?: string; summary: string; rating?: string; details?: string; source?: string };
 
 /** A panel that may carry a teardown fn (e.g. removing a document listener),
  *  invoked by removeSummaryPanel so we don't leak listeners across rebuilds. */

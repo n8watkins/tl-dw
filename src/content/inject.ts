@@ -574,7 +574,7 @@ async function waitForResponseAndSend(
   }
 
   if (tldw) {
-    log(`parsed TL;DW block (verdict ${tldw.verdict}) — sending to YouTube tab`);
+    log("parsed TL;DW block — sending to YouTube tab");
     try {
       await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw, sourceTabId });
     } catch {
