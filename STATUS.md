@@ -3,6 +3,15 @@
 **Version:** 0.1.164
 **Last updated:** 2026-06-25
 
+> **Scope (2026-06-25):** TL;DW is now a focused **YouTube summarizer**. Its stats
+> are **summary-centric** (how much you've *summarized*, not how much you've
+> *watched*). The post-watch **watch-time + engagement analytics are being split
+> out** into a separate local-only companion extension ("Watchprint", scaffolded at
+> `../watchprint`); see [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md) for the
+> rationale and plan. The watch-time engine **still runs under the hood** (pending
+> removal) but is no longer surfaced in the UI — only the analytics *display* was
+> removed. The on-page summary panel + SponsorBlock auto-skip are unchanged.
+
 ---
 
 ## What's built
@@ -26,11 +35,15 @@
   filled. Auto-fill failures surface in the popup (`DeliveryStatus`).
 - "Open tab" button focuses the already-scraped tab instead of spawning duplicates.
 
-### 3. Engagement tracking (auto-rating)
-- A watch-time engine (`watchtime.ts`) measures content-seconds actually watched.
-- Videos are auto-rated **Engaged / Skimmed / Skipped** from watch percentage
-  (`engagedPct` / `skimmedPct` thresholds) — replaced the old manual rating buttons.
-- Per-channel engagement averages computed locally (no API call).
+### 3. Watch-time engine (under the hood, no longer surfaced)
+- A watch-time engine (`watchtime.ts`) still measures content-seconds actually
+  watched, auto-rates videos **Engaged / Skimmed / Skipped** (`engagedPct` /
+  `skimmedPct` thresholds), and rolls up per-channel averages locally.
+- **As of the 2026-06-25 re-scope this data is no longer displayed anywhere** — the
+  engagement/watch-time dashboards were removed from the UI. The engine is left
+  running **pending removal**; it (and the rest of the watch-behavior analytics)
+  moves to the **Watchprint** companion extension. See
+  [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md).
 
 ### 4. SponsorBlock auto-skip
 - Skips in-video sponsored segments using the free community SponsorBlock data
@@ -38,28 +51,37 @@
 - Inline widget shows segments with clickable timestamps + Undo on auto-skip.
 - Lifetime skip count + seconds-saved tallied into stats.
 
-### 5. Stats dashboard (neon)
-- Lifetime counters (`tldwStats`, never pruned): summaries, cache hits, watch time,
-  sponsor skips + seconds saved, Engaged/Skimmed/Skipped totals.
-- Activity heatmap (last 12 weeks / 84 days) from daily summary counts; the daily
-  activity map is retained for up to 366 days in storage.
-- **Week/month/year/all-time dashboards** (`src/lib/dashboards.ts`, F7 Phase 1,
-  merged in PR #2): a window toggle on the Stats page with vs-previous-window delta
-  chips, finish-rate donut, and time-given-back.
+### 5. Stats dashboard (neon, summary-centric)
+- **Summary-centric counters:** **# summaries created**, **cache hits**, and
+  **summarized-today**. (Watch-time, time-saved, and Engaged/Skimmed/Skipped totals
+  are still tallied in `tldwStats` under the hood but are **no longer displayed.**)
+- **GitHub-style summary-activity heatmap** (year-long contribution grid built from
+  daily *summary* counts) + a consecutive-day **summary streak**.
+- **Top channels by # summaries** (most-summarized first).
+- **Profile usage distribution** — summaries grouped by prompt profile.
+- **Destination usage distribution** — summaries grouped by destination (Direct API
+  vs each open-in-a-tab AI).
+- **Most-used tags** across channel + video tag assignments.
+- **Removed from the UI in the 2026-06-25 re-scope:** the week/month/year windowed
+  engagement dashboards, the finish-rate/engagement donut, time-given-back, the
+  watch-based activity heatmap, and the AI-rating sort. Those move to **Watchprint**
+  (see [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md)).
 
-### 6. Channel tracking + comparison
+### 6. Channel tracking (summary-centric)
 - `channel` and `channelAvatarUrl` stored on every `SearchHistoryEntry`.
-- `computeChannelStats()` groups history by channel for avg AI rating + engagement
-  — all local arithmetic, no LLM.
-- Widget shows a `📊 vs channel` row with avg score and ▲/▼/≈ trend.
+- `computeChannelStats()` groups the **summary** history by channel — all local
+  arithmetic, no LLM.
 - Channel tags are keyed by channel **name** (was channel id).
 - **Channels page** in options: **tabbed** (All channels / Auto-summarize) with
-  **search by name + tag**, avatar cards, AI score pills, sort (most watched /
-  highest rated / recent), expandable per-channel video lists. The channel and
-  expanded-video lists are **virtualized** for long histories.
+  **search by name + tag**, avatar cards, and a sort of **Most summarized** /
+  Recently summarized. Each channel card shows **# summaries · last summarized ·
+  tags**. The channel and expanded-video lists are **virtualized** for long
+  histories.
 - Per-channel **auto-summarize** list.
-- **Per-channel stats persisted** — time spent + engagement; "Top channel" now
-  means most time watched.
+- The on-page panel's `📊 vs channel` engagement cue and the per-channel
+  watch-time / engagement display were **removed in the 2026-06-25 re-scope** (the
+  watch-time engine that fed them still runs under the hood pending its move to
+  **Watchprint** — see [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md)).
 
 ### 7. Direct API settings
 - Profile picker independent of the global default (`directApiProfileId`).
@@ -150,9 +172,14 @@ account + 2-Step Verification.
 
 ## Other potential next steps
 
-1. Avatar URL de-duplication / refresh strategy.
-2. Popup channel context card.
-3. Optional pre-launch polish: bump to `1.0.0`; the bundled `claude-icon.png` is
+1. **Finish the analytics split** — remove the now-headless watch-time engine
+   (`watchtime.ts`) + the residual `tldwStats` watch/engagement writes once
+   **Watchprint** (`../watchprint`) takes over, and stand up the migration bridge.
+   Plan in [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md) and
+   `../watchprint/PLAN.md`.
+2. Avatar URL de-duplication / refresh strategy.
+3. Popup channel context card.
+4. Optional pre-launch polish: bump to `1.0.0`; the bundled `claude-icon.png` is
    already gone (all four destination marks are now inline SVG in
    `DestinationIcon.tsx`), so only the remaining third-party SVG marks would need
    neutralizing if desired; live-key test of the Direct-API header change.
@@ -160,11 +187,15 @@ account + 2-Step Verification.
 
 The F1–F8 feature sprint (overflow menu, channel-average cue, persisted watch
 tracking, fill-hover, prose tightening, tags, regenerate) and F7 Phase 1
-(week/month/year dashboards) have all shipped and merged; their plans are archived
-under `docs/archive/`. The **2026-06-25 UX revision + perf pass** also shipped:
-the inline subscribe-row TL;DW button (idle box + loading skeleton removed),
-end-to-end removal of the block-channel feature, the tabbed/searchable/virtualized
-Channels page, and persisted per-channel time/engagement stats. The one genuinely
-open bet is **F7 Phase 2 — paid / hosted analytics**, still undecided (see
-`docs/archive/F7_PHASE1_PLAN.md` §0 for the "don't charge for local data"
-reasoning).
+(week/month/year dashboards) all shipped and merged; their plans are archived
+under `docs/archive/`. The **2026-06-25 UX revision + perf pass** shipped the
+inline subscribe-row TL;DW button (idle box + loading skeleton removed), end-to-end
+removal of the block-channel feature, and the tabbed/searchable/virtualized Channels
+page. The later **2026-06-25 re-scope** then narrowed TL;DW to a focused summarizer:
+the Stats and Channels pages became **summary-centric** (the watch-time/engagement
+dashboards, F7 windowed view, donut, watch-based heatmap, and AI-rating sort were
+removed from the UI), and the watch-behavior analytics began moving to the
+**Watchprint** companion extension (`../watchprint`,
+[`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md)). **F7 Phase 2 (paid / hosted
+analytics) is off the table** — Watchprint is local-only and free (the "don't charge
+for local data" reasoning is in `docs/archive/F7_PHASE1_PLAN.md` §0).

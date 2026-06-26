@@ -9,6 +9,34 @@ Notable changes to TL;DW. Format loosely follows
 > milestones**, not every patch. Full commit-level history is in git, and completed
 > planning docs live in [`docs/archive/`](docs/archive/).
 
+## Unreleased — 2026-06-25 (re-scope: focused YouTube summarizer)
+
+TL;DW is now a focused **YouTube summarizer** and its stats are **summary-centric**
+(how much you've *summarized*, not how much you've *watched*).
+
+### Added
+- **Summary-centric Stats page** — # summaries created, cache hits, summarized-today,
+  **top channels by # summaries**, **profile usage** and **destination usage**
+  distributions, **most-used tags**, and a **GitHub-style summary-activity heatmap +
+  streak** (built from daily summary counts).
+- **Summary-centric Channels page** — each channel now shows **# summaries · last
+  summarized · tags**, sorted **Most summarized**.
+
+### Removed (from the UI)
+- The **watch-time / engagement dashboards** — per-channel watch-time, the
+  Engaged/Skimmed/Skipped readouts, "most engaged channels", the engagement donut,
+  the **week/month/year windowed** engagement view, "time given back / time-saved",
+  the watch-based activity heatmap, the AI-rating sort, and the panel's
+  `📊 vs channel` cue. (The **watch-time engine still runs under the hood** pending
+  removal — only the *display* was removed. The summary panel and SponsorBlock
+  auto-skip are unchanged.)
+
+### Note
+- This is **step one of a split**: the post-watch watch-time + engagement analytics
+  are moving to a **separate local-only companion extension ("Watchprint")**. TL;DW
+  keeps the summarizer + summary-scoped stats. Rationale + plan:
+  [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md) and `../watchprint/PLAN.md`.
+
 ## 0.1.166 — 2026-06-25
 
 ### Added

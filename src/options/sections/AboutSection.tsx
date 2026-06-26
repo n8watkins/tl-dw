@@ -21,13 +21,14 @@ export function AboutSection() {
         </div>
 
         <h1 className="about-headline">
-          Stop watching to find out if it's worth watching.
+          Summarize any YouTube video in one keystroke.
         </h1>
 
         <p className="about-pitch">
-          Press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> on any YouTube video. TL;DW opens
-          your AI — Gemini, ChatGPT, Claude, or NotebookLM — with the full transcript
-          attached and the prompt already submitted. Read the summary. Decide what's worth your time.
+          Press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> on any YouTube video. TL;DW pulls
+          the transcript and gets you an AI summary — rendered right on the page via the free
+          Gemini Direct API, or sent to Gemini, ChatGPT, Claude, or NotebookLM. Shape it with
+          reusable profiles and tags. Read the summary. Decide what's worth your time.
         </p>
       </div>
 
@@ -52,25 +53,25 @@ export function AboutSection() {
           </div>
         </div>
 
-        {/* Engagement tracking */}
+        {/* Summary-activity stats */}
         <div className="about-card" style={{"--ca": "#22c55e", "--cg": "rgba(34,197,94,0.1)"} as React.CSSProperties}>
           <div className="about-card-icon" style={{background:"rgba(34,197,94,0.12)", color:"#4ade80"}}>
-            <Icon name="clock" />
+            <Icon name="bar-chart" />
           </div>
-          <div className="about-card-title">Engagement tracking</div>
+          <div className="about-card-title">Summary-activity stats</div>
           <div className="about-card-desc">
-            TL;DW measures how much of each video you actually watch and auto-rates it Engaged, Skimmed, or Skipped — building per-channel insights over time.
+            See how much you summarize: total summaries, top-summarized channels, profile and destination usage, and a GitHub-style activity heatmap with a day streak.
           </div>
         </div>
 
-        {/* WATCH / SKIM / SKIP */}
+        {/* On-page summary + verdict */}
         <div className="about-card" style={{"--ca": "#f97316", "--cg": "rgba(249,115,22,0.1)"} as React.CSSProperties}>
           <div className="about-card-icon" style={{background:"rgba(249,115,22,0.12)", color:"#fb923c"}}>
             <Icon name="eye" />
           </div>
-          <div className="about-card-title">WATCH / SKIM / SKIP</div>
+          <div className="about-card-title">Summary on the page</div>
           <div className="about-card-desc">
-            Long videos get an upfront verdict. Know if it's worth your time before reading a word.
+            The summary lands right on the YouTube video. Long videos also get an upfront WATCH / SKIM / SKIP verdict.
           </div>
         </div>
 
@@ -98,9 +99,9 @@ export function AboutSection() {
           <div className="about-card-icon" style={{background:"rgba(139,92,246,0.15)", color:"#c4b5fd"}}>
             <Icon name="duplicate" />
           </div>
-          <div className="about-card-title">Prompt profiles</div>
+          <div className="about-card-title">Profiles &amp; tags</div>
           <div className="about-card-desc">
-            Reusable, fully editable templates. TL;DW, Research, Learning, Tutorial — or build your own.
+            Reusable prompt templates — TL;DW, Research, Learning, Tutorial, or your own — plus tags that tweak the prompt for any channel or video.
           </div>
         </div>
 
@@ -109,9 +110,9 @@ export function AboutSection() {
           <div className="about-card-icon" style={{background:"rgba(59,130,246,0.12)", color:"#60a5fa"}}>
             <Icon name="save" />
           </div>
-          <div className="about-card-title">Search history</div>
+          <div className="about-card-title">Summary history</div>
           <div className="about-card-desc">
-            Every search saved locally — video, profile, and prompt. Searchable, exportable, never shared.
+            Every summary saved locally — video, profile, and prompt. Searchable, exportable, never shared.
           </div>
         </div>
 

@@ -8,13 +8,26 @@ _Last updated: 2026-06-25._
 
 ## Project summary
 
-**TL;DW** ("Too Long; Didn't Watch") is a **Manifest V3 Chrome extension** that
-summarizes the YouTube video you're watching so you can decide if it's worth your
-time. Two modes: **Direct API** (your own free Gemini key → summary rendered on the
-YouTube page, no tab opens) and **open-in-a-tab** (Gemini/ChatGPT/Claude/NotebookLM,
-prompt auto-filled + submitted, answer read back onto the page). Plus SponsorBlock
-auto-skip, watch-time engagement auto-rating, per-channel stats, and week/month/year
-dashboards. **No backend, no accounts, no analytics** — everything is local.
+**TL;DW** ("Too Long; Didn't Watch") is a **Manifest V3 Chrome extension** — now a
+focused **YouTube summarizer**. It summarizes the YouTube video you're watching so
+you can decide if it's worth your time. Two modes: **Direct API** (your own free
+Gemini key → summary rendered on the YouTube page, no tab opens) and
+**open-in-a-tab** (Gemini/ChatGPT/Claude/NotebookLM, prompt auto-filled + submitted,
+answer read back onto the page). Plus SponsorBlock auto-skip and **summary-centric
+stats** (# summaries created, top channels by summaries, profile/destination usage,
+most-used tags, and a GitHub-style summary-activity heatmap + streak). **No backend,
+no accounts, no analytics** — everything is local.
+
+> **Re-scope (2026-06-25):** the post-watch **watch-time + engagement analytics are
+> being split out** into a separate local-only companion extension, **Watchprint**
+> (scaffolded at `../watchprint`). TL;DW keeps the summarizer + summary-scoped stats;
+> the watch-behavior dashboards (per-channel watch-time, Engaged/Skimmed/Skipped, the
+> engagement donut, the week/month/year windowed view, time-saved, the watch-based
+> heatmap, the AI-rating sort, and the `📊 vs channel` cue) were **removed from the
+> UI**. The watch-time engine (`watchtime.ts`) **still runs under the hood pending
+> removal** — only the *display* changed; the summary panel + SponsorBlock auto-skip
+> are unchanged. Full rationale/plan: [`ANALYTICS_SPLIT.md`](ANALYTICS_SPLIT.md) and
+> `../watchprint/PLAN.md`.
 
 - **Stack:** TypeScript + Vite + `@crxjs/vite-plugin`; React for popup/options,
   vanilla TS for content scripts. Vitest for unit tests.
@@ -63,9 +76,12 @@ Net effect: version is now **0.1.164**, **113** unit tests, **4** destinations
 (Gemini/ChatGPT/Claude/NotebookLM — Perplexity removed), the block-channel feature
 is gone end-to-end (a one-time orphan-key cleanup of `tldwBlockedChannels` remains
 in `background/index.ts`), `claude-icon.png` is deleted (all four marks are inline
-SVG in `DestinationIcon.tsx`), the Channels page is tabbed/searchable/virtualized
-with persisted per-channel time + engagement stats, and support repointed to Ko-fi
-(`ko-fi.com/n8watkins`) + `n8builds.dev` + Appturnity (`appturnity.com`).
+SVG in `DestinationIcon.tsx`), the Channels page is tabbed/searchable/virtualized,
+and support repointed to Ko-fi (`ko-fi.com/n8watkins`) + `n8builds.dev` + Appturnity
+(`appturnity.com`). The later **2026-06-25 re-scope** then made the Stats + Channels
+pages **summary-centric** (Channels now shows # summaries · last summarized · tags,
+sorted Most summarized) and pulled the watch/engagement dashboards out of the UI as
+step one of the Watchprint split — see the re-scope note above.
 
 **Verified working:** `npm run typecheck` clean, **113/113** Vitest tests pass,
 `npm run package` builds a valid zip (manifest at root, 7 host permissions). A full
@@ -100,12 +116,19 @@ From [`STATUS.md`](../STATUS.md) and the audits, in rough priority:
    `src/options/sections/StatsSection.tsx`, storage avatar fields. *Accept:* stale
    URLs don't cause visible broken-image flashes; avatars refresh.
 2. **Popup channel context card** — the popup has no per-channel awareness while
-   browsing. Add a "you've watched N from this channel, avg AI X.X" line.
-   Files: `src/popup/App.tsx`, `src/lib/` channel stats helpers.
-3. **F7 Phase 2 — paid/hosted analytics** (the one open *product* bet, undecided).
-   Reasoning + the "don't charge for local data" stance are in
-   [`docs/archive/F7_PHASE1_PLAN.md`](archive/F7_PHASE1_PLAN.md) §0. Needs a
-   product decision before any build.
+   browsing. Add a summary-scoped line (e.g. "you've summarized N videos from this
+   channel"); keep it summary-centric, not watch/engagement (that signal is leaving
+   for Watchprint). Files: `src/popup/App.tsx`, `src/lib/` channel stats helpers.
+3. **Finish the analytics split** — the watch-time + engagement analytics are
+   moving to the **Watchprint** companion extension (`../watchprint`, local-only,
+   free). For TL;DW that means removing the now-headless watch-time engine
+   (`watchtime.ts`) and the residual `tldwStats` watch/engagement writes once
+   Watchprint takes over, plus a one-time export/import migration bridge so existing
+   users' stats aren't stranded (chrome.storage is per-extension). Plan:
+   [`ANALYTICS_SPLIT.md`](ANALYTICS_SPLIT.md) + `../watchprint/PLAN.md`. (F7 Phase 2
+   "paid/hosted analytics" is **dropped** — Watchprint is local-only and free; the
+   "don't charge for local data" reasoning is in
+   [`docs/archive/F7_PHASE1_PLAN.md`](archive/F7_PHASE1_PLAN.md) §0.)
 4. **Shorts on-page widget** — the on-page panel doesn't render on `/shorts/` URLs
    because `currentVideoId()` reads only `?v=` (`src/content/youtube.ts` ~L22).
    Shorts currently work only via the popup→Gemini path. If on-page Shorts support
@@ -153,10 +176,17 @@ From [`STATUS.md`](../STATUS.md) and the audits, in rough priority:
   header), `runSummary`, SponsorBlock fetch.
 - `src/content/youtube.ts` — on-page widget (~2.7k LOC); `currentVideoId` (Shorts gap).
 - `src/content/youtube-intercept.ts` — MAIN-world `fetch` wrapper for transcripts.
-- `src/content/sponsorblock.ts`, `src/content/watchtime.ts` — the auto-on features
-  the first-run notice discloses.
+- `docs/ANALYTICS_SPLIT.md` — the watch-time/engagement → Watchprint split (rationale,
+  feature classification, storage-key ownership, migration). Pairs with
+  `../watchprint/PLAN.md`.
+- `src/content/sponsorblock.ts` — SponsorBlock auto-skip (still surfaced, first-run
+  notice discloses it). `src/content/watchtime.ts` — watch-time engine; **still runs
+  but no longer surfaced** (pending removal / move to Watchprint).
+- `src/options/sections/StatsSection.tsx` — the summary-centric Stats page (summaries,
+  heatmap+streak, top channels, profile/destination usage, most-used tags).
 - `src/popup/App.tsx` — popup; first-run notice (~L318). `src/popup/popup.css`.
 - `src/lib/constants.ts` — `DEFAULT_SETTINGS` (`firstRunNoticeSeen`, `skipSponsors`,
   `trackEngagement`). `src/lib/storage.ts` — storage + write locks.
-- `src/lib/dashboards.ts` (+ `.test.ts`) — F7 windowed stats.
+- `src/lib/dashboards.ts` (+ `.test.ts`) — F7 windowed stats; **no longer wired into
+  the UI** after the re-scope (logic + tests retained, headed for Watchprint).
 - `scripts/package-store.mjs` — the Web Store zip builder.

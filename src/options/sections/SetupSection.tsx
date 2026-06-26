@@ -21,9 +21,9 @@ export function SetupSection() {
   return (
     <div>
       <div className="section-header">
-        <h1 className="section-title">Watch what you want to watch.</h1>
+        <h1 className="section-title">Summarize any YouTube video.</h1>
         <p className="section-desc">
-          TL;DW summarizes any YouTube video in seconds — so you decide if it's worth your time before you spend it.
+          TL;DW pulls the transcript and gets you an AI summary in seconds — customizable with profiles and tags, so you decide if a video is worth your time before you spend it.
         </p>
       </div>
 
@@ -53,9 +53,9 @@ export function SetupSection() {
             <Icon name="eye" />
           </div>
           <div className="step-num">Step 3</div>
-          <div className="step-title">Watch what you want</div>
+          <div className="step-title">Read the summary</div>
           <div className="step-body">
-            Read the summary, see the verdict, skip what doesn't matter. Your time, your call.
+            The summary lands on the page (and long videos get a worth-watching verdict). Skip what doesn't matter. Your time, your call.
           </div>
         </div>
       </div>
@@ -94,10 +94,10 @@ export function SetupSection() {
           </div>
           <div className="mode-card-tag">Free Gemini key · fully inline</div>
           <div className="card-desc">
-            Calls Google's Gemini API directly, so the summary and AI verdict appear right on
+            Calls Google's Gemini API directly, so the summary appears right on
             the video — <strong>no tab ever opens</strong>. The free
-            tier covers ~500 videos a day with no credit card. This powers the on-page widget,
-            ratings, and auto-summarize.
+            tier covers ~500 videos a day with no credit card. This powers the on-page summary
+            widget, the worth-watching verdict, and auto-summarize.
           </div>
           <button className="btn btn-primary" style={{ marginTop: 4 }} onClick={goToDirectApi}>
             Set up Direct API →

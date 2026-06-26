@@ -17,7 +17,11 @@ no "us" to send it to. This includes:
   metadata (title, URL, channel, timestamp, your rating). The full transcript is
   **never** stored.
 - **Lifetime stats** (summary counts, watch time, sponsor segments skipped and
-  seconds saved, engagement totals) and a per-day activity map.
+  seconds saved, engagement totals) and a per-day activity map. (As of the
+  2026-06-25 re-scope the on-screen stats are summary-centric and the watch-time /
+  engagement figures are **no longer displayed**, but the watch-time engine still
+  runs and still records this data **locally** — so it remains listed here. It never
+  leaves your device.)
 - **Per-channel data and tags** you create.
 - Your **Gemini API key**, if you use Direct API mode (stored locally, used only to
   call Google's API — see below).

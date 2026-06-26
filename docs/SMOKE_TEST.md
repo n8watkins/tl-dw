@@ -51,51 +51,51 @@ feature path · 🟢 nice-to-have.
       **error panel** shows (**error + retry**) — it does **not** hang for 90 seconds,
       and the toolbar badge is **not** a green ✓. Restore the key after.
 
-### B3 — Parser / RATING revived
+### B3 — Parser
 - [ ] 🔴 A normal Direct-API summary parses cleanly (verdict + one-sentence summary +
       details), even when the model bolds labels.
-- [ ] 🔴 The **AI cue** shows on a channel you've summarized before — a "📊 vs channel"
-      row with a ▲/▼/≈ marker (this was dead before — the prompt now asks for RATING).
+- [ ] 🔴 **No "📊 vs channel" engagement cue** appears on the panel — that watch/
+      engagement readout was removed in the 2026-06-25 re-scope (it moves to the
+      Watchprint companion extension). The summary panel shows the verdict + summary
+      + details only.
 
 ### B4 — Prose has no filler (F5)
 - [ ] 🔴 Summary + details **state the substance directly** — no "The video provides a
       masterclass in…", "This video covers/highlights/discusses…". They read like the
       claim itself.
 
-### B5 — Watch-tracking persists across refresh
-- [ ] 🔴 Watch ~40% of a video, **refresh** the page. The background engagement
-      tracking resumes (it no longer resets to 0). Easiest check: the per-channel
-      **average** the panel shows stays consistent, and the engagement verdict for
-      that video doesn't flip to "Skipped" after a refresh.
+### B5 — Watch-time engine still runs headless (no UI surface)
+- [ ] 🟢 The watch-time engine still runs under the hood (pending removal) but is
+      **no longer surfaced** — there is nothing to eyeball on the page. Optional dev
+      check: with DevTools open on the YouTube tab, `[TL;DW WT]` logs still appear as
+      you watch. No engagement verdict, per-channel average, or "% watched" should
+      render in the panel.
 
-### B6 — Multi-tab watch-time (storage race)
-- [ ] 🔴 Play **two** YouTube videos in two tabs for a minute. Then **Options → Stats**:
-      watch/engagement counters reflect both (no obvious double-count or undercount;
-      they don't go backwards).
-
-### B7 — Popup doesn't revert your choices (F2/#18)
+### B6 — Popup doesn't revert your choices (F2/#18)
 - [ ] 🔴 In the popup: pick **ChatGPT**, then tick **⚡ Direct API**. **Expected:** the
       destination stays ChatGPT and your worth-watching toggle isn't cleared (before,
       it snapped back to Gemini).
 
-### B8 — History page doesn't wipe entries (#5)
+### B7 — History page doesn't wipe entries (#5)
 - [ ] 🔴 With **Options → History** open and a video playing/summarizing in another tab,
       change a history setting (the limit, or delete one entry). **Expected:** entries
       the background added stay; nothing gets silently wiped.
 
-### B9 — Settings inputs (#29/#31)
+### B8 — Settings inputs (#29/#31)
 - [ ] 🟡 Options → Settings → Engagement: clear the "Engaged %" field and retype — it
       doesn't snap to the minimum mid-edit. The "Trusted channels" textarea types
-      smoothly (no per-keystroke lag).
+      smoothly (no per-keystroke lag). (The engagement *settings* still exist — the
+      watch-time engine still runs under the hood — even though its stats are no
+      longer displayed.)
 
-### B10 — mobile is out of scope
+### B9 — mobile is out of scope
 - [ ] 🟢 Open a video on **m.youtube.com** (mobile) → TL;DW does **not** run there.
       Mobile support was dropped (desktop-only selectors); `m.youtube.com` is no
       longer in the manifest. This is expected, not a bug.
 
 ---
 
-## C. Feature sprint (🟡 tags / engagement / menu / regenerate)
+## C. Feature sprint (🟡 tags / menu / regenerate)
 
 ### C1 — ⋯ overflow menu + fill-hover (F1/F4)
 - [ ] 🟡 The summary header shows verdict + summary + **Auto-summarize** inline, and a
@@ -105,10 +105,11 @@ feature path · 🟢 nice-to-have.
 - [ ] 🟡 Hover **Auto-summarize** → it **fills blue with white text** (not just a
       border). Looks consistent in **light and dark** YouTube themes.
 
-### C2 — Engagement cue is average-only (F2)
-- [ ] 🟡 On a fresh load, the engagement line shows your **channel average** (e.g.
-      "you usually skim this channel") **if you have history** — and **never "0%
-      watched"**. With no history for the channel, it shows nothing.
+### C2 — No engagement cue on the panel (re-scope)
+- [ ] 🟡 The panel shows **no** engagement line ("you usually skim this channel" /
+      "% watched" / "📊 vs channel"). That readout was removed in the 2026-06-25
+      re-scope; it heads to the Watchprint companion extension. If it appears, the
+      re-scope regressed.
 
 ### C3 — Tags (F6) — the headline feature + the cross-agent seam 🔴
 - [ ] 🟡 The summary has a **"Tags:" row at the bottom**.
@@ -134,37 +135,50 @@ feature path · 🟢 nice-to-have.
 - [ ] 🟡 After a regenerate that used a **video-only** tag, a **"save for this channel"**
       prompt appears; using it promotes the tag.
 
-### C5 — Channels page (tabs + search + virtualized lists)
+### C5 — Channels page (summary-centric; tabs + search + virtualized lists)
 - [ ] 🟡 **Options → Channels** shows a **tab strip** (**All channels** / **Auto-summarize**)
       and a **search box**. Typing filters the list (All filters by name **or** tag;
       Auto-summarize filters by name); no matches shows a friendly empty state.
+- [ ] 🟡 Each channel card is **summary-centric**: **# summaries · last summarized ·
+      tags**. The sort is **Most summarized** / Recently summarized — there is **no**
+      "most watched" / "highest rated" sort and **no** per-channel watch-time or
+      engagement readout anymore (those left in the re-scope).
 - [ ] 🟢 With many channels, the list is **virtualized** — it scrolls smoothly and rows
       render as you scroll (no lag, no broken layout).
 
 ---
 
-## D. F7 Phase-1 dashboards (🟡 Options → Stats)
+## D. Summary-centric Stats (🟡 Options → Stats)
 
-- [ ] 🟡 A **[This week | This month | This year | All-time]** toggle appears at the top.
-- [ ] 🟡 **All-time** looks exactly like before (unchanged layout).
-- [ ] 🟡 **This week** leads with **"Time TL;DW gave back this week"** + a **▲/▼ vs last
-      week** delta chip.
-- [ ] 🟡 **Finish rate** donut is windowed and shows a **pts vs last** delta.
-- [ ] 🟡 **"What you watched"** lists top channels for the window with their engagement mix.
-- [ ] 🟡 **Active days** ("5 / 7"), **hours previewed**, **channels** tiles render.
-- [ ] 🟢 **This year** shows the "based on retained history" footnote.
+_The 2026-06-25 re-scope made Stats summary-centric. There is **no** engagement/
+watch-time view here anymore — **no** week/month/year toggle, **no** finish-rate
+donut, **no** "time given back", **no** watch-based heatmap. If you see any of those,
+the re-scope regressed._
+
+- [ ] 🟡 The page leads with summary counters: **Summaries created**, **cache hits**,
+      and **summarized today**.
+- [ ] 🟡 A **GitHub-style summary-activity heatmap** (year-long contribution grid,
+      built from daily *summary* counts) renders, with a **streak** ("N-day streak").
+      Summarizing a video today adds to today's cell.
+- [ ] 🟡 **Top channels** lists your most-**summarized** channels (by # summaries),
+      most-summarized first.
+- [ ] 🟡 **Profile usage** shows a distribution of summaries by prompt profile
+      (proportion bars).
+- [ ] 🟡 **Destination usage** shows a distribution by destination (Direct API vs each
+      open-in-a-tab AI).
+- [ ] 🟡 **Most-used tags** lists your tags by assignment count.
 - [ ] 🟢 Channel **avatars** render; an expired/broken avatar URL falls back to a plain
       circle (no broken-image glyph).
-- [ ] 🟢 A brand-new / empty window shows a friendly "nothing this week yet" — no NaN /
-      broken layout.
+- [ ] 🟢 A brand-new / empty profile shows a friendly empty state — no NaN / broken
+      layout — and the heatmap renders empty (no errors).
 
 ---
 
 ## E. SponsorBlock + existing flows (🟢 regression guard)
 
-- [ ] 🟢 On a video with sponsor segments: it **auto-skips**, the inline SponsorBlock
-      widget shows the segments with **Undo**, and skipping doesn't get counted as watch
-      time (engagement % stays sane).
+- [ ] 🟢 On a video with sponsor segments: it **auto-skips** and the inline SponsorBlock
+      widget shows the segments with **Undo**. (SponsorBlock auto-skip is unchanged by
+      the re-scope — only the watch/engagement *stats display* was removed.)
 - [ ] 🟢 **Tab-flow** end-to-end (no key): popup → "Ask ChatGPT" (or Claude) → the tab
       opens, the prompt auto-fills + submits, and the answer is read back onto the
       YouTube panel. A composer it can't fill falls back to copying the prompt (toast).
@@ -187,6 +201,7 @@ feature path · 🟢 nice-to-have.
 ---
 
 ### Priority if you're short on time
-Do the 🔴 items in **B** (navigate-during-summary, error surfacing, RATING cue,
-watch persistence, multi-tab stats, popup choices, history-no-wipe), then **C3**
-(tags seam). Those are the subtle, this-session changes most worth a human eye.
+Do the 🔴 items in **B** (navigate-during-summary, error surfacing, parser, popup
+choices, history-no-wipe), then **C3** (tags seam). Also sanity-check the re-scope:
+**Stats is summary-centric** (section D — no engagement/donut/windowed view) and
+**no engagement cue** shows on the panel or Channels page (B3 / C2 / C5).

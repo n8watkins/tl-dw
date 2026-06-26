@@ -55,7 +55,7 @@ so choose deliberately.
 
 **Short description** (≤132 chars):
 
-> Summarize any YouTube video before you watch. On-page AI verdict, SponsorBlock auto-skip, and private local stats.
+> Summarize any YouTube video before you watch. On-page AI summary, custom profiles, SponsorBlock auto-skip, private local stats.
 
 **Category:** **Productivity** (the value is reclaiming time / deciding what's worth
 watching — a focus tool, not entertainment).
@@ -65,28 +65,28 @@ watching — a focus tool, not entertainment).
 **Detailed description:**
 
 ```
-Stop gambling your time on YouTube. TL;DW ("Too Long; Didn't Watch") tells you what a video actually says BEFORE you commit to watching it - so you can decide in seconds whether it is worth your time.
+Stop gambling your time on YouTube. TL;DW ("Too Long; Didn't Watch") summarizes a video BEFORE you commit to watching it - so you can decide in seconds whether it is worth your time.
 
-Open any YouTube video, hit Alt+Shift+G, and get a clear AI summary plus a WATCH / SKIM / SKIP verdict. Read it, skip the filler, and reclaim the hours you would have lost to videos that never get to the point.
+Open any YouTube video, hit Alt+Shift+G, and get a clear AI summary right on the page. Read it, skip the filler, and reclaim the hours you would have lost to videos that never get to the point.
 
 WHY YOU'LL LIKE IT
 
-- Decide before you watch. A short summary and an honest verdict mean no more 20-minute videos that could have been a paragraph.
+- Summarize before you watch. A short, on-page summary (plus a WATCH / SKIM / SKIP verdict on long videos) means no more 20-minute videos that could have been a paragraph.
 - Zero new tabs (Direct API mode). With your own free Google Gemini key, the summary appears right on the YouTube page in a tidy widget - nothing else opens.
 - Use the AI you already pay for (open-in-a-tab mode). No key? TL;DW opens Gemini, ChatGPT, or Claude with the prompt already typed and submitted, reads the finished answer back, and drops the summary onto the video page for you - attaching the full transcript automatically for AIs that can't watch the video. NotebookLM is supported too: TL;DW adds the video as a source for you (no on-page summary in that mode).
+- Make it your own. Reusable prompt profiles (TL;DW, Research, Learning, Tutorial, or your own) plus tags that tweak the prompt for any channel or video.
 - Skip the sponsor pitch. Built-in SponsorBlock auto-skips in-video sponsored segments (with one-tap Undo), using the free community database.
-- See where your time really goes. TL;DW quietly measures how much of each video you watch and rates it Engaged / Skimmed / Skipped - then rolls it up into per-channel insights and week / month / year / all-time dashboards.
+- See your summarizing at a glance. Private, local stats: total summaries, the channels you summarize most, profile and destination usage, most-used tags, and a GitHub-style summary-activity heatmap with a day streak.
 
 WHAT YOU GET
 
-- Direct API mode: headless Gemini call on your own free key; verdict + summary inline on the page, no tab opens. Free tier covers roughly 500 videos a day, no credit card.
+- Direct API mode: headless Gemini call on your own free key; summary inline on the page, no tab opens. Free tier covers roughly 500 videos a day, no credit card.
 - Open-in-a-tab mode: auto-fills and submits Gemini, ChatGPT, or Claude (and adds the video as a source in NotebookLM); transcript attached for AIs that can't watch; graceful clipboard fallback if a site's composer changes.
-- Worth-watching verdict gate for long videos, plus optional auto-summarize for anything over a length you choose.
+- Worth-watching WATCH / SKIM / SKIP verdict for long videos, plus optional auto-summarize for anything over a length you choose.
 - SponsorBlock auto-skip with inline timestamps, a one-tap Undo, and lifetime time-saved tracking.
-- Engagement auto-rating (Engaged / Skimmed / Skipped) - no manual buttons to tap.
-- Per-channel stats with avatar cards, average AI score, and a "vs this channel" cue on the video; auto-summarize any channel.
-- Dashboards: time given back, finish-rate donut, activity heatmap, day streak, and vs-previous-period delta chips across week, month, year, and all-time.
-- Editable prompt profiles (TL;DW, Research, Learning, Tutorial, or your own), an optional "ask something specific" field, searchable history, tags, a right-click menu, and the Alt+Shift+G keyboard shortcut.
+- Editable prompt profiles (TL;DW, Research, Learning, Tutorial, or your own), tags that modify the prompt per channel or video, an optional "ask something specific" field, and searchable history.
+- Summary-activity stats: total summaries, channels you summarize most, prompt-profile and destination usage, most-used tags, and a GitHub-style activity heatmap with a day streak. All counted locally.
+- Right-click menu to summarize with a specific profile, and the Alt+Shift+G keyboard shortcut.
 - Works on standard YouTube watch pages; Shorts are supported via the popup (sent to Gemini, which watches the video directly).
 
 PRIVACY
@@ -103,7 +103,7 @@ TL;DW is not affiliated with, endorsed by, or sponsored by YouTube, Google, Open
 
 **Single purpose:**
 
-> TL;DW sends the YouTube video you are watching to an AI chat assistant (Gemini, ChatGPT, Claude, or NotebookLM) — or to your own Gemini API key — to generate an on-page summary, "is it worth watching" verdict, and per-video notes, so you can decide what to watch without watching the whole thing. Supporting features (SponsorBlock sponsor-skip, watch-time engagement stats, and local history) all serve that single purpose of triaging and summarizing YouTube videos.
+> TL;DW sends the YouTube video you are watching to an AI chat assistant (Gemini, ChatGPT, Claude, or NotebookLM) — or to your own Gemini API key — to generate an on-page summary and an "is it worth watching" verdict, so you can decide what to watch without watching the whole thing. Supporting features (SponsorBlock sponsor-skip, local summary-activity stats, and local history) all serve that single purpose of triaging and summarizing YouTube videos.
 
 **Permission justifications** (paste per item):
 
@@ -143,19 +143,21 @@ blockers left before submission.
 
 - **Store icon 128×128:** ✅ already in `public/icons/tl-dw-128.png`.
 - **Screenshots (1280×800 — REQUIRED, at least 1, up to 5):** capture in this order —
-  1. **On-page summary + verdict (the money shot).** A real watch page with the
-     TL;DW widget populated in Direct API mode: WATCH/SKIM/SKIP badge, summary, AI
-     rating, "📊 vs channel" row. Pick a recognizable long talk/tutorial.
+  1. **On-page summary (the money shot).** A real watch page with the
+     TL;DW widget populated in Direct API mode: summary text and, for a long video,
+     the WATCH/SKIM/SKIP verdict badge. Pick a recognizable long talk/tutorial.
   2. **Popup — one-keystroke send.** Popup over a video: title button, destination
      grid (Gemini/ChatGPT/Claude/NotebookLM), profile dropdown, "ask something
      specific" field, Ask button with the Alt+Shift+G label, and the "Direct API
      (no new tab)" checkbox + call counter.
-  3. **Stats dashboard — week/month/year.** A populated window view: "Time TL;DW
-     gave back" hero + delta chip, finish-rate donut, top-channels list, tiles.
+  3. **Summary stats — headline + heatmap.** A populated stats view: "Summaries
+     created" hero tiles and the GitHub-style summary-activity heatmap with the
+     day-streak badge and "Tracking since".
   4. **SponsorBlock auto-skip.** Widget showing detected segments with timestamps
      and the "skipped — Undo" state; lifetime sponsor-time-saved nearby.
-  5. **All-time stats — engagement + heatmap.** Hero row, engagement donut, the
-     12-week activity heatmap with the day-streak badge and "Tracking since".
+  5. **Stats — channels, profiles & tags.** The "Channels you summarize most"
+     list with avatar cards, prompt-profile and destination usage bars, and the
+     most-used tags.
 - **Small promo tile 440×280 (REQUIRED):** Split frame on the dark neon-purple bg. Left (~55%):
   a faux YouTube title bar with a long duration chip (e.g. "27:41") dimmed. Right
   (~45%): the TL;DW widget card with a bright green WATCH badge + two summary lines.

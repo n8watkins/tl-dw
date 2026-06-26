@@ -1,18 +1,20 @@
 # TL;DW
 
 TL;DW means "Too Long; Didn't Watch." It is a Manifest V3 Chrome extension that
-summarizes the YouTube video you're watching so you can decide whether it's worth
-your time before you spend it.
+summarizes the YouTube video you're watching — pulling the transcript and getting
+you an AI summary — so you can decide whether it's worth your time before you
+spend it.
 
 ## What It Does
 
 - Detects YouTube watch pages and Shorts automatically.
-- Builds an analysis prompt from an editable prompt profile (TL;DW, Research,
-  Learning, Tutorial — or your own).
+- Builds a summary prompt from an editable prompt profile (TL;DW, Research,
+  Learning, Tutorial — or your own), tweaked by reusable tags you assign to a
+  channel or video.
 - Summarizes a video two ways:
   - **Direct API (recommended)** — calls Google's Gemini API directly with your
-    own free key. The verdict and summary appear **right on the YouTube page** in
-    an injected widget; no tab ever opens. The free tier covers ~500 videos/day.
+    own free key. The summary appears **right on the YouTube page** in an injected
+    widget; no tab ever opens. The free tier covers ~500 videos/day.
   - **Open in a tab** — opens your chosen AI (Gemini, ChatGPT, Claude, or
     NotebookLM) with the prompt already filled and submitted. TL;DW
     reads the finished answer back out of the tab and drops the summary onto the
@@ -20,14 +22,14 @@ your time before you spend it.
 - For AIs that can't watch a video, TL;DW extracts the full transcript (from
   YouTube's own intercepted caption data) and attaches it.
 - **Auto-summarize** videos over a configurable length, and an optional upfront
-  WATCH / SKIM / SKIP verdict gate for long videos.
-- **Engagement tracking** — measures how much of each video you actually watch and
-  auto-rates it Engaged / Skimmed / Skipped, building per-channel insights.
+  WATCH / SKIM / SKIP worth-watching verdict for long videos.
 - **SponsorBlock auto-skip** — skips in-video sponsored segments using the free
   community SponsorBlock data.
-- **Stats dashboard** — lifetime summaries, watch time, sponsor time saved, and an
-  activity heatmap.
-- An options page for setup, profiles, history, channels, stats, and settings.
+- **Summary-activity stats** — lifetime summaries, channels you summarize most,
+  prompt-profile and destination usage, most-used tags, and a GitHub-style
+  summary-activity heatmap with a day streak.
+- An options page for setup, profiles, tags, history, channels, stats, and
+  settings.
 
 ## Privacy
 

@@ -8,8 +8,17 @@
 
 > _Refreshed 2026-06-20 to match the shipped product. The original plan was Gemini-only;
 > TL;DW now sends to several destinations, extracts the transcript, calls Gemini
-> directly (headless on-page summaries), skips sponsors, and tracks engagement +
-> stats. History below is preserved where still accurate._
+> directly (headless on-page summaries), and skips sponsors. History below is
+> preserved where still accurate._
+>
+> _**Re-scoped 2026-06-25 to a focused YouTube summarizer.** Its stats are now
+> **summary-centric** (# summaries created, top channels by summaries,
+> profile/destination usage, most-used tags, a summary-activity heatmap + streak) —
+> not watch/engagement. The **post-watch watch-time + engagement analytics are being
+> split out** into a separate local-only companion extension, **Watchprint**
+> (`../watchprint`); the watch-time engine still runs under the hood pending removal
+> but is no longer surfaced. Rationale + plan: [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md)
+> and `../watchprint/PLAN.md`._
 
 ---
 
@@ -115,12 +124,17 @@ For destinations that can't watch the video, TL;DW extracts the transcript by in
 - [x] **SponsorBlock auto-skip** — skip in-video sponsor segments from the free
   community data, with inline timestamps + Undo and lifetime seconds-saved
   (`content/sponsorblock.ts`, `sponsor.ajay.app`)
-- [x] **Engagement tracking** — watch-time engine auto-rates each video
-  Engaged / Skimmed / Skipped and rolls up per-channel averages
-  (`content/watchtime.ts`, `lib/engagement.ts`)
-- [x] **Stats dashboard** — lifetime counters, activity heatmap, and
-  week/month/year/all-time windowed rollups with delta chips (F7 Phase 1,
-  `lib/dashboards.ts`, `StatsSection.tsx`)
+- [x] **Watch-time engine** — auto-rated each video Engaged / Skimmed / Skipped and
+  rolled up per-channel averages (`content/watchtime.ts`, `lib/engagement.ts`).
+  **Re-scope 2026-06-25:** this and its dashboards were **pulled out of the UI**
+  (heading to the Watchprint companion extension); the engine still runs under the
+  hood pending removal.
+- [x] **Stats dashboard (summary-centric)** — # summaries created, cache hits,
+  summarized-today, top channels by # summaries, profile usage, destination usage,
+  most-used tags, and a GitHub-style **summary-activity heatmap + streak**
+  (`StatsSection.tsx`). The F7 Phase 1 week/month/year/all-time **engagement**
+  rollups + finish-rate donut (`lib/dashboards.ts`) were **removed from the UI** in
+  the re-scope (logic retained, headed for Watchprint).
 - [x] **Channels + per-channel tags** — channel cards, an auto-summarize list,
   and a tags layer (channel ∪ video tags) surfaced on the widget and the
   options Tags page (`ChannelsSection.tsx`, `TagsSection.tsx`, `lib/storage.ts`).
@@ -142,11 +156,16 @@ The F1–F8 feature sprint (overflow menu, engagement-cue redesign, watch-%
 persistence, prose tightening, per-channel tags) and F7 Phase 1 (time-windowed
 dashboards) shipped via PRs #1 and #2; the original backlog and the parallelized
 2-agent / worktree plan are archived under
-**[docs/archive/](docs/archive/)**. The one genuinely open bet is **F7 Phase 2 —
-paid / hosted analytics** (see `docs/archive/F7_PHASE1_PLAN.md` §0). The
-seek-links / key-moments line items that used to sit here were cut — that feature
-was removed and `SEEK_LINKS.md` deleted (see commit 600e7e4) — and the two
-follow-ups below have since shipped:
+**[docs/archive/](docs/archive/)**. The genuinely open thread now is the
+**analytics split**: the watch-time + engagement analytics are moving to the
+**Watchprint** companion extension (`../watchprint`, local-only, free), leaving
+TL;DW as the summarizer with summary-scoped stats — see
+[`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md). (F7 Phase 2 "paid / hosted
+analytics" is **dropped** — Watchprint is free; the "don't charge for local data"
+reasoning is in `docs/archive/F7_PHASE1_PLAN.md` §0.) The seek-links / key-moments
+line items that used to sit here were cut — that feature was removed and
+`SEEK_LINKS.md` deleted (see commit 600e7e4) — and the two follow-ups below have
+since shipped:
 
 - [x] Import / export profiles as JSON (validation, name-conflict "Copy") —
   `options/sections/ProfilesSection.tsx`
