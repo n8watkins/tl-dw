@@ -40,9 +40,7 @@ export async function addHistoryEntry(args: {
   prompt: string;
   settings: Settings;
   destinationId?: string;
-  aiRating?: number;
   channelAvatarUrl?: string;
-  userRating?: "watch" | "skim" | "skip";
 }): Promise<void> {
   const entry: SearchHistoryEntry = {
     id: crypto.randomUUID(),
@@ -58,8 +56,6 @@ export async function addHistoryEntry(args: {
     // full prompt + response is the Direct API call log (gated by the
     // keepFullCallLog setting); history keeps the prompt (needed for "ask
     // again") plus compact metadata only.
-    aiRating: args.aiRating,
-    userRating: args.userRating,
     createdAt: new Date().toISOString(),
   };
   // Serialized RMW (mutateHistory holds the history lock) so a concurrent

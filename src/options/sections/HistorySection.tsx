@@ -50,9 +50,9 @@ export function HistorySection() {
   }, []);
 
   // Keep in sync with the background while this tab is open: it adds new history
-  // entries and updates watch-progress/ratings as the user watches. Without this
-  // the page held a stale snapshot and any write below would clobber those
-  // changes (real data loss). Mirror settings changes too.
+  // entries as the user summarizes videos. Without this the page held a stale
+  // snapshot and any write below would clobber those new entries (real data
+  // loss). Mirror settings changes too.
   useEffect(() => {
     const onChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
       if (area !== "local") return;

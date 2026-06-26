@@ -14,12 +14,8 @@ function entry(id: string, createdAt: string): SearchHistoryEntry {
   };
 }
 
-function channelEntry(
-  id: string,
-  channel: string,
-  userRating?: "watch" | "skim" | "skip",
-): SearchHistoryEntry {
-  return { ...entry(id, daysAgo(0)), channel, userRating };
+function channelEntry(id: string, channel: string): SearchHistoryEntry {
+  return { ...entry(id, daysAgo(0)), channel };
 }
 
 function daysAgo(n: number): string {

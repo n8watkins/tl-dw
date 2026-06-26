@@ -54,8 +54,6 @@ describe("parseTldwBlock", () => {
     );
     expect(out?.summary).toBe("The real takeaway.");
     expect(out?.details).toBe("More.");
-    expect(out?.verdict).toBeUndefined();
-    expect(out?.rating).toBeUndefined();
   });
 
   it("returns null when SUMMARY is missing", () => {

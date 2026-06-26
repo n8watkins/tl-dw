@@ -436,7 +436,6 @@ async function cacheScrapedSummary(vid: string, tldw: TldwSummary): Promise<void
     ...existing,
     tldw,
     cachedAt: new Date().toISOString(),
-    channelName: currentChannelInfo?.name ?? existing.channelName,
   };
   // Same TTL + count cap the background uses, so the tab-mode path doesn't grow
   // the cache unbounded.
@@ -623,20 +622,20 @@ function promoteVideoTags(vid: string, channelKey: string, tagIds: string[]): Pr
 
 // --- TL;DW summary panel -------------------------------------------------
 
-type TldwSummary = { verdict?: string; summary: string; rating?: string; details?: string; source?: string };
+type TldwSummary = { summary: string; details?: string; source?: string };
 
 /** A panel that may carry a teardown fn (e.g. removing a document listener),
  *  invoked by removeSummaryPanel so we don't leak listeners across rebuilds. */
 type CleanablePanel = HTMLElement & { __tldwCleanup?: () => void };
 
 let summaryPanel: HTMLElement | null = null;
-// Which kind of panel is currently injected into the host. Drives mutual
-// exclusion with the standalone rating bar:
-//  - "summary": a real summary, owns the rating row → bar hidden.
-//  - "idle": the "Get Summary" placeholder, no rating row → bar shown alongside.
-//  - null: no panel → bar shown.
-// Note: the in-flight ("analyzing") state is NOT a panel kind anymore — there is
-// no skeleton panel. The inline TL;DW button is the sole loading indicator; the
+// Which kind of panel is currently injected into the host. Drives the inline
+// TL;DW button's resting cue (see ensureWatchButton):
+//  - "summary": a real summary panel → button reads "ready".
+//  - "idle": the "Get Summary" placeholder (or an error panel) → button "idle".
+//  - null: no panel.
+// Note: the in-flight ("analyzing") state is NOT a panel kind — there is no
+// skeleton panel. The inline TL;DW button is the sole loading indicator; the
 // `runInFlight` flag below tracks that state.
 let summaryPanelKind: "summary" | "idle" | null = null;
 
@@ -2088,7 +2087,7 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
 
   currentAutoRunSummary = channelEntry?.autoRunSummary ?? false;
 
-  type CacheEntry = { tldw: TldwSummary; cachedAt: string; userRating?: "watch" | "skim" | "skip"; channelName?: string };
+  type CacheEntry = { tldw: TldwSummary; cachedAt: string };
 
   // Serve a cached result if fresh.
   const serveCached = (entry: CacheEntry) => {

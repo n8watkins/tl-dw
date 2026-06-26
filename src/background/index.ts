@@ -415,7 +415,7 @@ async function runSummary(
 
         // Cache the result so future visits to this video skip the API call.
         if (videoId) {
-          void setCachedSummary(videoId, { tldw, cachedAt: new Date().toISOString(), channelName: video.channel });
+          void setCachedSummary(videoId, { tldw, cachedAt: new Date().toISOString() });
         }
 
         // Bump lifetime stats: summary completed (Direct API path).

@@ -600,9 +600,7 @@ async function waitForResponseAndSend(
         .map((l) => l.replace(/^\s*[\d.)\-*#•]+\s*/, "").trim())
         .find((l) => l.length >= 40) ?? lastText.trim().slice(0, 200);
     const fallback = {
-      verdict: "WATCH",
       summary: firstLine,
-      rating: "",
       details: lastText.slice(0, 4000),
     };
     try {

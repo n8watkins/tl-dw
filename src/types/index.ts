@@ -28,15 +28,6 @@ export type SearchHistoryEntry = {
    * the type so older stored entries still render in the History view.
    */
   apiResponse?: string;
-  /** AI quality score (1-10) parsed from the TL;DW rating field. */
-  aiRating?: number;
-  /**
-   * The user's personal verdict on this video (watch/skim/skip, displayed as
-   * Engaged/Skimmed/Skipped). Retained on the type so older stored entries and
-   * the summary-cache mirror still read back cleanly; no longer written by
-   * TL;DW (watch-time/engagement tracking was decoupled out).
-   */
-  userRating?: "watch" | "skim" | "skip";
   createdAt: string;
 };
 
@@ -70,12 +61,8 @@ export type DeliveryStatus = {
   /** Why it failed, phrased for the popup alert. */
   reason?: string;
   at: string;
-  /**
-   * What this status is about. "delivery" (default) = an auto-fill attempt.
-   * ("gate" was the removed worth-watching verdict's duration read; kept in the
-   * union so older session-stored statuses still type-check.)
-   */
-  kind?: "delivery" | "gate";
+  /** What this status is about. "delivery" (default) = an auto-fill attempt. */
+  kind?: "delivery";
 };
 
 export type HistoryLimit = 50 | 100 | 250 | "unlimited";
@@ -131,10 +118,6 @@ export type CachedSummary = {
   tldw: TldwSummary;
   /** ISO timestamp when this entry was written. */
   cachedAt: string;
-  /** The user's personal verdict on whether the video was worth watching. */
-  userRating?: "watch" | "skim" | "skip";
-  /** Channel display name — used to scope cached entries by channel. */
-  channelName?: string;
 };
 
 /** One entry in the Direct API call log — stored per video summarized. */
@@ -318,13 +301,6 @@ export type TldwSummary = {
   summary: string;
   /** 1-2 sentences of supporting evidence or key context. */
   details?: string;
-  /**
-   * Legacy AI-verdict fields. TL;DW no longer requests or surfaces these (the
-   * panel is summary-only), but they're kept optional so older cached/stored
-   * summaries and the inject content-script's local type still read back cleanly.
-   */
-  verdict?: string;
-  rating?: string;
 };
 
 /**
