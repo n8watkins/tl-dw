@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeChannelStats, expireOldEntries, trimToLimit } from "./history";
-import { DEFAULT_SETTINGS, scoreToVerdict, userAvgToLabel } from "./constants";
+import { DEFAULT_SETTINGS } from "./constants";
 import type { SearchHistoryEntry, Settings } from "../types";
 
 function entry(id: string, createdAt: string): SearchHistoryEntry {
@@ -86,70 +86,35 @@ describe("expireOldEntries", () => {
   });
 });
 
-describe("computeChannelStats — user rating", () => {
-  it("averages userRating through the watch=3/skim=2/skip=1 scale", () => {
-    // one watch (3) + one skim (2) ⇒ 2.5
-    const stats = computeChannelStats([
-      channelEntry("a", "Chan", "watch"),
-      channelEntry("b", "Chan", "skim"),
-    ]);
-    expect(stats).toHaveLength(1);
-    expect(stats[0].avgUserRating).toBe(2.5);
-  });
-
-  it("tallies userBreakdown counts per channel", () => {
-    const stats = computeChannelStats([
-      channelEntry("a", "Chan", "watch"),
-      channelEntry("b", "Chan", "watch"),
-      channelEntry("c", "Chan", "skim"),
-      channelEntry("d", "Chan", "skip"),
-    ]);
-    expect(stats[0].userBreakdown).toEqual({ engaged: 2, skimmed: 1, skipped: 1 });
-  });
-
-  it("ignores unrated entries when averaging", () => {
-    // watch (3) + skip (1) rated, one unrated ⇒ avg 2; breakdown counts only rated
-    const stats = computeChannelStats([
-      channelEntry("a", "Chan", "watch"),
-      channelEntry("b", "Chan", "skip"),
-      channelEntry("c", "Chan"),
-    ]);
-    expect(stats[0].avgUserRating).toBe(2);
-    expect(stats[0].userBreakdown).toEqual({ engaged: 1, skimmed: 0, skipped: 1 });
-  });
-
-  it("returns null avgUserRating when no entries are rated", () => {
+describe("computeChannelStats — grouping", () => {
+  it("groups entries by channel and counts them", () => {
     const stats = computeChannelStats([
       channelEntry("a", "Chan"),
       channelEntry("b", "Chan"),
+      channelEntry("c", "Other"),
     ]);
-    expect(stats[0].avgUserRating).toBeNull();
-    expect(stats[0].userBreakdown).toEqual({ engaged: 0, skimmed: 0, skipped: 0 });
+    const chan = stats.find((s) => s.channel === "Chan");
+    expect(chan?.count).toBe(2);
+    expect(chan?.videos).toHaveLength(2);
+    expect(stats.find((s) => s.channel === "Other")?.count).toBe(1);
   });
-});
 
-describe("scoreToVerdict", () => {
-  it("maps 1–10 scores to SKIP/SKIM/WATCH (≤3 SKIP, ≤6 SKIM, else WATCH)", () => {
-    expect(scoreToVerdict(1)).toBe("SKIP");
-    expect(scoreToVerdict(3)).toBe("SKIP");
-    expect(scoreToVerdict(4)).toBe("SKIM");
-    expect(scoreToVerdict(6)).toBe("SKIM");
-    expect(scoreToVerdict(7)).toBe("WATCH");
-    expect(scoreToVerdict(10)).toBe("WATCH");
+  it("skips entries with no channel", () => {
+    const stats = computeChannelStats([
+      entry("x", daysAgo(0)),
+      channelEntry("a", "Chan"),
+    ]);
+    expect(stats).toHaveLength(1);
+    expect(stats[0].channel).toBe("Chan");
   });
-});
 
-describe("userAvgToLabel", () => {
-  it("maps an averaged personal verdict (1–3) to the nearest bucket label", () => {
-    // ≥2.5 → Engaged
-    expect(userAvgToLabel(3)).toBe("Engaged");
-    expect(userAvgToLabel(2.5)).toBe("Engaged");
-    // ≥1.5 → Skimmed
-    expect(userAvgToLabel(2.49)).toBe("Skimmed");
-    expect(userAvgToLabel(2)).toBe("Skimmed");
-    expect(userAvgToLabel(1.5)).toBe("Skimmed");
-    // else → Skipped
-    expect(userAvgToLabel(1.49)).toBe("Skipped");
-    expect(userAvgToLabel(1)).toBe("Skipped");
+  it("sorts channels by summary count descending", () => {
+    const stats = computeChannelStats([
+      channelEntry("a", "Few"),
+      channelEntry("b", "Many"),
+      channelEntry("c", "Many"),
+      channelEntry("d", "Many"),
+    ]);
+    expect(stats.map((s) => s.channel)).toEqual(["Many", "Few"]);
   });
 });

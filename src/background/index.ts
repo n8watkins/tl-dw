@@ -1,8 +1,7 @@
 import { buildDestinationPrompt, prependWorthWatchingGate } from "../lib/promptBuilder";
 import { parseTldwBlock } from "../lib/tldw";
 import { GEMINI_URL, getDestination, isYouTubeVideoUrl, localDateKey, pruneCache, STORAGE_KEYS, SUMMARY_CACHE_KEY } from "../lib/constants";
-import { addHistoryEntry, computeChannelStats, expireOldEntries, trimToLimit } from "../lib/history";
-import type { ChannelStats } from "../lib/history";
+import { addHistoryEntry, expireOldEntries, trimToLimit } from "../lib/history";
 import {
   addOpenSearch,
   bumpLifetimeStats,
@@ -28,12 +27,6 @@ import { extractVideoId } from "../lib/constants";
 import type { RuntimeMessage, Settings, SummarySource, VideoContext, VideoMeta } from "../types";
 
 const MENU_ROOT = "tldw-root";
-
-/** Per-channel averages sent to the content panel for the this-video-vs-channel cues. */
-type ChannelComparisonStats = Pick<
-  ChannelStats,
-  "avgAiRating" | "count" | "avgUserRating" | "userBreakdown"
->;
 
 /**
  * Where the menu is offered: the toolbar icon ("action"), a right-click
@@ -405,22 +398,8 @@ async function runSummary(
     // --- cache check: serve a previous result instantly, skip the API call ---
     const cachedSummary = videoId ? await getCachedSummary(videoId) : null;
     if (cachedSummary && activeTab?.id !== undefined) {
-      // Channel comparison still uses fresh history so the ▲/▼/≈ is up-to-date.
-      let channelStats: ChannelComparisonStats | undefined;
-      if (video.channel) {
-        const history = await getHistory();
-        const stats = computeChannelStats(history).find((s) => s.channel === video.channel);
-        if (stats && stats.count >= 1) {
-          channelStats = {
-            avgAiRating: stats.avgAiRating,
-            count: stats.count,
-            avgUserRating: stats.avgUserRating,
-            userBreakdown: stats.userBreakdown,
-          };
-        }
-      }
       void chrome.tabs
-        .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw: cachedSummary.tldw, source: "cached", channelStats, videoId })
+        .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw: cachedSummary.tldw, source: "cached", videoId })
         .catch(() => {});
       // Bump lifetime stats: cache hit.
       void bumpLifetimeStats((s) => { s.cacheHits += 1; });
@@ -460,13 +439,12 @@ async function runSummary(
         return;
       }
 
-      // Parse the AI rating (e.g. "8/10" → 8) for channel stats storage.
+      // Parse the AI rating (e.g. "8/10" → 8) for history storage.
       const aiRatingMatch = tldw.rating ? /^(\d+)/.exec(tldw.rating) : null;
       aiRating = aiRatingMatch ? parseInt(aiRatingMatch[1], 10) : undefined;
 
-      // Save history BEFORE computing channelStats so this video is included
-      // in the channel average from the very first visit. Wrapped in its own
-      // try so a storage error never prevents the summary from being shown.
+      // Save history. Wrapped in its own try so a storage error never prevents
+      // the summary from being shown.
       if (settings.saveHistoryOnSearch) {
         try {
           await addHistoryEntry({
@@ -478,24 +456,9 @@ async function runSummary(
         } catch { /* storage failure: skip history, don't block summary */ }
       }
 
-      // Compute channel comparison from history (now includes this video).
-      let channelStats: ChannelComparisonStats | undefined;
-      if (video.channel) {
-        const history = await getHistory();
-        const stats = computeChannelStats(history).find((s) => s.channel === video.channel);
-        if (stats && stats.count >= 1) {
-          channelStats = {
-            avgAiRating: stats.avgAiRating,
-            count: stats.count,
-            avgUserRating: stats.avgUserRating,
-            userBreakdown: stats.userBreakdown,
-          };
-        }
-      }
-
       if (activeTab?.id !== undefined) {
         void chrome.tabs
-          .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw, source: "Gemini API", channelStats, videoId })
+          .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw, source: "Gemini API", videoId })
           .catch(() => {});
 
         // Cache the result so future visits to this video skip the API call.

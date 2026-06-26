@@ -31,17 +31,12 @@ export type SearchHistoryEntry = {
   /** AI quality score (1-10) parsed from the TL;DW rating field. */
   aiRating?: number;
   /**
-   * The user's personal verdict on this video. Internal enum is kept as
-   * watch/skim/skip (displayed as Engaged/Skimmed/Skipped); numeric map for
-   * channel averages is watch=3, skim=2, skip=1 (see USER_RATING_SCALE).
-   * Now set automatically by the watch-time engine (watchtime.ts) rather than
-   * by manual button clicks.
+   * The user's personal verdict on this video (watch/skim/skip, displayed as
+   * Engaged/Skimmed/Skipped). Retained on the type so older stored entries and
+   * the summary-cache mirror still read back cleanly; no longer written by
+   * TL;DW (watch-time/engagement tracking was decoupled out).
    */
   userRating?: "watch" | "skim" | "skip";
-  /** Accumulated content-seconds watched for this video (from the watch-time engine). */
-  watchedSeconds?: number;
-  /** Latest known video duration in seconds (written by the watch-time engine). */
-  durationSeconds?: number;
   createdAt: string;
 };
 
@@ -159,30 +154,6 @@ export type GeminiCallEntry = {
 export type HistoryExpiryDays = 7 | 30 | 90 | 365;
 
 /**
- * Per-channel watch aggregate inside LifetimeStats.channels. Lives in the
- * never-pruned `tldwStats` so it survives history expiry — unlike
- * computeChannelStats(history), which only sees the retained history window.
- * Populated forward from recordWatchProgress; existing users start from zero
- * (per-channel watch deltas weren't recorded before this field existed).
- */
-export type ChannelStat = {
-  /** Channel display name (latest seen). */
-  name: string;
-  /** Total content-seconds watched on this channel. */
-  secondsWatched: number;
-  /** Distinct videos from this channel that have accrued watch time. */
-  videosWatched: number;
-  /** Lifetime engagement verdict tallies for this channel. */
-  engaged: number;
-  skimmed: number;
-  skipped: number;
-  /** ISO timestamp of the most recent watch — also the eviction key. */
-  lastWatched: string;
-  /** Latest channel avatar URL scraped from the watch page, if known. */
-  avatarUrl?: string;
-};
-
-/**
  * Lifetime usage counters stored under "tldwStats" in chrome.storage.local.
  * Never pruned — survives history expiry and cache clears.
  */
@@ -199,26 +170,11 @@ export type LifetimeStats = {
   sponsorSkips: number;
   /** Total seconds saved by SponsorBlock auto-skips. */
   sponsorSecondsSaved: number;
-  /** Total tracked watch time across all videos (in seconds). */
-  secondsWatched: number;
-  /** Lifetime count of videos rated "Engaged" (watch). */
-  engaged: number;
-  /** Lifetime count of videos rated "Skimmed" (skim). */
-  skimmed: number;
-  /** Lifetime count of videos rated "Skipped" (skip). */
-  skipped: number;
   /**
-   * Daily summary counts for activity heatmap.
-   * Keys are "YYYY-MM-DD"; capped at the most recent 366 entries.
+   * Daily summary counts for the summary-activity heatmap.
+   * Keys are "YYYY-MM-DD"; capped at the most recent entries (see trimActivity).
    */
   activity: Record<string, number>;
-  /**
-   * Per-channel watch aggregates, keyed by channel key (channelId ?? name).
-   * Capped at the most-recently-watched CHANNEL_STATS_CAP channels (see
-   * trimChannelStats) so it stays well under the storage quota. Optional so
-   * existing stored stats (written before this field) read back cleanly.
-   */
-  channels?: Record<string, ChannelStat>;
 };
 
 /** Minutes thresholds the worth-watching gate offers (see WATCH_THRESHOLD_OPTIONS). */
@@ -282,7 +238,7 @@ export type Settings = {
   geminiApiKeyName: string;
   /** Use the direct API path when a key is present (can be toggled off in the popup). */
   useDirectApi: boolean;
-  /** Whether the user has acknowledged the first-run privacy notice (SponsorBlock + engagement). */
+  /** Whether the user has acknowledged the first-run privacy notice (SponsorBlock). */
   firstRunNoticeSeen: boolean;
   /** Profile to use for Direct API auto-runs; falls back to the default profile if unset. */
   directApiProfileId?: string;
@@ -290,22 +246,6 @@ export type Settings = {
   showAiRecommendation: boolean;
   /** AI dimension — track-average: show the per-channel AI rating average + cue. Requires showAiRecommendation. */
   trackAiAverage: boolean;
-  /**
-   * Engagement tracking — master switch. When true, watch-time is measured and
-   * videos are auto-rated Engaged/Skimmed/Skipped based on actual playback.
-   */
-  trackEngagement: boolean;
-  /** Engagement tracking — show the live on-page watch-progress cue in the summary panel. */
-  showEngagementStatus: boolean;
-  /** Percentage of video watched to count as Engaged (default 60). */
-  engagedPct: number;
-  /** Percentage floor for Skimmed; below this threshold counts as Skipped (default 15). */
-  skimmedPct: number;
-  /**
-   * My dimension — track-average: show the per-channel engagement average + cue.
-   * Computed from auto-tracked ratings (no manual buttons).
-   */
-  trackMyAverage: boolean;
   /** Auto-skip in-video sponsored segments using the free SponsorBlock community data. */
   skipSponsors: boolean;
   /**
@@ -419,24 +359,6 @@ export type OpenOptionsMessage = { type: "OPEN_OPTIONS"; section?: string };
  */
 export type OpenOrFocusDestinationMessage = { type: "OPEN_OR_FOCUS_DESTINATION" };
 
-/**
- * Sent from watchtime.ts (the watch-time engine content script) to report
- * accumulated playback progress. The background uses this to auto-rate videos
- * as Engaged/Skimmed/Skipped based on actual watch time, replacing the old
- * manual rating buttons.
- */
-export type WatchProgressMessage = {
-  type: "WATCH_PROGRESS";
-  videoId: string;
-  /** Seconds of content watched since the last successful report. */
-  deltaSeconds: number;
-  /** Latest known video duration in seconds. */
-  durationSeconds: number;
-  /** True if a TL;DW summary panel was shown for this video (affects skip verdict). */
-  sawSummary: boolean;
-  video: { url: string; title?: string; channel?: string; avatarUrl?: string };
-};
-
 /** One sponsor segment from SponsorBlock: a [start, end] time range in seconds. */
 export type SponsorSegment = { start: number; end: number; category: string };
 
@@ -491,6 +413,5 @@ export type RuntimeMessage =
   | AiSummaryMessage
   | OpenOptionsMessage
   | OpenOrFocusDestinationMessage
-  | WatchProgressMessage
   | GetSponsorSegmentsMessage
   | SponsorSkippedMessage;

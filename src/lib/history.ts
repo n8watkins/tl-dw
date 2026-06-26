@@ -5,7 +5,6 @@ import type {
   VideoContext,
 } from "../types";
 import { mutateHistory } from "./storage";
-import { USER_RATING_SCALE } from "./constants";
 
 /** Keep only the newest `limit` entries ("unlimited" keeps all). Newest first. */
 export function trimToLimit(
@@ -63,15 +62,15 @@ export async function addHistoryEntry(args: {
     userRating: args.userRating,
     createdAt: new Date().toISOString(),
   };
-  // Serialized RMW (shares the history lock with recordWatchProgress) so a
-  // concurrent watch-progress write can't clobber this new entry, or vice-versa.
+  // Serialized RMW (mutateHistory holds the history lock) so a concurrent
+  // history edit can't clobber this new entry, or vice-versa.
   await mutateHistory((existing) => {
     const fresh = expireOldEntries([entry, ...existing], args.settings);
     return trimToLimit(fresh, args.settings.historyLimit);
   });
 }
 
-/** A real summary (vs a watch-stub the watch-time engine writes with prompt:""). */
+/** A real summary entry (has a non-empty prompt). */
 export function isSummaryEntry(e: SearchHistoryEntry): boolean {
   return !!(e.prompt && e.prompt.trim());
 }
@@ -80,16 +79,11 @@ export type ChannelStats = {
   channel: string;
   avatarUrl?: string;
   count: number;
-  avgAiRating: number | null;
-  /** Average of the personal verdict mapped through USER_RATING_SCALE; null when none rated. */
-  avgUserRating: number | null;
-  /** Tally of personal verdicts for this channel. */
-  userBreakdown: { engaged: number; skimmed: number; skipped: number };
   lastWatched: string;
   videos: SearchHistoryEntry[];
 };
 
-/** Group history by channel and compute per-channel averages. */
+/** Group history by channel for the summary-centric Channels view. */
 export function computeChannelStats(history: SearchHistoryEntry[]): ChannelStats[] {
   const byChannel = new Map<string, SearchHistoryEntry[]>();
   for (const entry of history) {
@@ -99,31 +93,13 @@ export function computeChannelStats(history: SearchHistoryEntry[]): ChannelStats
     byChannel.set(entry.channel, list);
   }
   return [...byChannel.entries()]
-    .map(([channel, videos]) => {
-      // history is newest-first; videos within a channel retain that ordering.
-      const aiRatings = videos.map((v) => v.aiRating).filter((r): r is number => r !== undefined);
-      const userRatings = videos
-        .map((v) => v.userRating)
-        .filter((r): r is "watch" | "skim" | "skip" => r !== undefined);
-      const userBreakdown = { engaged: 0, skimmed: 0, skipped: 0 };
-      for (const r of userRatings) {
-        if (r === "watch") userBreakdown.engaged++;
-        else if (r === "skim") userBreakdown.skimmed++;
-        else userBreakdown.skipped++;
-      }
-      return {
-        channel,
-        // Use the most recent entry's avatar (first in newest-first list).
-        avatarUrl: videos[0]?.channelAvatarUrl,
-        count: videos.length,
-        avgAiRating: aiRatings.length ? aiRatings.reduce((a, b) => a + b, 0) / aiRatings.length : null,
-        avgUserRating: userRatings.length
-          ? userRatings.reduce((a, b) => a + USER_RATING_SCALE[b], 0) / userRatings.length
-          : null,
-        userBreakdown,
-        lastWatched: videos[0]?.createdAt ?? "",
-        videos,
-      };
-    })
+    .map(([channel, videos]) => ({
+      channel,
+      // Use the most recent entry's avatar (first in newest-first list).
+      avatarUrl: videos[0]?.channelAvatarUrl,
+      count: videos.length,
+      lastWatched: videos[0]?.createdAt ?? "",
+      videos,
+    }))
     .sort((a, b) => b.count - a.count);
 }
