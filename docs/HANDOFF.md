@@ -157,10 +157,7 @@ From [`STATUS.md`](../STATUS.md) and the audits, in rough priority:
    `src/lib/tldw.ts` still parses it (harmless, just unused). To make TL;DW *purely*
    summaries end-to-end, trim VERDICT/RATING from the built-in profile templates
    (`src/lib/profiles.ts`/`promptBuilder.ts`), the parser, and the worth-watching gate.
-5. **Shorts on-page widget** — the on-page panel doesn't render on `/shorts/` URLs
-   because `currentVideoId()` reads only `?v=` (`src/content/youtube.ts` ~L22).
-   Shorts currently work only via the popup→Gemini path. Parse `/shorts/<id>` if wanted.
-6. **Split `youtube.ts`** (~2.7k LOC, now a bit smaller post-decoupling) into panel /
+5. **Split `youtube.ts`** (~2.7k LOC, now a bit smaller post-decoupling) into panel /
    nav-mount / scrape modules — pure tech-debt refactor; gate with the smoke test.
 
 ### C. Optional pre-launch polish
@@ -206,7 +203,7 @@ From [`STATUS.md`](../STATUS.md) and the audits, in rough priority:
 - `src/manifest.config.ts` — MV3 manifest (permissions, hosts, content scripts).
 - `src/background/index.ts` — service-worker orchestrator; `callGeminiApi` (key
   header), `runSummary`, SponsorBlock fetch.
-- `src/content/youtube.ts` — on-page widget (~2.7k LOC); `currentVideoId` (Shorts gap).
+- `src/content/youtube.ts` — on-page widget (~2.7k LOC); `currentVideoId`.
 - `src/content/youtube-intercept.ts` — MAIN-world `fetch` wrapper for transcripts.
 - `docs/ANALYTICS_SPLIT.md` — the watch-time/engagement → Watchprint split (rationale,
   feature classification, storage-key ownership, migration). Pairs with

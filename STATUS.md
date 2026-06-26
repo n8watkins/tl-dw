@@ -1,16 +1,21 @@
 # TL;DW Extension — Status
 
-**Version:** 0.1.164
+**Version:** 0.1.171
 **Last updated:** 2026-06-25
 
-> **Scope (2026-06-25):** TL;DW is now a focused **YouTube summarizer**. Its stats
-> are **summary-centric** (how much you've *summarized*, not how much you've
-> *watched*). The post-watch **watch-time + engagement analytics are being split
-> out** into a separate local-only companion extension ("Watchprint", scaffolded at
-> `../watchprint`); see [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md) for the
-> rationale and plan. The watch-time engine **still runs under the hood** (pending
-> removal) but is no longer surfaced in the UI — only the analytics *display* was
-> removed. The on-page summary panel + SponsorBlock auto-skip are unchanged.
+> **Scope (2026-06-25, commit `93f8b7b`):** TL;DW is now a **pure YouTube summarizer**.
+> Its stats are **summary-centric** (how much you've *summarized*, not how much you've
+> *watched*). The post-watch **watch-time + engagement analytics were split out** into a
+> separate local-only companion extension ("Watchprint", at `../watchprint`); see
+> [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md) for the rationale and plan.
+> **The watch-time engine `watchtime.ts` is now DELETED** (decoupled in `93f8b7b`): TL;DW
+> **no longer tracks watch-time or engagement at all**, and the on-page panel is
+> **summary-only** — no WATCH/SKIM/SKIP verdict pill, no `📊 vs channel` engagement cue.
+> This *reduces* the data TL;DW collects (a privacy win). The watch/engagement data-layer
+> modules (`engagement.ts`, the per-channel helpers in `storage.ts`/`stats.ts`,
+> `dashboards.ts`) are now **orphaned dead code pending a cleanup pass** (left in place to
+> avoid a cascade — see "Other potential next steps"). The on-page summary panel +
+> SponsorBlock auto-skip, profiles, and tags are unchanged.
 
 ---
 
@@ -35,15 +40,18 @@
   filled. Auto-fill failures surface in the popup (`DeliveryStatus`).
 - "Open tab" button focuses the already-scraped tab instead of spawning duplicates.
 
-### 3. Watch-time engine (under the hood, no longer surfaced)
-- A watch-time engine (`watchtime.ts`) still measures content-seconds actually
-  watched, auto-rates videos **Engaged / Skimmed / Skipped** (`engagedPct` /
-  `skimmedPct` thresholds), and rolls up per-channel averages locally.
-- **As of the 2026-06-25 re-scope this data is no longer displayed anywhere** — the
-  engagement/watch-time dashboards were removed from the UI. The engine is left
-  running **pending removal**; it (and the rest of the watch-behavior analytics)
-  moves to the **Watchprint** companion extension. See
+### 3. Watch-time engine — DELETED (`93f8b7b`)
+- The watch-time engine (`src/content/watchtime.ts`) and the `WATCH_PROGRESS`
+  recorder have been **removed**. TL;DW **no longer tracks watch-time or engagement**:
+  no content-seconds measurement, no **Engaged / Skimmed / Skipped** auto-rating, no
+  per-channel watch averages. The live versions of that analytics now run in the
+  **Watchprint** companion extension (`../watchprint`); see
   [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md).
+- ⚠️ **Orphaned dead code pending cleanup:** `src/lib/engagement.ts`, the per-channel
+  watch/engagement helpers in `storage.ts` (`recordWatchProgress`, `bumpChannelStat`,
+  `verdictCounterDelta`) and `stats.ts`, `dashboards.ts`, and the watch/engagement
+  fields on the types are no longer wired to anything. Left in place to avoid a cascade;
+  slated for removal (see "Other potential next steps").
 
 ### 4. SponsorBlock auto-skip
 - Skips in-video sponsored segments using the free community SponsorBlock data
@@ -53,8 +61,9 @@
 
 ### 5. Stats dashboard (neon, summary-centric)
 - **Summary-centric counters:** **# summaries created**, **cache hits**, and
-  **summarized-today**. (Watch-time, time-saved, and Engaged/Skimmed/Skipped totals
-  are still tallied in `tldwStats` under the hood but are **no longer displayed.**)
+  **summarized-today**. (Watch-time, time-saved, and Engaged/Skimmed/Skipped totals are
+  **no longer tracked or displayed** — the engine that fed them was deleted in `93f8b7b`.
+  Any residual `tldwStats` watch/engagement fields are stale/unwritten dead data.)
 - **GitHub-style summary-activity heatmap** (year-long contribution grid built from
   daily *summary* counts) + a consecutive-day **summary streak**.
 - **Top channels by # summaries** (most-summarized first).
@@ -79,9 +88,9 @@
   histories.
 - Per-channel **auto-summarize** list.
 - The on-page panel's `📊 vs channel` engagement cue and the per-channel
-  watch-time / engagement display were **removed in the 2026-06-25 re-scope** (the
-  watch-time engine that fed them still runs under the hood pending its move to
-  **Watchprint** — see [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md)).
+  watch-time / engagement display were **removed**, and the watch-time engine that fed
+  them was **deleted in `93f8b7b`** — the panel is now summary-only. That analytics now
+  lives in **Watchprint** (see [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md)).
 
 ### 7. Direct API settings
 - Profile picker independent of the global default (`directApiProfileId`).
@@ -111,8 +120,9 @@ falling back. Needs a de-dup / refresh strategy.
 
 **Popup has no channel context**
 The Channels page shows per-channel stats but the popup (shown while browsing
-YouTube) has no awareness of them. A "You've watched 4 videos from this channel,
-avg AI 7.2" line in the popup would close that gap.
+YouTube) has no awareness of them. A "You've summarized 4 videos from this channel"
+line in the popup would close that gap (summary-centric — no watch/engagement signal,
+which now lives in Watchprint).
 
 ---
 
@@ -135,10 +145,10 @@ build.
 | Background orchestrator | `src/background/index.ts` |
 | YouTube content script (~2.7k LOC) | `src/content/youtube.ts` |
 | MAIN-world fetch interceptor | `src/content/youtube-intercept.ts` |
-| Watch-time engine | `src/content/watchtime.ts` |
 | SponsorBlock | `src/content/sponsorblock.ts` |
 | Destination auto-fill | `src/content/inject.ts` |
-| Library helpers | `src/lib/` (history, storage, profiles, engagement, promptBuilder, tldw, dashboards, constants) |
+| Library helpers | `src/lib/` (history, storage, profiles, promptBuilder, tldw, constants) |
+| Orphaned dead code (post-`93f8b7b`, pending removal) | `src/content/watchtime.ts` **deleted**; `src/lib/engagement.ts`, `src/lib/dashboards.ts`, and the per-channel watch helpers in `storage.ts`/`stats.ts` no longer wired up |
 | Options UI | `src/options/sections/` |
 
 Tests: 113 Vitest cases over the pure helpers (engagement 21, stats 30, dashboards 14,
@@ -166,24 +176,29 @@ for the paste-ready listing copy + permission justifications). **Done:** MIT
 `LICENSE`, `PRIVACY.md`, `NOTICE`, `CONTRIBUTING.md`, a full compliance audit
 (49 pass, 0 code/policy blockers), the rejection-risk hardenings (key→header,
 dropped `chat.openai.com` + `m.youtube.com`, first-run consent notice), and
-`npm run package`. The current build is **0.1.164**. **Remaining (hard blockers,
+`npm run package`. The current build is **0.1.171** — and since the watch-time
+decoupling (`93f8b7b`) it collects *less* user data than the audited build (no
+watch-time/engagement tracking), so the listing was re-checked accordingly (see
+[`docs/STORE_SUBMISSION.md`](docs/STORE_SUBMISSION.md)). **Remaining (hard blockers,
 user-made):** ≥1 screenshot (1280×800) + the 440×280 promo tile; then the $5 dev
 account + 2-Step Verification.
 
 ## Other potential next steps
 
-1. **Finish the analytics split** — remove the now-headless watch-time engine
-   (`watchtime.ts`) + the residual `tldwStats` watch/engagement writes once
-   **Watchprint** (`../watchprint`) takes over, and stand up the migration bridge.
-   Plan in [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md) and
-   `../watchprint/PLAN.md`.
+1. **Finish the analytics-split cleanup** — the watch-time engine (`watchtime.ts`) is
+   already **deleted** (`93f8b7b`); what remains is removing the now-orphaned data-layer
+   modules (`src/lib/engagement.ts`, `dashboards.ts`, the per-channel watch helpers in
+   `storage.ts`/`stats.ts`, and the watch/engagement fields on the types) plus their
+   tests, and standing up the one-time export→Watchprint migration bridge so existing
+   users' `tldwStats` aren't stranded. Plan in
+   [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md) and `../watchprint/PLAN.md`.
 2. Avatar URL de-duplication / refresh strategy.
 3. Popup channel context card.
 4. Optional pre-launch polish: bump to `1.0.0`; the bundled `claude-icon.png` is
    already gone (all four destination marks are now inline SVG in
    `DestinationIcon.tsx`), so only the remaining third-party SVG marks would need
    neutralizing if desired; live-key test of the Direct-API header change.
-4. Consider splitting `youtube.ts` (~2.7k LOC) into panel / nav-mount / scrape modules.
+5. Consider splitting `youtube.ts` (~2.7k LOC) into panel / nav-mount / scrape modules.
 
 The F1–F8 feature sprint (overflow menu, channel-average cue, persisted watch
 tracking, fill-hover, prose tightening, tags, regenerate) and F7 Phase 1
@@ -194,8 +209,11 @@ removal of the block-channel feature, and the tabbed/searchable/virtualized Chan
 page. The later **2026-06-25 re-scope** then narrowed TL;DW to a focused summarizer:
 the Stats and Channels pages became **summary-centric** (the watch-time/engagement
 dashboards, F7 windowed view, donut, watch-based heatmap, and AI-rating sort were
-removed from the UI), and the watch-behavior analytics began moving to the
-**Watchprint** companion extension (`../watchprint`,
+removed from the UI). The **decoupling (`93f8b7b`)** completed the watch-behavior exit:
+the watch-time engine `watchtime.ts` was **deleted**, the on-page panel is now
+**summary-only** (no WATCH/SKIM/SKIP verdict, no engagement cue), and TL;DW no longer
+tracks watch-time/engagement at all — that analytics now lives in the **Watchprint**
+companion extension (`../watchprint`,
 [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md)). **F7 Phase 2 (paid / hosted
 analytics) is off the table** — Watchprint is local-only and free (the "don't charge
 for local data" reasoning is in `docs/archive/F7_PHASE1_PLAN.md` §0).
