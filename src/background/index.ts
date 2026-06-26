@@ -19,7 +19,6 @@ import {
   recordGeminiCall,
   clearPendingPrompt,
   peekPendingPrompt,
-  recordWatchProgress,
   resolveProfile,
   setCachedSummary,
   setHistory,
@@ -773,21 +772,6 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: true });
       return false;
     }
-    if (message.type === "WATCH_PROGRESS") {
-      const { videoId, deltaSeconds, durationSeconds, sawSummary, video } = message;
-      void (async () => {
-        try {
-          const settings = await getSettings();
-          if (settings.trackEngagement) {
-            await recordWatchProgress({ videoId, deltaSeconds, durationSeconds, sawSummary, video, settings });
-          }
-        } catch {
-          /* storage error — don't leave the port open; still respond below */
-        }
-        sendResponse({ ok: true });
-      })();
-      return true;
-    }
     if (message.type === "REBUILD_MENU") {
       void rebuildContextMenu().then(
         () => sendResponse({ ok: true }),
@@ -812,7 +796,7 @@ chrome.runtime.onMessage.addListener(
             sourceTabId: pending?.sourceTabId,
           }),
         // Always respond even on a storage error, so the injector's port doesn't
-        // hang (consistent with the ASK/WATCH_PROGRESS handlers).
+        // hang (consistent with the ASK handler).
         () => sendResponse({ prompt: null }),
       );
       return true;

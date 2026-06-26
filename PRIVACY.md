@@ -16,12 +16,10 @@ no "us" to send it to. This includes:
 - **History** of summaries you've run — a **transcript-free** prompt plus video
   metadata (title, URL, channel, timestamp, your rating). The full transcript is
   **never** stored.
-- **Lifetime stats** (summary counts, watch time, sponsor segments skipped and
-  seconds saved, engagement totals) and a per-day activity map. (As of the
-  2026-06-25 re-scope the on-screen stats are summary-centric and the watch-time /
-  engagement figures are **no longer displayed**, but the watch-time engine still
-  runs and still records this data **locally** — so it remains listed here. It never
-  leaves your device.)
+- **Lifetime stats** (summary counts, cache hits, total duration summarized,
+  sponsor segments skipped and seconds saved) and a per-day activity map. TL;DW
+  does **not** track your watch-time or engagement — there is no watch-time
+  engine, and no "% watched" / Engaged / Skimmed / Skipped data is recorded.
 - **Per-channel data and tags** you create.
 - Your **Gemini API key**, if you use Direct API mode (stored locally, used only to
   call Google's API — see below).

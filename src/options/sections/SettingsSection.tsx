@@ -10,19 +10,14 @@ import type { WatchThresholdMinutes } from "../../types";
 import { getSettings, setSettings } from "../../lib/storage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DestinationIcon, Icon } from "../components/Icons";
-import { TierBadge } from "../components/TierBadge";
 
 export function SettingsSection() {
   const [settings, setLocal] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [cacheCount, setCacheCount] = useState(0);
-  // Transient text for the inputs that shouldn't persist on every keystroke: the
-  // % fields (so clearing them to retype doesn't snap to the clamp minimum) and
-  // the trusted-terms textarea (so it doesn't rewrite the whole settings object
-  // per character). null = not editing; show the persisted value.
-  const [engagedDraft, setEngagedDraft] = useState<string | null>(null);
-  const [skimmedDraft, setSkimmedDraft] = useState<string | null>(null);
+  // Transient text for the trusted-terms textarea so it doesn't rewrite the whole
+  // settings object per character. null = not editing; show the persisted value.
   const [bypassDraft, setBypassDraft] = useState<string | null>(null);
 
   function refreshCacheCount() {
@@ -305,145 +300,6 @@ export function SettingsSection() {
               placeholder={"Veritasium\n3blue1brown\nlecture"}
               style={{ width: "100%", minHeight: 90, resize: "vertical", fontFamily: "inherit", fontSize: 14 }}
             />
-          </div>
-        </div>
-      </div>
-
-      <div className="settings-group">
-        <div className="settings-group-title">
-          <Icon name="bar-chart" /> Engagement tracking
-          <TierBadge tier="basic" style={{ marginLeft: 8 }} />
-        </div>
-        <div className="setting-sub" style={{ marginBottom: 12 }}>
-          Automatically rates videos Engaged / Skimmed / Skipped based on how much you actually watch.
-          Works on every video — no API key required.
-        </div>
-
-        {/* Master switch */}
-        <div className="setting-row">
-          <div className="setting-info">
-            <div className="setting-label">Track engagement</div>
-            <div className="setting-sub">
-              Track how much of each video you actually watch and auto-rate it Engaged / Skimmed / Skipped.
-            </div>
-          </div>
-          <div className="setting-control">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={settings.trackEngagement}
-                onChange={(e) =>
-                  void update(
-                    e.target.checked
-                      ? { trackEngagement: true }
-                      : { trackEngagement: false, showEngagementStatus: false, trackMyAverage: false },
-                  )
-                }
-              />
-              <span className="toggle-track" />
-            </label>
-          </div>
-        </div>
-
-        {/* Show live cue */}
-        <div className="setting-row" style={{ opacity: settings.trackEngagement ? 1 : 0.5 }}>
-          <div className="setting-info">
-            <div className="setting-label">Show watch-progress cue</div>
-            <div className="setting-sub">
-              Show a live watch-progress cue on the summary panel (e.g. "👁 41% watched · Skimmed").
-            </div>
-          </div>
-          <div className="setting-control">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                disabled={!settings.trackEngagement}
-                checked={settings.showEngagementStatus}
-                onChange={(e) => void update({ showEngagementStatus: e.target.checked })}
-              />
-              <span className="toggle-track" />
-            </label>
-          </div>
-        </div>
-
-        {/* engagedPct threshold */}
-        <div className="setting-row" style={{ opacity: settings.trackEngagement ? 1 : 0.5 }}>
-          <div className="setting-info">
-            <div className="setting-label">Engaged threshold (%)</div>
-            <div className="setting-sub">
-              Watched ≥ this % (or 20+ minutes) counts as Engaged. Default: 60.
-            </div>
-          </div>
-          <div className="setting-control">
-            <input
-              type="number"
-              min={5}
-              max={100}
-              disabled={!settings.trackEngagement}
-              value={engagedDraft ?? String(settings.engagedPct)}
-              onChange={(e) => setEngagedDraft(e.target.value)}
-              onBlur={() => {
-                if (engagedDraft === null) { return; }
-                const n = Number(engagedDraft);
-                const v = engagedDraft.trim() && Number.isFinite(n)
-                  ? Math.min(100, Math.max(5, n))
-                  : settings.engagedPct;
-                void update({ engagedPct: v, skimmedPct: Math.min(settings.skimmedPct, v - 1) });
-                setEngagedDraft(null);
-              }}
-              style={{ width: 70, textAlign: "center" }}
-            />
-          </div>
-        </div>
-
-        {/* skimmedPct threshold */}
-        <div className="setting-row" style={{ opacity: settings.trackEngagement ? 1 : 0.5 }}>
-          <div className="setting-info">
-            <div className="setting-label">Skipped threshold (%)</div>
-            <div className="setting-sub">
-              Below this % counts as Skipped (above is Skimmed). Default: 15.
-            </div>
-          </div>
-          <div className="setting-control">
-            <input
-              type="number"
-              min={1}
-              max={95}
-              disabled={!settings.trackEngagement}
-              value={skimmedDraft ?? String(settings.skimmedPct)}
-              onChange={(e) => setSkimmedDraft(e.target.value)}
-              onBlur={() => {
-                if (skimmedDraft === null) { return; }
-                const n = Number(skimmedDraft);
-                const v = skimmedDraft.trim() && Number.isFinite(n)
-                  ? Math.min(95, Math.max(1, n))
-                  : settings.skimmedPct;
-                void update({ skimmedPct: v, engagedPct: Math.max(settings.engagedPct, v + 1) });
-                setSkimmedDraft(null);
-              }}
-              style={{ width: 70, textAlign: "center" }}
-            />
-          </div>
-        </div>
-
-        {/* Track my average (requires trackEngagement) */}
-        <div className="setting-row" style={{ opacity: settings.trackEngagement ? 1 : 0.5 }}>
-          <div className="setting-info">
-            <div className="setting-label">Show your usual engagement per channel</div>
-            <div className="setting-sub">
-              Show your per-channel engagement average on the video panel (computed from auto-tracked ratings).
-            </div>
-          </div>
-          <div className="setting-control">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                disabled={!settings.trackEngagement}
-                checked={settings.trackMyAverage}
-                onChange={(e) => void update({ trackMyAverage: e.target.checked })}
-              />
-              <span className="toggle-track" />
-            </label>
           </div>
         </div>
       </div>

@@ -52,7 +52,7 @@ describe("watchedSecondsFromHistory", () => {
 // trimActivity
 // ---------------------------------------------------------------------------
 
-describe("trimActivity — trim to newest 366 dates", () => {
+describe("trimActivity — trim to the newest maxKeys dates", () => {
   it("returns the same object when at or below the cap", () => {
     const activity: Record<string, number> = { "2025-01-01": 1, "2025-01-02": 2 };
     const result = trimActivity(activity, 366);
@@ -76,15 +76,15 @@ describe("trimActivity — trim to newest 366 dates", () => {
     expect(keys[365]).toBe("2025-01-04");
   });
 
-  it("uses 366 as the default cap", () => {
+  it("uses 400 as the default cap (covers the 53-week heatmap window)", () => {
     const activity: Record<string, number> = {};
-    for (let i = 0; i < 400; i++) {
+    for (let i = 0; i < 450; i++) {
       const d = new Date("2024-01-01");
       d.setDate(d.getDate() + i);
       activity[d.toISOString().slice(0, 10)] = 1;
     }
     const result = trimActivity(activity);
-    expect(Object.keys(result)).toHaveLength(366);
+    expect(Object.keys(result)).toHaveLength(400);
   });
 
   it("keeps values intact for retained keys", () => {

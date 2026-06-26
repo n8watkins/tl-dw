@@ -25,11 +25,8 @@ const currentVideoId = (): string | null =>
 import {
   CHANNEL_TAGS_KEY,
   TAGS_KEY,
-  USER_RATING_SCALE,
   VIDEO_TAGS_KEY,
   pruneCache,
-  scoreToVerdict,
-  userAvgToLabel,
 } from "../lib/constants";
 import type { SponsorWindowApi, Tag } from "../types";
 
@@ -695,19 +692,13 @@ function theme(): { bg: string; border: string; text: string; sub: string; hover
     : { bg: "#ffffff", border: "#e5e5e5", text: "#0f0f0f", sub: "#606060", hover: "#f2f2f2" };
 }
 
-function verdictColor(verdict: string): string {
-  if (verdict === "SKIP") return "#dc2626";
-  if (verdict === "SKIM") return "#d97706";
-  return "#16a34a"; // WATCH
-}
-
 // Neutral-dark fill used for the "quiet" header actions (Open tab / Gemini
 // source) on hover — readable white-on-dark in both light and dark themes.
 const NEUTRAL_FILL = "#3f3f3f";
 
 /**
- * Uniform geometry shared by every injected pill-shaped control (rating
- * buttons, auto toggles, verdict/score pills, Get Summary, …).
+ * Uniform geometry shared by every injected pill-shaped control (the inline
+ * TL;DW button, the "⋯" kebab, the Auto-summarize toggle, the retry button, …).
  * A fixed height + flex centering keeps them all the SAME height regardless of
  * font-size, border, or text content; box-sizing folds any border/padding into
  * that height so bordered and borderless pills line up exactly.
@@ -721,24 +712,6 @@ const pillGeom = {
   justifyContent: "center",
   lineHeight: "1",
 } as const;
-
-function pill(text: string, bg: string, color: string): HTMLElement {
-  const el = document.createElement("span");
-  el.textContent = text;
-  Object.assign(el.style, {
-    background: bg,
-    color,
-    fontWeight: "700",
-    fontSize: "11px",
-    letterSpacing: "0.05em",
-    padding: "0 11px",
-    borderRadius: "999px",
-    flexShrink: "0",
-    whiteSpace: "nowrap",
-    ...pillGeom,
-  });
-  return el;
-}
 
 function ensureShimmerStyle(): void {
   if (document.getElementById("tldw-shimmer-style")) return;
@@ -962,7 +935,7 @@ function menuItemRow(
 /**
  * The right-aligned "⋯" kebab that collapses the summary panel's SECONDARY
  * actions (Open tab / Clear cache / source badge) into a popover (F1). The
- * primary controls (verdict, Auto-summarize) stay inline.
+ * Auto-summarize toggle stays inline.
  */
 function buildOverflowMenu(
   t: ReturnType<typeof theme>,
@@ -1337,91 +1310,6 @@ function showSummaryErrorPanel(reason?: string): void {
   host.prepend(panel);
   log("summary error panel shown (loading timed out)");
   refreshSponsorPanel();
-}
-
-type ChannelComparison = {
-  avgAiRating: number | null;
-  count: number;
-  avgUserRating: number | null;
-  userBreakdown?: { engaged: number; skimmed: number; skipped: number };
-};
-
-/** The rating-dimension toggles read from settings when building the panel. */
-type RatingToggles = {
-  showAiRecommendation: boolean;
-  trackAiAverage: boolean;
-  trackMyAverage: boolean;
-  showEngagementStatus: boolean;
-};
-
-const DEFAULT_RATING_TOGGLES: RatingToggles = {
-  showAiRecommendation: true,
-  trackAiAverage: true,
-  trackMyAverage: true,
-  showEngagementStatus: true,
-};
-
-/**
- * Compute the per-channel comparison averages from stored history for one
- * channel. Mirrors computeChannelStats in lib/history.ts but inline (this
- * content script has no imports). Returns undefined when the channel has no
- * history yet.
- */
-async function computeChannelComparison(
-  channelName: string | undefined,
-): Promise<ChannelComparison | undefined> {
-  if (!channelName) return undefined;
-  const r = await chrome.storage.local.get("history");
-  type HistEntry = {
-    channel?: string;
-    aiRating?: number;
-    userRating?: "watch" | "skim" | "skip";
-  };
-  const history = (r["history"] as HistEntry[]) ?? [];
-  const videos = history.filter((h) => h.channel === channelName);
-  if (videos.length < 1) return undefined;
-
-  const ai = videos.map((v) => v.aiRating).filter((n): n is number => n !== undefined);
-  const usr = videos
-    .map((v) => v.userRating)
-    .filter((v): v is "watch" | "skim" | "skip" => v !== undefined);
-  const userBreakdown = { engaged: 0, skimmed: 0, skipped: 0 };
-  for (const v of usr) {
-    if (v === "watch") userBreakdown.engaged++;
-    else if (v === "skim") userBreakdown.skimmed++;
-    else userBreakdown.skipped++;
-  }
-  return {
-    count: videos.length,
-    avgAiRating: ai.length ? ai.reduce((a, b) => a + b, 0) / ai.length : null,
-    avgUserRating: usr.length ? usr.reduce((a, b) => a + USER_RATING_SCALE[b], 0) / usr.length : null,
-    userBreakdown,
-  };
-}
-
-/** Read the rating-dimension toggles from settings (defaults mirror DEFAULT_SETTINGS). */
-async function loadRatingToggles(): Promise<RatingToggles> {
-  const r = await chrome.storage.local.get("settings");
-  const s = (r["settings"] as Partial<RatingToggles> | undefined) ?? {};
-  return {
-    showAiRecommendation: s.showAiRecommendation ?? true,
-    trackAiAverage: s.trackAiAverage ?? true,
-    trackMyAverage: s.trackMyAverage ?? true,
-    showEngagementStatus: s.showEngagementStatus !== false,
-  };
-}
-
-/**
- * F2: a plain-language line for how the user usually engages with THIS channel,
- * derived from the channel's average personal verdict. Anchored to the same
- * buckets as userAvgToLabel (Engaged→watch, Skimmed→skim, Skipped→skip).
- */
-function channelEngagementSentence(avgUserRating: number): string {
-  const verb =
-    ({ Engaged: "watch", Skimmed: "skim", Skipped: "skip" } as Record<string, string>)[
-      userAvgToLabel(avgUserRating)
-    ] ?? "skim";
-  return `You usually ${verb} this channel`;
 }
 
 // F8 "Regenerate" tag tie-in: when the user forces a re-run while VIDEO-ONLY tags
@@ -1852,10 +1740,7 @@ function buildTagsRow(
 
 function buildSummaryPanel(
   tldw: TldwSummary,
-  channelStats?: ChannelComparison,
-  initialUserRating?: "watch" | "skim" | "skip",
   videoId?: string | null,
-  toggles: RatingToggles = DEFAULT_RATING_TOGGLES,
 ): HTMLElement {
   const t = theme();
   const vid = videoId ?? currentVideoId();
@@ -1871,25 +1756,13 @@ function buildSummaryPanel(
     font: "14px/1.4 Roboto, system-ui, sans-serif", color: t.text,
   });
 
-  // --- header: AI verdict pill (inline) + "⋯" overflow menu (F1) ---
-  // AI dimension collect/show gate: when off, omit the verdict pill entirely
-  // (the one-line summary stands alone). No numeric score is shown anywhere.
+  // --- header: "⋯" overflow menu (F1) ---
+  // The panel is summary-only: no AI verdict pill and no engagement/rating cue.
   const headerControls: HTMLElement[] = [];
 
-  // Parse the numeric AI rating (e.g. "8/10" → 8) — used only to drive the
-  // directional ▲/▼/≈ cue against the channel average. No numeric pill is shown;
-  // the AI verdict itself is the visible value.
-  const aiMatch = tldw.rating ? /^(\d+)/.exec(tldw.rating) : null;
-  const aiThisVideo = aiMatch ? parseInt(aiMatch[1], 10) : null;
-
-  if (toggles.showAiRecommendation) {
-    headerControls.push(pill(tldw.verdict, verdictColor(tldw.verdict), "#fff"));
-  }
-
   // F1: collapse the secondary actions (Open tab / Clear cache / source badge)
-  // into a right-aligned "⋯" popover. The primary controls (verdict, plus the
-  // Auto-summarize toggle added by buildPanelHead) stay inline; the Tags row
-  // lives at the bottom of the panel, not here.
+  // into a right-aligned "⋯" popover. The Auto-summarize toggle (added by
+  // buildPanelHead) stays inline; the Tags row lives at the bottom of the panel.
   const menuItems: Array<{ label: string; title?: string; danger?: boolean; onClick: () => void }> = [];
 
   // ↗ Open tab — jump to the AI destination tab (reuses the scraped one if open).
@@ -1979,144 +1852,41 @@ function buildSummaryPanel(
     });
   }
 
-  // --- channel comparison row: one cue per dimension, gated by track toggles ---
-  // Each cue shows the channel average plus a ▲/▼/≈ marker comparing this video's
-  // value to that average. The "My" cue is updated live when the user rates.
-  const channelRow = document.createElement("div");
-  Object.assign(channelRow.style, {
-    borderTop: `1px solid ${t.border}`,
-    marginTop: "8px", paddingTop: "7px",
-    fontSize: "12px", color: t.sub,
-    display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center",
-  });
-
-  const dimEls: HTMLElement[] = [];
-
-  /**
-   * Build/refresh one dimension cue, expressed entirely in words:
-   * "<label>: usually <VERDICT> <▲/▼/≈>". The verdict label comes from mapping
-   * the channel average through `avgToLabel`; the ▲/▼/≈ marker is still computed
-   * from the underlying numbers (this video's value vs the channel average).
-   */
-  const renderCue = (
-    label: string,
-    avg: number,
-    thisValue: number | null,
-    avgToLabel: (n: number) => string,
-  ): HTMLElement => {
-    const span = document.createElement("span");
-    let cue = "";
-    if (thisValue !== null) {
-      const diff = thisValue - avg;
-      cue = diff > 0.05 ? " ▲" : diff < -0.05 ? " ▼" : " ≈";
-    }
-    span.textContent = `${label}: usually ${avgToLabel(avg)}${cue}`;
-    return span;
-  };
-
-  if (channelStats && channelStats.count >= 1) {
-    const header = document.createElement("span");
-    header.textContent = `📊 vs channel (${channelStats.count} ${channelStats.count === 1 ? "video" : "videos"})`;
-    dimEls.push(header);
-
-    if (toggles.showAiRecommendation && toggles.trackAiAverage && channelStats.avgAiRating !== null) {
-      dimEls.push(renderCue("AI", channelStats.avgAiRating, aiThisVideo, scoreToVerdict));
-    }
-  }
-
-  // My-dimension cue — shows auto-tracked average engagement per channel.
-  const myCueHolder = document.createElement("span");
-  const refreshMyCue = () => {
-    myCueHolder.textContent = "";
-    if (
-      !toggles.trackMyAverage ||
-      !channelStats ||
-      channelStats.count < 1 ||
-      channelStats.avgUserRating === null
-    ) {
-      return;
-    }
-    const thisValue = initialUserRating ? USER_RATING_SCALE[initialUserRating] : null;
-    myCueHolder.replaceChildren(
-      renderCue("You", channelStats.avgUserRating, thisValue, userAvgToLabel),
-    );
-  };
-  refreshMyCue();
-  if (channelStats && channelStats.count >= 1) dimEls.push(myCueHolder);
-
-  channelRow.replaceChildren(...dimEls);
-  const showChannelRow = dimEls.length > 1; // more than just the header
-
   // --- tags row (F6-UI): active channel+video tags + add / remove / promote ---
   const tagsRow = buildTagsRow(t, vid, cleanups);
-
-  // --- engagement status cue (F2): channel-average sentence only ---
-  // The live "% watched" is background-only now (watchtime.ts still tracks it for
-  // the history average); the widget shows only how the user usually engages with
-  // THIS channel, and only when history exists. No __tldwWatch read, no live
-  // listener — the average doesn't change while the page is open.
-  const engagementCue = document.createElement("div");
-  Object.assign(engagementCue.style, {
-    borderTop: `1px solid ${t.border}`,
-    marginTop: "6px", paddingTop: "6px",
-    fontSize: "12px", color: t.sub,
-    display: "none",
-  });
-  if (
-    toggles.showEngagementStatus &&
-    channelStats &&
-    channelStats.count >= 1 &&
-    channelStats.avgUserRating !== null
-  ) {
-    engagementCue.textContent = `👁 ${channelEngagementSentence(channelStats.avgUserRating)}`;
-    engagementCue.style.display = "block";
-  }
 
   // removeSummaryPanel() is the single removal path, so aggregate every teardown
   // (popover document listeners) onto the element and run them there — cheaper
   // than a per-panel MutationObserver just to notice this node leave.
   (panel as CleanablePanel).__tldwCleanup = () => { for (const fn of cleanups) fn(); };
 
-  panel.append(
-    head, body,
-    ...(showChannelRow ? [channelRow] : []),
-    tagsRow,
-    engagementCue,
-  );
+  // The panel is summary-only: summary text + tags row + the "⋯" menu. No
+  // engagement cue and no AI verdict pill.
+  panel.append(head, body, tagsRow);
   return panel;
 }
 
 
 function showSummaryPanel(
   tldw: TldwSummary,
-  channelStats?: ChannelComparison,
-  userRating?: "watch" | "skim" | "skip",
   videoId?: string | null,
 ): void {
   const host = panelHost();
   if (!host) return;
 
   const vid = videoId ?? currentVideoId();
-  void loadRatingToggles().then((toggles) => {
-    // Bail if the user navigated away during the async read — otherwise a panel
-    // for a video they already left lands on the new video's page.
-    if (vid && currentVideoId() !== vid) return;
-    // The host may have changed between the async read and now; re-resolve.
-    const h = panelHost();
-    if (!h) return;
-    removeSummaryPanel();
-    // A result landed — the run is no longer in flight (clears the timeout +
-    // the inline button's "Analyzing…" cue, which setWatchButtonState("ready")
-    // below replaces).
-    endRunInFlight();
-    const panel = buildSummaryPanel(tldw, channelStats, userRating, vid, toggles);
-    summaryPanel = panel;
-    summaryPanelKind = "summary";
-    h.prepend(summaryPanel);
-    setWatchButtonState("ready");
-    log("summary panel injected");
-    refreshSponsorPanel();
-  });
+  removeSummaryPanel();
+  // A result landed — the run is no longer in flight (clears the timeout +
+  // the inline button's "Analyzing…" cue, which setWatchButtonState("ready")
+  // below replaces).
+  endRunInFlight();
+  const panel = buildSummaryPanel(tldw, vid);
+  summaryPanel = panel;
+  summaryPanelKind = "summary";
+  host.prepend(summaryPanel);
+  setWatchButtonState("ready");
+  log("summary panel injected");
+  refreshSponsorPanel();
 }
 
 /** Confirmation overlay shown before enabling auto-run for a channel. */
@@ -2322,10 +2092,7 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
 
   // Serve a cached result if fresh.
   const serveCached = (entry: CacheEntry) => {
-    void computeChannelComparison(currentChannelInfo?.name).then((channelStats) => {
-      if (stale()) return;
-      showSummaryPanel({ ...entry.tldw, source: "cached" }, channelStats, entry.userRating, vid);
-    });
+    showSummaryPanel({ ...entry.tldw, source: "cached" }, vid);
     log("served from cache");
   };
 
@@ -2495,9 +2262,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   if (type === "SET_SUMMARY") {
-    const msg = message as { tldw?: TldwSummary; source?: string; channelStats?: ChannelComparison; videoId?: string };
+    const msg = message as { tldw?: TldwSummary; source?: string; videoId?: string };
     const tldw = msg?.tldw;
-    if (tldw?.verdict && tldw.summary) {
+    if (tldw?.summary) {
       const cur = currentVideoId();
       // A Direct-API call or tab-scrape can take many seconds; the user may have
       // navigated to a different video in this same tab meanwhile. If the
@@ -2519,7 +2286,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       // Persist tab-scrape results so a refresh serves from cache instead of
       // re-opening a tab. Don't re-cache a result that itself came from cache.
       if (vid && msg.source !== "cached") void cacheScrapedSummary(vid, tldw);
-      showSummaryPanel({ ...tldw, source: msg.source }, msg.channelStats, undefined, vid);
+      showSummaryPanel({ ...tldw, source: msg.source }, vid);
     }
     sendResponse({ ok: true });
     return false;

@@ -316,8 +316,8 @@ export function App() {
           }}
         >
           <p>
-            Auto-skips sponsors (sends video ID to SponsorBlock) and rates videos
-            from your local watch-time — all on-device.{" "}
+            Auto-skips sponsors (sends the video ID to SponsorBlock) — all
+            on-device.{" "}
             <span
               className="first-run-link"
               role="link"
