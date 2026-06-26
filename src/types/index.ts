@@ -271,18 +271,22 @@ export type AskMessage = {
    * Where this send originated, so the worker can decide between the headless
    * Direct API path and opening a destination tab. In-page auto-runs default to
    * "auto" (headless when Direct API is on); the popup's explicit "Send to X"
-   * button passes "popup" so it opens that destination like the right-click menu.
+   * button passes "popup" so it opens that destination like the right-click menu,
+   * while the popup's inline-summarize action passes "popup-inline" to run the
+   * Direct API headlessly (no tab) like the on-page button.
    */
   source?: SummarySource;
 };
 
 /**
- * Entry point that triggered a summarize. Explicit "send to this destination"
- * gestures ("menu", "popup") open the destination tab even when Direct API is
- * on; the keyboard shortcut and in-page auto-run ("command", "auto") run
- * headless so the TL;DW widget fills in place.
+ * Entry point that triggered a summarize. The explicit "send to this
+ * destination" gestures ("menu", "popup", "command") open the destination tab
+ * even when Direct API is on, because the user deliberately asked to send the
+ * video. The in-page auto-run ("auto") and the popup's inline action
+ * ("popup-inline") run headless when Direct API is on, filling the TL;DW widget
+ * in place instead of opening a tab.
  */
-export type SummarySource = "menu" | "command" | "popup" | "auto";
+export type SummarySource = "menu" | "command" | "popup" | "popup-inline" | "auto";
 
 /** Sent from options page after profiles change to sync the context menu. */
 export type RebuildMenuMessage = { type: "REBUILD_MENU" };

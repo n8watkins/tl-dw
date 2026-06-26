@@ -288,10 +288,11 @@ async function runSummary(
 
   const isPromptDest = destination.payload !== "link" && destination.payload !== "source";
   // Determine headless path early so the transcript fetch can account for it.
-  // Explicit user gestures — the right-click menu, the popup Send button, and
-  // the Alt+Shift+G keyboard shortcut — always open the destination tab with the
-  // chosen (or default) profile. Direct API headless mode only applies to the
-  // in-page auto-run, which wants the TL;DW widget filled on the page itself.
+  // Explicit "open this destination" gestures — the right-click menu, the popup
+  // Send button, and the Alt+Shift+G keyboard shortcut — always open the
+  // destination tab with the chosen (or default) profile. Direct API headless
+  // mode applies to the in-page auto-run AND the popup's inline-summarize action
+  // ("popup-inline"), both of which want the TL;DW widget filled on the page.
   const opensTab = source === "menu" || source === "popup" || source === "command";
   const apiKey = settings.geminiApiKey?.trim();
   const willUseDirectApi = !!(apiKey && settings.useDirectApi && isPromptDest && !opensTab);
@@ -521,7 +522,8 @@ chrome.runtime.onMessage.addListener(
     if (message.type === "ASK") {
       // Content-script auto-runs omit `source` and default to "auto" (headless
       // when Direct API is on); the popup's Send button passes "popup" so it
-      // opens the chosen destination tab like the right-click menu.
+      // opens the chosen destination tab like the right-click menu, and the
+      // popup's inline action passes "popup-inline" to run headless (no tab).
       void runSummary(
         message.profileId,
         undefined,

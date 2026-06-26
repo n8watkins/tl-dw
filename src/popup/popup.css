@@ -304,6 +304,19 @@ textarea {
 
 textarea:focus { outline: none; border-color: #7c3aed; }
 
+.add-curiosity {
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  color: #7c3aed;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.add-curiosity:hover { color: #a78bfa; text-decoration: underline; }
+
 .primary {
   display: inline-flex;
   align-items: center;

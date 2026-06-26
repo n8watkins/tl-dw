@@ -91,6 +91,9 @@ export function App() {
   const [copyStatus, setCopyStatus] = useState("");
   const [destinationId, setDestinationId] = useState("gemini");
   const [curiosity, setCuriosity] = useState("");
+  // The optional "ask something specific" field starts collapsed to keep the
+  // popup short; expands on demand (or if it already holds text).
+  const [showCuriosity, setShowCuriosity] = useState(false);
   const [openSearches, setOpenSearches] = useState<OpenSearch[]>([]);
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   const [statuses, setStatuses] = useState<DeliveryStatus[]>([]);
@@ -168,6 +171,16 @@ export function App() {
   // Shorts have no transcript — only Gemini (which watches the URL) is useful.
   const availableDestinations = isShort ? DESTINATIONS.filter((d) => d.canWatch) : DESTINATIONS;
   const effectiveDestinationId = isShort ? "gemini" : destinationId;
+  // When Direct API is configured + enabled and Gemini is the destination, the
+  // popup can summarize inline on the page (no tab), matching the on-page button.
+  // Shorts are excluded — they have no transcript, so the headless Gemini call
+  // would get no content; they still open a Gemini tab that watches the URL.
+  const canInline = !!(
+    settings?.geminiApiKey?.trim() &&
+    settings?.useDirectApi &&
+    !isShort &&
+    effectiveDestinationId === "gemini"
+  );
   // If the current tab is a destination tab TL;DW opened, link it back to source.
   const linkedSearch = openSearches.find((s) => s.tabId === tab?.id);
 
@@ -191,9 +204,11 @@ export function App() {
       profileId: selectedId,
       destinationId: dest.id,
       userCuriosity: curiosity.trim() || undefined,
-      // "Send to <destination>" is an explicit request to open that destination,
-      // so this opens a tab even when Direct API is enabled (unlike auto-runs).
-      source: "popup",
+      // In Direct-API + Gemini mode, "popup-inline" summarizes on the page with
+      // no tab (like the on-page button). Otherwise "popup" is an explicit
+      // request to open that destination, so it opens a tab even with Direct
+      // API enabled (unlike auto-runs).
+      source: canInline ? "popup-inline" : "popup",
     });
     window.close();
   }
@@ -399,8 +414,17 @@ export function App() {
               <button className="ask-btn" onClick={send}>
                 <SparkIcon />
                 <span className="ask-btn-label">
-                  <span>{destinationVerb(getDestination(effectiveDestinationId))} {getDestination(effectiveDestinationId).label}</span>
-                  <span className="ask-btn-shortcut">Alt+Shift+G</span>
+                  {canInline ? (
+                    <>
+                      <span>Summarize inline</span>
+                      <span className="ask-btn-shortcut">no new tab</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>{destinationVerb(getDestination(effectiveDestinationId))} {getDestination(effectiveDestinationId).label}</span>
+                      <span className="ask-btn-shortcut">Alt+Shift+G</span>
+                    </>
+                  )}
                 </span>
               </button>
             </div>
@@ -440,19 +464,27 @@ export function App() {
           )}
 
           {getDestination(effectiveDestinationId).payload !== "link" &&
-            getDestination(effectiveDestinationId).payload !== "source" && (
-              <>
-                <label className="field">
-                  <span>Ask something specific (optional)</span>
-                  <textarea
-                    value={curiosity}
-                    placeholder="e.g. Does it cover pricing?"
-                    onChange={(e) => setCuriosity(e.target.value)}
-                    rows={3}
-                  />
-                </label>
-              </>
-            )}
+            getDestination(effectiveDestinationId).payload !== "source" &&
+            (showCuriosity || curiosity ? (
+              <label className="field">
+                <span>Ask something specific (optional)</span>
+                <textarea
+                  value={curiosity}
+                  placeholder="e.g. Does it cover pricing?"
+                  onChange={(e) => setCuriosity(e.target.value)}
+                  rows={3}
+                  autoFocus
+                />
+              </label>
+            ) : (
+              <button
+                type="button"
+                className="add-curiosity"
+                onClick={() => setShowCuriosity(true)}
+              >
+                + Ask something specific
+              </button>
+            ))}
 
           {copyStatus && <p className="copy-status">{copyStatus}</p>}
         </>

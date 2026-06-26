@@ -1,6 +1,6 @@
 {
   "name": "tl-dw",
-  "version": "0.1.175",
+  "version": "0.1.176",
   "description": "TL;DW (Too Long; Didn't Watch) sends the current YouTube video to Gemini, ChatGPT, Claude, or NotebookLM in one keystroke.",
   "private": true,
   "license": "MIT",
