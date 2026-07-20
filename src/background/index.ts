@@ -1,5 +1,6 @@
 import { buildDestinationPrompt } from "../lib/promptBuilder";
 import { parseTldwBlock } from "../lib/tldw";
+import { selectSummaryProfile } from "../lib/summaryProfile";
 import { GEMINI_URL, getDestination, isYouTubeVideoUrl, localDateKey, pruneCache, STORAGE_KEYS, SUMMARY_CACHE_KEY } from "../lib/constants";
 import { addHistoryEntry, expireOldEntries, trimToLimit } from "../lib/history";
 import {
@@ -18,7 +19,6 @@ import {
   recordGeminiCall,
   clearPendingPrompt,
   peekPendingPrompt,
-  resolveProfile,
   setCachedSummary,
   setHistory,
   setPendingPrompt,
@@ -274,10 +274,7 @@ async function runSummary(
     return;
   }
 
-  let profile = await resolveProfile(profileId);
-  if (!profile) return;
-
-  const settings = await getSettings();
+  const [settings, profiles] = await Promise.all([getSettings(), getProfiles()]);
   const destination = getDestination(destinationOverride ?? settings.destinationId);
   const video: VideoContext = { url, title };
 
@@ -296,6 +293,8 @@ async function runSummary(
   const opensTab = source === "menu" || source === "popup" || source === "command";
   const apiKey = settings.geminiApiKey?.trim();
   const willUseDirectApi = !!(apiKey && settings.useDirectApi && isPromptDest && !opensTab);
+  const profile = selectSummaryProfile(profiles, settings, source, profileId, willUseDirectApi);
+  if (!profile) return;
 
   // Fetch the transcript for any prompt/source destination. Originally we
   // skipped it for "canWatch" Gemini and let the web app watch the URL — but the
@@ -341,11 +340,6 @@ async function runSummary(
   const promptDest =
     willUseDirectApi || transcript ? { ...destination, canWatch: false } : destination;
   const prompt = buildDestinationPrompt(profile, video, promptDest, transcript, userCuriosity, activeTags);
-
-  // For headless runs, use the designated Direct API profile if one is set.
-  if (willUseDirectApi && settings.directApiProfileId) {
-    profile = (await resolveProfile(settings.directApiProfileId)) ?? profile;
-  }
 
   // --- headless path: call Gemini API directly (no tab) -------------------
   if (willUseDirectApi) {

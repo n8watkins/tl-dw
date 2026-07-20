@@ -2124,7 +2124,7 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
       return;
     }
     try {
-      await chrome.runtime.sendMessage({ type: "ASK" });
+      await chrome.runtime.sendMessage({ type: "ASK", source: "page" });
     } catch { /* best effort */ }
   };
   // Expose for the loading-timeout retry panel.

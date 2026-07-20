@@ -286,7 +286,7 @@ export type AskMessage = {
  * ("popup-inline") run headless when Direct API is on, filling the TL;DW widget
  * in place instead of opening a tab.
  */
-export type SummarySource = "menu" | "command" | "popup" | "popup-inline" | "auto";
+export type SummarySource = "menu" | "command" | "popup" | "popup-inline" | "page" | "auto";
 
 /** Sent from options page after profiles change to sync the context menu. */
 export type RebuildMenuMessage = { type: "REBUILD_MENU" };
