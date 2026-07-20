@@ -521,7 +521,7 @@ kbd {
   letter-spacing: 0.05em;
 }
 
-input[type="text"], textarea, select {
+input[type="text"], input[type="password"], textarea, select {
   background: var(--surface2);
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -533,7 +533,7 @@ input[type="text"], textarea, select {
   resize: vertical;
 }
 
-input[type="text"]:focus, textarea:focus, select:focus {
+input[type="text"]:focus, input[type="password"]:focus, textarea:focus, select:focus {
   outline: none;
   border-color: var(--primary);
 }
