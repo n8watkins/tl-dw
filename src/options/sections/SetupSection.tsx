@@ -92,12 +92,12 @@ export function SetupSection() {
           <div className="mode-card-title">
             <Icon name="send" /> Direct API
           </div>
-          <div className="mode-card-tag">Free Gemini key · fully inline</div>
+          <div className="mode-card-tag">Your Gemini key · fully inline</div>
           <div className="card-desc">
             Calls Google's Gemini API directly, so the summary appears right on
-            the video — <strong>no tab ever opens</strong>. The free
-            tier covers ~500 videos a day with no credit card. This powers the on-page summary
-            widget and auto-summarize.
+            the video with <strong>no tab opening</strong>. Gemini 3.1 Flash-Lite is recommended
+            because it currently offers the highest free-tier allowance at up to 500 requests
+            per day as of July 2026. Optional paid capacity stays in your Google project.
           </div>
           <button className="btn btn-primary" style={{ marginTop: 4 }} onClick={goToDirectApi}>
             Set up Direct API →

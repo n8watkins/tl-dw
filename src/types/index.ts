@@ -69,6 +69,20 @@ export type DeliveryStatus = {
 
 export type HistoryLimit = 50 | 100 | 250 | "unlimited";
 
+export type GeminiKeyValidationFailure =
+  | "unauthorized"
+  | "model_unavailable"
+  | "quota_limited"
+  | "google_service"
+  | "rejected"
+  | "network";
+
+export type GeminiKeyValidation = {
+  status: "unverified" | "valid" | "invalid";
+  verifiedAt?: string;
+  failureCategory?: GeminiKeyValidationFailure;
+};
+
 /** Usage stats for direct Gemini API calls. */
 export type GeminiUsage = {
   /** Calls since the last manual clear. */
@@ -219,6 +233,8 @@ export type Settings = {
   geminiApiKey: string;
   /** Display name the user gave this key (e.g. "Personal AI Studio key"). */
   geminiApiKeyName: string;
+  /** Validation metadata only. No additional secret material is stored. */
+  geminiKeyValidation: GeminiKeyValidation;
   /** Use the direct API path when a key is present (can be toggled off in the popup). */
   useDirectApi: boolean;
   /** Whether the user has acknowledged the first-run privacy notice (SponsorBlock). */
@@ -292,6 +308,7 @@ export type AskMessage = {
 export type CacheLookupMessage = { type: "CACHE_LOOKUP"; videoId: string };
 export type CacheClearMessage = { type: "CACHE_CLEAR"; videoId?: string };
 export type CacheCountMessage = { type: "CACHE_COUNT" };
+export type VerifyGeminiKeyMessage = { type: "VERIFY_GEMINI_KEY" };
 
 /**
  * Entry point that triggered a summarize. The explicit "send to this
@@ -400,5 +417,6 @@ export type RuntimeMessage =
   | CacheLookupMessage
   | CacheClearMessage
   | CacheCountMessage
+  | VerifyGeminiKeyMessage
   | GetSponsorSegmentsMessage
   | SponsorSkippedMessage;

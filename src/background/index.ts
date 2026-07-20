@@ -2,7 +2,8 @@ import { buildDestinationPrompt } from "../lib/promptBuilder";
 import { parseTldwBlock } from "../lib/tldw";
 import { selectSummaryProfile } from "../lib/summaryProfile";
 import { fingerprintPrompt } from "../lib/summaryCache";
-import { GEMINI_URL, getDestination, isYouTubeVideoUrl, localDateKey, STORAGE_KEYS } from "../lib/constants";
+import { verifyGeminiKey } from "../lib/geminiKeyValidation";
+import { GEMINI_MODEL_ID, GEMINI_URL, getDestination, isYouTubeVideoUrl, localDateKey, STORAGE_KEYS } from "../lib/constants";
 import { addHistoryEntry, expireOldEntries, trimToLimit } from "../lib/history";
 import {
   addOpenSearch,
@@ -26,6 +27,7 @@ import {
   setCachedSummary,
   setHistory,
   setPendingPrompt,
+  setSettings,
 } from "../lib/storage";
 import { extractVideoId } from "../lib/constants";
 import type { OpenSearch, RuntimeMessage, Settings, SummarySource, VideoContext, VideoMeta } from "../types";
@@ -177,7 +179,7 @@ async function callGeminiApi(prompt: string, apiKey: string): Promise<string> {
   // The key goes in the x-goog-api-key header (not the URL) so it can't land in
   // proxy/referrer logs. HTTPS encrypts both, but headers are the safer surface.
   const url =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent";
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent`;
   // Bound the WHOLE request — connection AND body read — so a server that
   // returns headers then stalls the body can't leave the on-page skeleton
   // spinning to the 90s loading timeout. The signal stays armed until res.json()
@@ -214,6 +216,21 @@ async function callGeminiApi(prompt: string, apiKey: string): Promise<string> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Verify the saved key with a metadata read. This is not an inference request. */
+async function verifySavedGeminiKey() {
+  const before = await getSettings();
+  const apiKey = before.geminiApiKey.trim();
+  if (!apiKey) return { ok: false, validation: { status: "unverified" as const } };
+
+  const validation = await verifyGeminiKey(apiKey);
+
+  const current = await getSettings();
+  if (current.geminiApiKey === before.geminiApiKey) {
+    await setSettings({ ...current, geminiKeyValidation: validation });
+  }
+  return { ok: validation.status === "valid", validation };
 }
 
 /**
@@ -344,7 +361,7 @@ async function runSummary(
     const logPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity, activeTags);
 
     const videoId = extractVideoId(url);
-    const modelOrDestination = "gemini-3.1-flash-lite";
+    const modelOrDestination = GEMINI_MODEL_ID;
     const promptFingerprint = await fingerprintPrompt(prompt, modelOrDestination);
 
     // --- cache check: serve a previous result instantly, skip the API call ---
@@ -688,6 +705,10 @@ chrome.runtime.onMessage.addListener(
     }
     if (message.type === "CACHE_COUNT") {
       void getCachedSummaryCount().then((count) => sendResponse({ count }));
+      return true;
+    }
+    if (message.type === "VERIFY_GEMINI_KEY") {
+      void verifySavedGeminiKey().then(sendResponse);
       return true;
     }
     if (message.type === "OPEN_OR_FOCUS_DESTINATION") {

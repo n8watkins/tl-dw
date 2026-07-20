@@ -5,6 +5,16 @@ import type {
 } from "../types";
 
 export const GEMINI_URL = "https://gemini.google.com/app";
+export const GEMINI_MODEL_ID = "gemini-3.1-flash-lite";
+export const GEMINI_FREE_TIER_RPD = 500;
+export const GEMINI_QUOTA_TIME_ZONE = "America/Los_Angeles";
+export const GEMINI_RECOMMENDATION_DATE = "July 2026";
+export const AI_STUDIO_LINKS = {
+  usage: "https://aistudio.google.com/usage",
+  apiKeys: "https://aistudio.google.com/apikey",
+  billing: "https://console.cloud.google.com/billing",
+  budgets: "https://console.cloud.google.com/billing/budgets",
+} as const;
 
 /**
  * Where summaries can be sent. Each destination is auto-filled by its content
@@ -141,6 +151,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoTldwMinutes: 0,
   geminiApiKey: "",
   geminiApiKeyName: "",
+  geminiKeyValidation: { status: "unverified" },
   useDirectApi: false,
   skipSponsors: true,
   keepFullCallLog: false,

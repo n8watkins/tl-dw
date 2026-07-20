@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import type { GeminiCallEntry, GeminiUsage, PromptProfile, Settings } from "../../types";
-import { DEFAULT_SETTINGS, STORAGE_KEYS } from "../../lib/constants";
+import {
+  AI_STUDIO_LINKS,
+  DEFAULT_SETTINGS,
+  GEMINI_FREE_TIER_RPD,
+  GEMINI_MODEL_ID,
+  GEMINI_RECOMMENDATION_DATE,
+  STORAGE_KEYS,
+} from "../../lib/constants";
+import { keyValidationMessage } from "../../lib/geminiKeyValidation";
 import {
   clearGeminiCallLog,
   clearGeminiUsage,
@@ -60,6 +68,7 @@ export function DirectApiSection() {
   const [tab, setTab] = useState<DirectApiTab>("setup");
   const [historySearch, setHistorySearch] = useState("");
   const [historyDay, setHistoryDay] = useState(""); // yyyy-mm-dd, "" = all days
+  const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
     void Promise.all([getSettings(), getGeminiUsage(), getGeminiCallLog(), getProfiles()]).then(
@@ -94,14 +103,30 @@ export function DirectApiSection() {
     await update({
       geminiApiKey: pendingKeyValue.trim(),
       geminiApiKeyName: pendingKeyName.trim() || "Gemini API key",
+      geminiKeyValidation: { status: "unverified" },
     });
     setPendingKeyName("");
     setPendingKeyValue("");
+    await verifyApiKey();
+  }
+
+  async function verifyApiKey() {
+    setVerifying(true);
+    try {
+      await chrome.runtime.sendMessage({ type: "VERIFY_GEMINI_KEY" });
+    } finally {
+      setVerifying(false);
+    }
   }
 
   async function deleteApiKey() {
     if (!settings) return;
-    await update({ geminiApiKey: "", geminiApiKeyName: "" });
+    await update({
+      geminiApiKey: "",
+      geminiApiKeyName: "",
+      geminiKeyValidation: { status: "unverified" },
+      useDirectApi: false,
+    });
   }
 
   async function doClearStats() {
@@ -195,38 +220,41 @@ export function DirectApiSection() {
       <>
       {/* Walkthrough: get a free key, step by step */}
       <div className="settings-group">
-        <div className="settings-group-title"><Icon name="sparkles" /> Set up Direct API (free)</div>
+        <div className="settings-group-title"><Icon name="sparkles" /> Set up Direct API</div>
         <div className="setting-sub" style={{ marginBottom: 14 }}>
           Direct API calls Google's Gemini directly, so summaries appear right on the YouTube
-          page with <strong>no tab opening</strong> — fully headless. The free tier is plenty for
-          daily use and needs no credit card. Three minutes, start to finish.
+          page with <strong>no tab opening</strong>. Gemini 3.1 Flash-Lite is recommended because
+          it currently offers the highest free-tier allowance at up to 500 requests per day.
         </div>
         <ol className="setup-walkthrough">
           <li>
-            <strong>Open Google AI Studio.</strong> Go to{" "}
-            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
-              aistudio.google.com/apikey
+            <strong>Create a dedicated Google AI Studio project for TL;DW.</strong> Open{" "}
+            <a href={AI_STUDIO_LINKS.apiKeys} target="_blank" rel="noreferrer">
+              AI Studio API keys
             </a>{" "}
-            and sign in with any Google account.
+            and sign in with your Google account.
           </li>
           <li>
-            <strong>Create an API key.</strong> Click <em>Create API key</em> → pick or create a
-            project. No billing upgrade — stay on the free tier.
+            <strong>Create a new Gemini API key</strong> in that dedicated project.
           </li>
           <li>
-            <strong>Copy the key</strong> (a long string starting with <code>AIza…</code>).
+            <strong>Paste and name the key below.</strong> TL;DW saves it locally first, then
+            verifies access to {GEMINI_MODEL_ID} without generating a summary.
           </li>
           <li>
-            <strong>Paste it below</strong> and click <em>Save key</em>. It's stored only in your
-            browser and sent only to Google — never to us.
+            <strong>Choose free or paid usage.</strong> Stay on the free tier for up to{" "}
+            {GEMINI_FREE_TIER_RPD} requests per day, or optionally{" "}
+            <a href={AI_STUDIO_LINKS.billing} target="_blank" rel="noreferrer">enable billing</a>{" "}
+            for more capacity. For paid use, configure a{" "}
+            <a href={AI_STUDIO_LINKS.budgets} target="_blank" rel="noreferrer">project budget and alerts</a>.
           </li>
           <li>
-            <strong>Turn on “Enabled by default”</strong> in the Behavior tab. That's it —
+            <strong>Turn on “Enabled by default”</strong> in the Behavior tab. Then
             summaries now appear inline on every video.
           </li>
         </ol>
         <div className="setting-sub" style={{ marginTop: 12 }}>
-          Free tier: ~500 requests/day with Gemini 3.1 Flash Lite ·{" "}
+          Gemini 3.1 Flash-Lite free tier: {GEMINI_FREE_TIER_RPD} RPD as of {GEMINI_RECOMMENDATION_DATE} ·{" "}
           <a href="https://ai.google.dev/pricing" target="_blank" rel="noreferrer">
             Pricing details ↗
           </a>
@@ -239,30 +267,42 @@ export function DirectApiSection() {
 
         <div className="card" style={{ marginBottom: 0 }}>
           <div className="card-desc">
-            <strong>Get a free key:</strong> Go to{" "}
-            <a href="https://aistudio.google.com" target="_blank" rel="noreferrer">
-              aistudio.google.com
-            </a>{" "}
-            → Create API key. No credit card, no billing upgrade needed. The free tier
-            gives you ~500 requests/day with Gemini 3.1 Flash Lite — plenty for daily use.
-            Stay on the free tier.
+            Use a dedicated key from your TL;DW Google AI Studio project. Free-tier use is
+            available, and attaching billing to that project is optional.
           </div>
           <div className="card-desc" style={{ marginTop: 4, fontSize: 12, color: "var(--muted)" }}>
-            Your key is stored only in your browser and sent only to Google's API — never to us.
+            Your key stays in <code>chrome.storage.local</code> and is sent only to Google's API
+            in the <code>x-goog-api-key</code> header. If this browser profile is compromised,
+            rotate or delete the dedicated key in AI Studio.
           </div>
 
           {hasKey ? (
             <div style={{ marginTop: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>
-                  ✓ {settings.geminiApiKeyName || "Gemini API key"}
+                  {settings.geminiKeyValidation.status === "valid" ? "✓" : "!"}{" "}
+                  {settings.geminiApiKeyName || "Gemini API key"}
                 </span>
+                <button className="btn btn-ghost" onClick={() => void verifyApiKey()} disabled={verifying}>
+                  {verifying ? "Verifying…" : "Verify again"}
+                </button>
                 <button className="btn btn-danger" onClick={() => void deleteApiKey()}>
                   Delete key
                 </button>
               </div>
+              <div style={{
+                marginTop: 10,
+                padding: "10px 12px",
+                borderRadius: 8,
+                background: settings.geminiKeyValidation.status === "invalid" ? "#fef2f2" : "var(--surface)",
+                color: settings.geminiKeyValidation.status === "invalid" ? "#b91c1c" : "var(--muted)",
+                fontSize: 12,
+                fontWeight: settings.geminiKeyValidation.status === "invalid" ? 600 : 400,
+              }}>
+                {verifying ? "Verifying access to Gemini 3.1 Flash-Lite…" : keyValidationMessage(settings.geminiKeyValidation)}
+              </div>
               <div style={{ marginTop: 6, fontSize: 12, color: "var(--muted)" }}>
-                The key value is not visible after saving. To use a different key, delete this one and add a new one.
+                The key value is hidden after saving. Delete it before adding a replacement.
               </div>
             </div>
           ) : (
