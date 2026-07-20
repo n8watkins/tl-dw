@@ -58,6 +58,7 @@ export default tseslint.config(
       globals: {
         console: "readonly",
         process: "readonly",
+        URL: "readonly",
       },
     },
   },
