@@ -1,83 +1,66 @@
-# TL;DW — Privacy Policy
+# TL;DW - Privacy Policy
 
-_Last updated: 2026-06-25 (extension v0.1.173)_
+_Last updated: July 20, 2026 (extension v1.0.0)_
 
-TL;DW is a Chrome extension that summarizes the YouTube video you're watching. It
-has **no backend service, no user accounts, and no analytics or tracking.**
-Everything it stores lives in Chrome's local storage on your own machine.
+TL;DW is a bring-your-own-key Chrome extension that summarizes YouTube videos.
+TL;DW has no shared developer API key, developer backend, account system, analytics, tracking, or telemetry.
+Persistent extension data stays in Chrome local storage on the user's device.
 
-## What is stored on your device
+## Data stored on your device
 
-All persistent data is kept in `chrome.storage.local` (and ephemeral handoff state
-in `chrome.storage.session`) on your computer. None of it is sent to us — there is
-no "us" to send it to. This includes:
+TL;DW stores the following data in `chrome.storage.local`:
 
-- Your prompt **profiles** and settings.
-- **History** of summaries you've run — a **transcript-free** prompt plus video
-  metadata (title, URL, channel, timestamp). The full transcript is **never** stored.
-- **Lifetime stats** (summary counts, cache hits, total duration summarized,
-  sponsor segments skipped and seconds saved) and a per-day activity map. TL;DW
-  does **not** track your watch-time or engagement — there is no watch-time
-  engine, and no "% watched" / Engaged / Skimmed / Skipped data is recorded.
-- **Per-channel data and tags** you create.
-- Your **Gemini API key**, if you use Direct API mode (stored locally, used only to
-  call Google's API — see below).
-- A **call log** for Direct API mode that keeps **metadata only by default**
-  (timestamps, token/quota counters). It retains prompt and response text only if
-  you explicitly turn on "keep full call log" for debugging.
+- Settings, prompt profiles, and tags.
+- Summary history containing a transcript-free prompt and video metadata such as URL, title, channel, and timestamp.
+- Parsed summaries in a seven-day, prompt-aware summary cache.
+- Lifetime summary, cache-hit, and SponsorBlock counters.
+- Per-day summary activity.
+- The user's Gemini API key and its validation status when Direct API mode is configured.
+- Direct API usage counters.
+- Direct API call-log metadata including video URL, video title, timestamp, selected profile, outcome, HTTP status, and a safe error category.
+- Full Direct API prompt and response bodies only when the user enables full call logging.
 
-History auto-expires on a schedule you control (7 / 30 / 90 / 365 days, default 30)
-and can be cleared at any time. Uninstalling the extension removes all of this
-local data.
+TL;DW stores short-lived prompt handoff and destination-tab state in `chrome.storage.session`.
+TL;DW never persists the full YouTube transcript.
+History expiration is configurable and defaults to 30 days.
+The summary cache expires entries after seven days and is capped at 300 prompt variants.
+Uninstalling the extension removes extension storage from the Chrome profile.
 
-## What leaves your device, and to whom
+## Data sent from your device
 
-TL;DW only sends data to the service you ask it to use. There are exactly three
-outbound paths:
+TL;DW sends data only through the following product features.
 
-1. **Open-in-a-tab mode.** When you send a video to Gemini, ChatGPT, Claude, or
-   NotebookLM, TL;DW fills that site's composer with the prompt and submits it —
-   attaching the extracted **transcript** whenever one is available (this can include
-   Gemini, not only the AIs that can't watch the video). This goes to the AI site
-   under **your own signed-in account**, exactly like any message you type there
-   yourself. That service's own privacy policy applies.
-2. **Direct API mode (optional).** If you enable it and supply your own Gemini API
-   key, TL;DW calls Google's Generative Language API
-   (`generativelanguage.googleapis.com`) directly. The request contains your
-   **prompt and the video transcript** in the body and **your API key** in a request
-   header (`x-goog-api-key`). This is a call to Google under your own key; Google's
-   API terms and privacy policy apply.
-3. **SponsorBlock (optional, on by default).** When sponsor-skip is enabled, TL;DW
-   asks the public SponsorBlock community API (`sponsor.ajay.app`) for the sponsor
-   segments of the video you're watching. To do this it sends the **YouTube video
-   ID** of the current video. No account, key, or personal identifier is sent. Turn
-   off sponsor-skip in Settings to stop these lookups.
+1. In open-in-a-tab mode, TL;DW submits the generated prompt and available transcript to the selected Gemini, ChatGPT, or Claude website under the user's signed-in account.
+2. In NotebookLM mode, TL;DW adds the YouTube link as a source.
+3. In Direct API mode, TL;DW sends the generated prompt and transcript to Google's Generative Language API.
+4. When SponsorBlock is enabled, TL;DW sends the current YouTube video ID to the public SponsorBlock API to retrieve sponsor segments.
 
-There are no other network calls. TL;DW sends **no** telemetry, analytics, crash
-reports, or usage data anywhere.
+Direct API mode uses a Gemini key supplied by the user.
+The key remains in `chrome.storage.local` and is sent only to Google's API in the `x-goog-api-key` request header.
+The key is never placed in a request URL and is never sent to the developer.
+Key verification reads metadata for the fixed Gemini 3.1 Flash-Lite model and does not generate a summary.
 
-## What is never collected
+The user's chosen AI service and Google project terms apply to data sent to those services.
+TL;DW sends no analytics, telemetry, crash reports, history, summaries, or usage counters to the developer.
 
-- We **never** store the AI's response (unless you opt into the full call log for
-  your own debugging).
-- We **never** store the full transcript in history.
-- There is **no** advertising, profiling, or selling of data — none is collected in
-  the first place.
+## Data TL;DW does not collect
 
-## Permissions and why they're needed
+- TL;DW does not collect watch time, engagement, ratings, or WATCH/SKIM/SKIP classifications.
+- TL;DW does not sell user data.
+- TL;DW does not use data for advertising, profiling, creditworthiness, or lending.
+- TL;DW does not operate a server that receives extension data.
 
-- `storage` — keep your profiles, settings, history, and stats locally.
-- `tabs` — open the destination AI in a tab and read the active YouTube tab's URL.
-- `contextMenus` — the right-click "Send to…" entry.
-- `clipboardWrite` — the fallback that copies the prompt to your clipboard when a
-  site's composer can't be auto-filled.
-- Host access to `youtube.com` (read the page and transcript), the
-  four AI destination sites (fill and submit the prompt),
-  `generativelanguage.googleapis.com` (Direct API), and `sponsor.ajay.app`
-  (SponsorBlock lookups).
+## Permissions
+
+- `storage` stores settings, profiles, history, parsed summary-cache variants, usage, call-log data, and session handoff state.
+- `tabs` opens AI destinations, reads the active YouTube tab's URL and title, requests transcript and video metadata from the content script, and focuses an existing destination tab.
+- `contextMenus` provides the YouTube right-click summary menu.
+- `clipboardWrite` copies a prompt only when the user requests it or auto-fill fallback requires it.
+- Host access to `youtube.com` reads the page and transcript and renders the summary panel.
+- Host access to Gemini, ChatGPT, Claude, and NotebookLM fills the destination selected by the user and reads the completed answer for on-page display.
+- Host access to `generativelanguage.googleapis.com` supports key verification and Direct API summaries.
+- Host access to `sponsor.ajay.app` retrieves SponsorBlock segments by YouTube video ID.
 
 ## Changes
 
-Material changes to this policy will be reflected here with an updated date. Because
-the extension keeps all data locally and contacts only the services described above,
-changes will generally track new features rather than new data collection.
+Material changes to this policy will be reflected here with an updated date.

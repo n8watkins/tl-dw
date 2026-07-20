@@ -1,199 +1,114 @@
-# Chrome Web Store — Submission Guide
+# Chrome Web Store Submission Guide
 
-Everything needed to submit TL;DW to the Chrome Web Store: the upload artifact,
-the listing copy, the permission justifications, and the data-use disclosures —
-plus the step-by-step. Paste the quoted strings straight into the Developer
-Dashboard.
+This guide is the source for the TL;DW 1.0.0 unlisted Chrome Web Store soft launch.
 
-> **Readiness:** No hard policy violations and no remotely-hosted code (verified —
-> no `eval`/`new Function`/`innerHTML` sinks; all UI is `createElement` +
-> `textContent`). Expect a **manual review pass** (normal for an extension that
-> reads transcripts via a MAIN-world `fetch` wrapper). Two things a reviewer will
-> likely ask about — answers are pre-written in §6.
+## Build artifact
 
----
-
-## 0. Code prep — done
-
-- ✅ Dropped the unused `chat.openai.com` host (the extension opens `chatgpt.com`;
-  the legacy domain 301-redirects there anyway) — removes an "over-broad host"
-  flag.
-- ✅ Tightened the transcript `postMessage` to `location.origin` (was `*`).
-- ✅ Moved the Gemini key out of the request URL into the `x-goog-api-key` header
-  (keeps it out of any proxy/referrer logs).
-- ✅ Dropped the `m.youtube.com` host (desktop selectors don't function on mobile) so
-  declared scope == working scope.
-- ✅ Added a first-run in-popup notice disclosing SponsorBlock (sends the video ID to
-  `sponsor.ajay.app`), with a link to turn it off. (TL;DW no longer tracks
-  watch-time/engagement — the watch-time engine and its modules were deleted, so there
-  is no engagement tracking left to disclose.)
-- ✅ `npm run package` produces a clean, uploadable zip with `manifest.json` at the
-  root.
-
-Optional, not blockers (see §7).
-
-## 1. Build the upload package
+Build without changing the version, then package the verified output.
 
 ```bash
-npm run package   # -> web-store/tldw-<version>.zip  (manifest.json at the zip root)
+npx vite build
+npm run package
 ```
 
-Upload that `.zip`. Each public upload needs a version **higher** than the last
-published one — bump `package.json` (or run `npm run build`, which auto-bumps)
-before packaging a new revision.
+The upload ZIP must contain `manifest.json` at its root with version `1.0.0`.
+The ZIP must not contain source maps, secrets, development assets, or stale artifacts.
 
-## 2. Developer account (one-time)
-
-Register at <https://chrome.google.com/webstore/devconsole> and pay the one-time
-**$5** registration fee. Two hard requirements before you can publish: (1) **enable
-2-Step Verification** on the Google account you publish from — Google enforces this
-for all publishers, and the dashboard blocks publishing without it; and (2) **verify
-your contact email** in the dashboard. Note the account email can't be changed later,
-so choose deliberately.
-
-## 3. Store listing fields
+## Listing
 
 **Name:** `TL;DW`
 
-**Short description** (≤132 chars):
+**Category:** Productivity
 
-> Summarize any YouTube video on the page. On-page AI summary, custom profiles, SponsorBlock auto-skip, private local stats.
+**Language:** English
 
-**Category:** **Productivity** (the value is reclaiming time / getting a video's gist
-fast — a focus tool, not entertainment).
+**Short description:**
 
-**Language:** English.
+> Summarize YouTube videos inline with your own Gemini key, custom profiles, private local history, and SponsorBlock.
 
 **Detailed description:**
 
-```
-Get the gist of any YouTube video without watching the whole thing. TL;DW ("Too Long; Didn't Watch") gives you a clear AI summary of a video right on the page - the point, the key details, in seconds.
+> Get the substance of a YouTube video without watching the whole thing.
+>
+> TL;DW adds a concise AI summary to the YouTube page.
+> Direct API mode uses your own Google Gemini key, with no shared developer key and no developer backend.
+> Gemini 3.1 Flash-Lite is recommended because it currently offers the highest free-tier allowance at up to 500 requests per day as of July 2026.
+> You can remain on the free tier or attach billing to your own Google project for additional capacity.
+>
+> Choose reusable prompt profiles, add per-channel or per-video tags, ask a specific question, auto-summarize selected channels or long videos, and reuse exact prompt-aware cached results.
+> You can also use open-in-a-tab mode with Gemini, ChatGPT, Claude, or NotebookLM.
+> SponsorBlock integration can automatically skip community-reported sponsor segments.
+>
+> Settings, history, parsed summary cache, usage counters, and API call metadata stay in Chrome local storage.
+> TL;DW has no accounts, analytics, telemetry, or developer-owned backend.
 
-Open any YouTube video, hit Alt+Shift+G, and get a clear AI summary right on the page. Read it, skip the filler, and reclaim the hours you would have lost to videos that never get to the point.
+## Single purpose
 
-WHY YOU'LL LIKE IT
+> TL;DW sends the current YouTube video and generated summary prompt to the AI service selected by the user, or to the user's own Gemini API key, to produce an on-page summary.
+> Local history, profiles, tags, prompt-aware caching, usage counters, and SponsorBlock skipping support that single video-summary purpose.
 
-- Summarize on the page. A short, on-page summary means no more 20-minute videos that could have been a paragraph.
-- Zero new tabs (Direct API mode). With your own free Google Gemini key, the summary appears right on the YouTube page in a tidy widget - nothing else opens.
-- Use the AI you already pay for (open-in-a-tab mode). No key? TL;DW opens Gemini, ChatGPT, or Claude with the prompt already typed and submitted, reads the finished answer back, and drops the summary onto the video page for you - attaching the full transcript automatically for AIs that can't watch the video. NotebookLM is supported too: TL;DW adds the video as a source for you (no on-page summary in that mode).
-- Make it your own. Reusable prompt profiles (TL;DW, Research, Learning, Tutorial, or your own) plus tags that tweak the prompt for any channel or video.
-- Skip the sponsor pitch. Built-in SponsorBlock auto-skips in-video sponsored segments (with one-tap Undo), using the free community database.
-- See your summarizing at a glance. Private, local stats: total summaries, the channels you summarize most, profile and destination usage, most-used tags, and a GitHub-style summary-activity heatmap with a day streak.
-
-WHAT YOU GET
-
-- Direct API mode: headless Gemini call on your own free key; summary inline on the page, no tab opens. Free tier covers roughly 500 videos a day, no credit card.
-- Open-in-a-tab mode: auto-fills and submits Gemini, ChatGPT, or Claude (and adds the video as a source in NotebookLM); transcript attached for AIs that can't watch; graceful clipboard fallback if a site's composer changes.
-- Optional auto-summarize for anything over a length you choose.
-- SponsorBlock auto-skip with inline timestamps, a one-tap Undo, and lifetime time-saved tracking.
-- Editable prompt profiles (TL;DW, Research, Learning, Tutorial, or your own), tags that modify the prompt per channel or video, an optional "ask something specific" field, and searchable history.
-- Summary-activity stats: total summaries, channels you summarize most, prompt-profile and destination usage, most-used tags, and a GitHub-style activity heatmap with a day streak. All counted locally.
-- Right-click menu to summarize with a specific profile, and the Alt+Shift+G keyboard shortcut.
-- Works on standard YouTube watch pages; Shorts are supported via the popup (sent to Gemini, which watches the video directly).
-
-PRIVACY
-
-Everything stays on your machine. No backend, no accounts, no analytics - all data lives in Chrome's local storage, your Gemini key is used only to call Google's API, and TL;DW never stores the full transcript.
-
-TL;DW is not affiliated with, endorsed by, or sponsored by YouTube, Google, OpenAI, or Anthropic. YouTube, Gemini, and NotebookLM are trademarks of Google LLC; ChatGPT is a trademark of OpenAI; Claude is a trademark of Anthropic.
-```
-
-## 4. Privacy practices tab
-
-**Privacy policy URL** — paste your public `PRIVACY.md` link, e.g.
-`https://github.com/n8watkins/tl-dw/blob/master/PRIVACY.md`
-
-**Single purpose:**
-
-> TL;DW sends the YouTube video you are watching to an AI chat assistant (Gemini, ChatGPT, Claude, or NotebookLM) — or to your own Gemini API key — to generate an on-page summary, so you can get the gist without watching the whole thing. Supporting features (SponsorBlock sponsor-skip, local summary-activity stats, and local history) all serve that single purpose of summarizing YouTube videos.
-
-**Permission justifications** (paste per item):
+## Permission justifications
 
 | Permission | Justification |
 |---|---|
-| `storage` | Persists the user's settings, prompt profiles, summarized-video history, summary cache, tags, and lifetime stats in `chrome.storage.local`, and uses `chrome.storage.session` to hand a built prompt from the background worker to the destination tab's content script. All data stays on the device; nothing is synced to a server. |
-| `tabs` | Opens the chosen AI destination in a new tab and delivers the prompt to it, reads the active tab's URL/title to know which YouTube video to summarize, messages the YouTube content script for the transcript and channel/duration metadata, and re-focuses an existing summary tab instead of opening a duplicate. (`activeTab` is insufficient — the tab-reuse + background-open flows enumerate tabs.) |
-| `contextMenus` | Adds a "Send to <destination> with…" right-click submenu (scoped to youtube.com) listing the user's prompt profiles, so the current page or a right-clicked video thumbnail can be summarized in one click. |
-| `clipboardWrite` | Copies the generated prompt to the clipboard as a fallback when auto-filling the AI chat box fails, and powers the "Copy prompt" button in History. Used only on an explicit failure path or button click; nothing is read from the clipboard. |
-| `https://www.youtube.com/*` | Runs the content scripts that read the current video's transcript and channel/duration metadata, render the in-page TL;DW summary panel, and auto-skip sponsor segments. This is the page being summarized. |
-| `https://gemini.google.com/*` | When Gemini is the chosen destination, a content script auto-fills the prompt into the Gemini composer and submits it. |
-| `https://chatgpt.com/*` | When ChatGPT is the chosen destination, a content script auto-fills the prompt into the ChatGPT composer and submits it. |
-| `https://claude.ai/*` | When Claude is the chosen destination, a content script auto-fills the prompt into the Claude composer and submits it. |
-| `https://notebooklm.google.com/*` | When NotebookLM is the chosen destination, a content script auto-fills the prompt/source into the NotebookLM UI. |
-| `https://generativelanguage.googleapis.com/*` | Direct API mode calls the user's own Gemini API key (`generateContent`) from the background worker to generate the on-page summary headlessly, instead of opening a chat tab. Only when the user has enabled Direct API and entered their key. |
-| `https://sponsor.ajay.app/*` | Fetches sponsored-segment timestamps for the current video from the free, key-less SponsorBlock community API (by 11-char YouTube video ID) so the extension can auto-skip ads. Runs in the background worker so host permissions bypass CORS; only the video ID is sent. |
+| `storage` | Stores settings, profiles, tags, transcript-free history, parsed prompt-aware summary-cache variants, Gemini key-validation metadata, usage counters, Direct API call-log data, lifetime stats, and short-lived prompt handoff state. |
+| `tabs` | Opens the selected AI destination, reads the active YouTube URL and title, messages the YouTube content script for transcript and video metadata, and focuses a previously opened destination tab. |
+| `contextMenus` | Adds a YouTube-scoped right-click menu for summarizing with a selected prompt profile. |
+| `clipboardWrite` | Copies a generated prompt when the user requests it or when destination auto-fill fallback requires it. TL;DW never reads the clipboard. |
+| `https://www.youtube.com/*` | Reads the current video's transcript and metadata, renders the on-page summary, handles SPA navigation, and supports SponsorBlock controls. |
+| `https://gemini.google.com/*` | Fills and submits the user's prompt when Gemini is selected in open-in-a-tab mode and reads the completed answer for on-page display. |
+| `https://chatgpt.com/*` | Fills and submits the user's prompt when ChatGPT is selected and reads the completed answer for on-page display. |
+| `https://claude.ai/*` | Fills and submits the user's prompt when Claude is selected and reads the completed answer for on-page display. |
+| `https://notebooklm.google.com/*` | Adds the YouTube link as a NotebookLM source when NotebookLM is selected. |
+| `https://generativelanguage.googleapis.com/*` | Verifies the user's saved key against Gemini model metadata and sends Direct API `generateContent` requests using that key. |
+| `https://sponsor.ajay.app/*` | Retrieves SponsorBlock segment timestamps using the current YouTube video ID. |
 
-**Data use — categories to declare:**
-- **Website content** — the video transcript, title, channel, duration, and the AI summary. Stored locally; leaves the device only as the prompt the user sends to their chosen AI (or to the Gemini API in Direct mode). History stores a transcript-*free* copy; the full transcript is only sent live, never persisted.
-- **Authentication information** — the user's own Gemini API key. Stored locally; leaves the device only as the `key=` parameter on the user's own request to Google's Gemini endpoint. Never sent to the developer or anyone else.
-- **User activity** — summary counts, sponsor-skip counts, history. All local; none of it is transmitted anywhere. (TL;DW does **not** track watch-time or engagement — the watch-time engine and its data-layer modules were deleted, so the extension collects *less* activity data than earlier builds.)
+## Data-use declarations
 
-**The three required certifications — check all three (all true):**
-1. *I do not sell or transfer user data to third parties outside the approved use cases.* ✅ The only outbound flows are the user-initiated AI summary request and the key-less SponsorBlock video-ID lookup.
-2. *I do not use or transfer user data for purposes unrelated to my item's single purpose.* ✅ All handling serves summarizing/triaging the current video.
-3. *I do not use or transfer user data to determine creditworthiness or for lending.* ✅ Never.
+Declare **Website content**.
+TL;DW processes the video transcript, URL, title, channel, duration, generated prompt, and parsed AI summary.
+History stores a transcript-free prompt and video metadata.
+The local cache stores parsed summaries with prompt fingerprints and profile metadata.
+The full transcript is sent live for summarization and is never persisted.
 
-There is **no developer-owned backend**; the extension collects nothing for itself.
+Declare **Authentication information**.
+Direct API mode stores the user's Gemini key in `chrome.storage.local`.
+The key leaves the device only in the `x-goog-api-key` header sent to Google's Generative Language API.
+The key is never placed in a URL and is never sent to the developer.
 
-## 5. Graphics
+Declare **User activity**.
+TL;DW stores local summary history, usage attempts, outcomes, cache hits, and SponsorBlock counters.
+TL;DW does not track watch time, engagement, ratings, or WATCH/SKIM/SKIP classifications.
 
-**Required to submit** (the dashboard blocks review without them): the 128×128 icon
-(✅ have it), **≥1 screenshot at 1280×800**, and the **440×280 small promo tile**.
-Only the 1400×560 marquee tile is optional. The screenshots and the promo tile **do
-not exist yet — you must create them** (briefs below); these are the only two hard
-blockers left before submission.
+Certify that data is not sold, is not used outside the extension's single purpose, and is not used for creditworthiness or lending.
+TL;DW has no developer-owned backend and collects no telemetry.
 
-- **Store icon 128×128:** ✅ already in `public/icons/tl-dw-128.png`.
-- **Screenshots (1280×800 — REQUIRED, at least 1, up to 5):** capture in this order —
-  1. **On-page summary (the money shot).** A real watch page with the
-     TL;DW widget populated in Direct API mode: the summary text on a recognizable
-     long talk/tutorial.
-  2. **Popup — one-keystroke send.** Popup over a video: title button, destination
-     grid (Gemini/ChatGPT/Claude/NotebookLM), profile dropdown, "ask something
-     specific" field, Ask button with the Alt+Shift+G label, and the "Direct API
-     (no new tab)" checkbox + call counter.
-  3. **Summary stats — headline + heatmap.** A populated stats view: "Summaries
-     created" hero tiles and the GitHub-style summary-activity heatmap with the
-     day-streak badge and "Tracking since".
-  4. **SponsorBlock auto-skip.** Widget showing detected segments with timestamps
-     and the "skipped — Undo" state; lifetime sponsor-time-saved nearby.
-  5. **Stats — channels, profiles & tags.** The "Channels you summarize most"
-     list with avatar cards, prompt-profile and destination usage bars, and the
-     most-used tags.
-- **Small promo tile 440×280 (REQUIRED):** Split frame on the dark neon-purple bg. Left (~55%):
-  a faux YouTube title bar with a long duration chip (e.g. "27:41") dimmed. Right
-  (~45%): the TL;DW widget card with two or three summary lines. Top-left "TL;DW"
-  wordmark + "Too Long; Didn't Watch" tagline. Headline: **"Know it before you
-  watch."** Minimal words so it reads at 440×280.
+## Store assets
 
-## 6. Submit — and the two reviewer questions to expect
+Required assets are the 128 by 128 icon, at least one 1280 by 800 screenshot, and one 440 by 280 promotional tile.
+Up to five screenshots are recommended.
 
-Upload the zip and fill the above. In the **Distribution** tab, set visibility to
-**Public** (or **Unlisted** for a soft launch you share by link before going fully
-public), leave region defaults (all regions), then submit for review. If a reviewer
-asks about the two "magnets," reply with:
+1. Show the populated on-page summary from Direct API mode.
+2. Show the popup with destination, profile, specific-question, and Direct API controls.
+3. Show the summary activity and usage views.
+4. Show SponsorBlock segment controls and Undo.
+5. Show profile, destination, tag, and channel summary distributions.
 
-**MAIN-world fetch interception:**
-> A MAIN-world script wraps `window.fetch` ONLY to read YouTube's own transcript
-> responses (`get_transcript` / `timedtext`) so the summary works regardless of
-> DOM layout. It captures response bodies for those two endpoints only, relays them
-> to our isolated content script, and never touches request headers, cookies, auth,
-> or any other URL. Nothing is sent to any server we control. See PRIVACY.md.
+The promotional tile should show the TL;DW wordmark, a long-video cue, and the concise summary panel.
+Use the headline "Know it before you watch."
+Do not show API keys, account identifiers, private history, or unrelated browser UI.
 
-**Reading the AI's answer out of the destination tab:**
-> When the user sends a video to their own signed-in AI, we fill the prompt and read
-> back only the assistant's final answer to display it on the YouTube page. The text
-> never leaves the user's browser and is not stored unless the user opts into a debug
-> log.
+## Reviewer notes
 
-## 7. Optional follow-ups (not blockers)
+The MAIN-world script wraps `window.fetch` only to observe YouTube transcript responses from the transcript endpoints.
+It does not read request headers, cookies, authentication data, or unrelated responses.
+The isolated content script receives only the transcript content needed for the requested summary.
 
-- **Brand logos.** All four Gemini/ChatGPT/Claude/NotebookLM marks are inline SVGs
-  in `src/lib/DestinationIcon.tsx` (no bundled brand PNGs). Trademark owners can
-  request removal on a public listing. Kept for now (used only to label destinations,
-  nominative) — to de-risk, swap to neutral monogram chips and never put a third-party
-  logo in the store screenshots/promo tile.
-- **Version.** `0.1.173` signals beta; consider bumping to `1.0.0` for the public
-  listing (cosmetic, not a rejection issue).
-- **Live-key test.** The Gemini key now goes via the `x-goog-api-key` header — do a
-  30-second Direct-API summary with a real key to confirm the call still works.
+In open-in-a-tab mode, TL;DW fills the selected AI site and reads the completed assistant answer so it can display the parsed summary on YouTube.
+The parsed summary may be stored in the local prompt-aware cache, but the raw destination-site answer is not persisted.
+Full prompt and response logging applies only to Direct API calls when the user explicitly enables it.
+
+## Distribution
+
+Submit version 1.0.0 with visibility set to **Unlisted**.
+Promote to Public only after an unlisted smoke cohort confirms the BYOK flow and no policy changes are required.
