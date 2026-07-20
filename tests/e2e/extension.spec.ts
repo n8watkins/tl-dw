@@ -27,8 +27,8 @@ type ExtensionSession = {
   close: () => Promise<void>;
 };
 
-async function launchExtension(): Promise<ExtensionSession> {
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "tldw-e2e-"));
+async function launchExtension(existingUserDataDir?: string): Promise<ExtensionSession> {
+  const userDataDir = existingUserDataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "tldw-e2e-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: "chromium",
     headless: true,
@@ -55,7 +55,7 @@ async function launchExtension(): Promise<ExtensionSession> {
     worker,
     close: async () => {
       await context.close();
-      fs.rmSync(userDataDir, { recursive: true, force: true });
+      if (!existingUserDataDir) fs.rmSync(userDataDir, { recursive: true, force: true });
     },
   };
 }
@@ -333,6 +333,57 @@ test("malformed model output ends loading with a retry", async () => {
     await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
   } finally {
     await session.close();
+  }
+});
+
+test("a timed-out request ends loading with a retry", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context);
+    await session.context.route("https://generativelanguage.googleapis.com/**", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" }).catch(() => {});
+    });
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-timeout");
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText("60-second timeout");
+    await expect(page.getByRole("button", { name: "↻ Try again" })).toBeVisible();
+    await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
+  } finally {
+    await session.close();
+  }
+});
+
+test("browser and service-worker restart preserve settings and usage", async () => {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "tldw-e2e-restart-"));
+  const session = await launchExtension(userDataDir);
+  try {
+    await setStorage(session, {
+      settings: directSettings(),
+      geminiUsage: {
+        version: 2,
+        quotaDay: "2026-07-20",
+        attemptsToday: 3,
+        successesToday: 2,
+        failuresToday: 1,
+        attemptsSinceClear: 3,
+        successesSinceClear: 2,
+        failuresSinceClear: 1,
+        allTimeAttempts: 9,
+      },
+    });
+    await session.close();
+    const restarted = await launchExtension(userDataDir);
+    const persisted = await restarted.worker.evaluate(async () =>
+      chrome.storage.local.get(["settings", "geminiUsage"]),
+    );
+    expect((persisted.settings as { geminiApiKeyName?: string }).geminiApiKeyName).toBe("Fixture key");
+    expect((persisted.geminiUsage as { allTimeAttempts?: number }).allTimeAttempts).toBe(9);
+    await restarted.close();
+  } finally {
+    await session.context.close().catch(() => {});
+    fs.rmSync(userDataDir, { recursive: true, force: true });
   }
 });
 

@@ -15,7 +15,7 @@
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "vite build && playwright test",
+    "test:e2e": "VITE_GEMINI_TIMEOUT_MS=250 vite build && playwright test",
     "build": "node scripts/build-release.mjs",
     "package": "node scripts/package-store.mjs",
     "validate:package": "node scripts/validate-package.mjs",

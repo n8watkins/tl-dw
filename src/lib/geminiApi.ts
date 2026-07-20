@@ -1,5 +1,7 @@
 import { AI_STUDIO_LINKS, GEMINI_MODEL_ID } from "./constants";
 
+const DEFAULT_TIMEOUT_MS = Number(import.meta.env.VITE_GEMINI_TIMEOUT_MS) || 60_000;
+
 export type GeminiErrorCategory =
   | "invalid_request"
   | "unauthorized"
@@ -74,7 +76,7 @@ export async function callGeminiApi(
 ): Promise<string> {
   const fetcher = options.fetcher ?? fetch;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 60_000);
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   try {
     const response = await fetcher(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent`,
