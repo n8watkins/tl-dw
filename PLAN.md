@@ -1,212 +1,66 @@
-# TL;DW — Product Plan
+# TL;DW Product Plan
 
-> **TL;DW = "Too Long; Didn't Watch."**
->
-> **Thesis:** A Chrome extension that turns "I want to ask an AI about this YouTube video" into a single keystroke.
->
-> **Core promise:** It saves the *search*, not the *answer*. That keeps the extension simple, private, fast, and buildable.
+## Product promise
 
-> _Refreshed 2026-06-20 to match the shipped product. The original plan was Gemini-only;
-> TL;DW now sends to several destinations, extracts the transcript, calls Gemini
-> directly (headless on-page summaries), and skips sponsors. History below is
-> preserved where still accurate._
->
-> _**Re-scoped 2026-06-25 to a pure, un-opinionated YouTube summarizer.** It produces a
-> **summary** (SUMMARY + DETAILS) shaped by profiles + tags — it does **not** tell you
-> whether to watch (no verdict, no rating, no worth-watching gate; a user can ask for
-> that in their own prompt). Its stats are **summary-centric** (# summaries created, top
-> channels by summaries, profile/destination usage, most-used tags, a summary-activity
-> heatmap + streak) — not watch/engagement. The **post-watch watch-time + engagement
-> analytics were split out** into a separate local-only companion extension, **Watchprint**
-> (`../watchprint`, `github.com/n8watkins/watchprint`); the watch-time engine and its
-> data-layer modules have been **deleted** from TL;DW. Rationale + plan:
-> [`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md) and `../watchprint/PLAN.md`._
+TL;DW turns a YouTube transcript into a concise summary with one click or keyboard command.
+The summary is neutral by default and can be shaped through prompt profiles, tags, and a specific question.
 
----
+## 1.0 launch position
 
-## 1. The spine, in one sentence
+Version 1.0.0 will launch as Unlisted before any Public distribution.
+Direct API mode is bring-your-own-key.
+There is no shared developer key, proxy, backend, extension account, or telemetry.
 
-On a YouTube tab, press **Alt+Shift+G** (or use the popup / right-click menu) → grab the URL → build the default prompt → open the chosen destination → auto-fill its composer → submit. The user reads the answer instead of watching the whole video.
+Gemini 3.1 Flash-Lite is the fixed model for 1.0.
+It is recommended because it currently offers the highest free-tier allowance at up to 500 requests per day as of July 2026.
+Users may remain on the free tier or attach billing to their own Google project.
+Paid users should configure a project budget and billing alerts.
 
-That single motion *is* the product. Everything else is management UI layered on top.
+## Summary flows
 
----
+### Direct API
 
-## 2. How the motion works
+1. The user creates a dedicated Google AI Studio project and key.
+2. TL;DW stores the key in `chrome.storage.local` and verifies model metadata.
+3. The background worker resolves the effective profile before building the prompt.
+4. TL;DW obtains the current transcript and active tags.
+5. The worker fingerprints the complete effective prompt and fixed model target.
+6. An exact cache match is returned without another inference request.
+7. Otherwise, TL;DW counts an attempt and calls Gemini using the `x-goog-api-key` header.
+8. A parsed SUMMARY and DETAILS block is cached and displayed on the correct YouTube video.
 
-| # | Piece | Responsibility |
-|---|-------|----------------|
-| 1 | **Entry points** | `chrome.commands` (Alt+Shift+G), the popup, and a YouTube right-click menu |
-| 2 | **YouTube side** | Read the active tab's URL; on demand, extract the transcript and read duration/channel |
-| 3 | **Handoff** | Build prompt, stash it keyed by tab id in `chrome.storage.session`, open the destination |
-| 4 | **Destination side** | A content script waits for the composer, injects the prompt, submits, and reports the outcome |
+### Open in a tab
 
-**Piece #4 is the whole ballgame.** See §3.
+TL;DW opens Gemini, ChatGPT, Claude, or NotebookLM and fills the required prompt or source.
+For chat destinations, TL;DW can read the completed response and send the parsed summary back to YouTube.
+The background worker caches the parsed result with the original prompt context.
 
-### Destinations
+## Profile selection
 
-| Destination | Delivery | Content |
-|-------------|----------|---------|
-| **Gemini** | inject + submit | prompt only — Gemini watches the URL itself (`canWatch`) |
-| **ChatGPT / Claude** | inject + submit | prompt **with the transcript appended** (they can't watch the video) |
-| **NotebookLM** | inject into the "Websites" source | the YouTube link (`payload: "link"`) |
+- Automatic Direct API runs use `directApiProfileId` and fall back to the global default.
+- Popup inline runs use the popup-selected profile.
+- Manual on-page runs use the global default profile.
+- Menu, command, and tab-opening popup runs preserve their existing selected or default profile behavior.
 
-Adding a destination is a one-line registry entry in `constants.ts` plus, if it auto-fills, a `configForHost` block in `inject.ts`.
+## Local data
 
-### Handoff detail (avoid the multi-tab race)
+Persistent data uses `chrome.storage.local`.
+Session prompt handoff and destination state use `chrome.storage.session`.
+The full transcript is never persisted.
+History keeps a transcript-free prompt and video metadata.
+The summary cache keeps bounded prompt-aware parsed-summary variants for seven days.
+Direct API usage uses a versioned Pacific quota-day schema.
+Call logs keep metadata and outcome by default and keep prompt and response bodies only when the user opts in.
 
-If the user fires twice quickly, two destination tabs open and each must pick up *its own* prompt.
+## Release quality gate
 
-1. Background opens the tab and gets the new `tabId`.
-2. Background stores `pending[tabId] = prompt` in `chrome.storage.session`.
-3. The destination content script reads the prompt for *its own* tab id, injects it, then clears that key.
+The release gate includes typecheck, ESLint, unit tests, built-extension browser tests, production build, package validation, and full dependency audit.
+CI must run the same checks for pushes and pull requests.
+A manual real-key smoke test remains required.
+Live destination selector checks remain manual because external site DOM structures are volatile.
 
----
+## Distribution
 
-## 3. The #1 risk: auto-injecting into someone else's web app
-
-The existential risk isn't "can the model help" — it's:
-
-> **Can we reliably inject text into a composer we don't control and trigger send?**
-
-These composers are **contenteditable rich-text divs, not plain `<textarea>`s**. Consequences:
-
-- Setting `.value` does nothing. We simulate input (`execCommand("insertText")` / native setter + `InputEvent`) so the site's framework registers the text and **enables** the send button.
-- The send trigger is a click on the (initially disabled) send button once input is detected.
-- Each site's DOM/class names change without notice, so selectors **will** break periodically.
-
-This is the classic "works in the demo, silently breaks in 3 months" feature. Therefore:
-
-### Non-negotiable rule: graceful fallback + visible failure
-
-> If injection fails, **copy the prompt to clipboard** and leave the tab open with a toast: *"Prompt copied — paste to send."* Never leave the user staring at an empty box.
-
-And, shipped since: the injector **reports each outcome** to the background, which records it and flashes the toolbar badge. The popup shows a red alert naming the site and reason when a selector rots — so a silent break becomes a visible, fixable one.
-
-### Resilience
-
-Selectors run most-specific first, then generic **visible-element** fallbacks (a stray hidden composer is skipped), then the clipboard fallback. One renamed id no longer takes a site down.
-
----
-
-## 4. Transcript & metadata
-
-For destinations that can't watch the video, TL;DW extracts the transcript by intercepting YouTube's own InnerTube/`timedtext` network responses (survives DOM redesigns), with a rendered-panel DOM scrape as fallback. Duration + channel are read for the auto-summarize length threshold and channel attribution (`<video>.duration`, falling back to the `.ytp-time-duration` label).
-
----
-
-## 5. Roadmap
-
-### Shipped core
-
-- [x] Keyboard shortcut, popup, and right-click menu on YouTube watch pages and Shorts
-- [x] URL capture + prompt built from editable profiles
-- [x] Auto-inject + auto-submit, with graceful clipboard fallback
-- [x] Local prompt history (delete, clear, copy-prompt, re-ask), built-in + custom profiles, default profile, auto-submit toggle, history limit
-
-### Shipped — multi-destination & transcript era
-
-- [x] Multiple destinations (Gemini, ChatGPT, Claude, NotebookLM) with per-session override
-- [x] Transcript extraction (network interception + DOM fallback) appended for non-Gemini chats
-- [x] NotebookLM automation (drive the "Websites" source with the video link)
-- [x] Worth-watching verdict gate for long videos, with a trusted-channel bypass
-  _(later **removed** in the 2026-06-25 re-scope — TL;DW no longer imposes a verdict)_
-- [x] Auto-pause the video on summarize
-- [x] Open-search "jump back" + failure surfacing in the popup (badge + alert)
-- [x] Selector resilience (visibility-filtered matching, broadened fallbacks)
-- [x] Per-destination CTA verb ("Add to NotebookLM" vs "Ask ChatGPT")
-- [x] History hygiene — store a transcript-free prompt, opt-out auto-expiry
-  (7/30/90/365 days), history settings live on the History page
-
-### Shipped — Direct API, sponsors, stats & tags era
-
-- [x] **Direct API mode** — headless Gemini REST call on navigation, the **summary**
-  (SUMMARY + DETAILS) rendered in an on-page widget, no destination tab opened; daily
-  quota bar (~500 RPD free tier) and a metadata-only-by-default call log
-  (`DirectApiSection.tsx`, `background/index.ts`)
-- [x] **SponsorBlock auto-skip** — skip in-video sponsor segments from the free
-  community data, with inline timestamps + Undo and lifetime seconds-saved
-  (`content/sponsorblock.ts`, `sponsor.ajay.app`)
-- [x] **Watch-time engine** — auto-rated each video Engaged / Skimmed / Skipped and
-  rolled up per-channel averages (`content/watchtime.ts`, `lib/engagement.ts`).
-  **Re-scope 2026-06-25:** this, its dashboards, and the data-layer modules were
-  **deleted** (`watchtime.ts`, `engagement.ts`, `dashboards.ts`, `stats.ts`). The
-  watch-analytics now live in the **Watchprint** companion extension; TL;DW no longer
-  tracks watch-time or engagement at all.
-- [x] **Stats dashboard (summary-centric)** — # summaries created, cache hits,
-  summarized-today, top channels by # summaries, profile usage, destination usage,
-  most-used tags, and a GitHub-style **summary-activity heatmap + streak**
-  (`StatsSection.tsx`). The F7 Phase 1 week/month/year/all-time **engagement**
-  rollups + finish-rate donut (`lib/dashboards.ts`) were **deleted** in the re-scope
-  (the logic now lives in Watchprint).
-- [x] **Channels + per-channel tags** — channel cards, an auto-summarize list,
-  and a tags layer (channel ∪ video tags) surfaced on the widget and the
-  options Tags page (`ChannelsSection.tsx`, `TagsSection.tsx`, `lib/storage.ts`).
-  Channel tags are keyed by channel **name** (was channel id).
-- [x] Summary-panel polish — overflow (kebab) menu, channel-average cue,
-  fill-on-hover pills, force-rerun Regenerate. These controls live on the
-  rendered summary panel; the summary itself is now triggered by an inline
-  "TL;DW" button in the subscribe row (the always-on idle box and the loading
-  skeleton panel were removed) (`content/youtube.ts`)
-
-### Declined
-
-- Reuse an open destination tab instead of opening a new one
-- "Summarize up to where I am" (trim transcript to the player's `currentTime`)
-
-### Next — the real depth
-
-The F1–F8 feature sprint (overflow menu, engagement-cue redesign, watch-%
-persistence, prose tightening, per-channel tags) and F7 Phase 1 (time-windowed
-dashboards) shipped via PRs #1 and #2; the original backlog and the parallelized
-2-agent / worktree plan are archived under
-**[docs/archive/](docs/archive/)**. The genuinely open thread now is the
-**analytics split**: the watch-time + engagement analytics are moving to the
-**Watchprint** companion extension (`../watchprint`, local-only, free), leaving
-TL;DW as the summarizer with summary-scoped stats — see
-[`docs/ANALYTICS_SPLIT.md`](docs/ANALYTICS_SPLIT.md). (F7 Phase 2 "paid / hosted
-analytics" is **dropped** — Watchprint is free; the "don't charge for local data"
-reasoning is in `docs/archive/F7_PHASE1_PLAN.md` §0.) The seek-links / key-moments
-line items that used to sit here were cut — that feature was removed and
-`SEEK_LINKS.md` deleted (see commit 600e7e4) — and the two follow-ups below have
-since shipped:
-
-- [x] Import / export profiles as JSON (validation, name-conflict "Copy") —
-  `options/sections/ProfilesSection.tsx`
-- [x] Per-search curiosity field in the popup — `popup/App.tsx` wires
-  `userCuriosity` into the prompt
-
----
-
-## 6. Permissions
-
-Current (`manifest.config.ts`):
-
-- `storage` — profiles, settings, history, and the session-scoped prompt handoff / open-searches / delivery-status
-- `tabs` — open destinations + read the active tab URL
-- `contextMenus` — the right-click entry
-- `clipboardWrite` — the auto-fill-failed clipboard fallback (runs without a user gesture, so the permission is required)
-- host permissions for `youtube.com` and each destination site (the injection content scripts), plus `generativelanguage.googleapis.com` (the Direct API Gemini REST call) and `sponsor.ajay.app` (SponsorBlock segment lookups)
-
-`commands` is declared via the manifest `commands` key (the shortcut), not a permission.
-
----
-
-## 7. Privacy
-
-- All persistent data is local (`chrome.storage.local`); session state (handoff, open searches, delivery status) is `chrome.storage.session`. No backend, no account, no analytics.
-- We log the **prompt + URL + timestamp** at the moment of firing — a
-  transcript-free prompt, so transcripts are sent to the AI but never stored.
-- Old history auto-expires (30 days by default, configurable/off) so it can't
-  grow unbounded toward the `storage.local` quota.
-- We **never** read or store the model's response.
-
----
-
-## 8. Tech stack
-
-- Manifest V3 (service-worker background, content scripts in isolated + MAIN world)
-- TypeScript + Vite + `@crxjs/vite-plugin`
-- React for popup / options; vanilla TS for the content scripts
-- `chrome.storage.local` for data, `chrome.storage.session` for ephemeral state
-- Vitest for unit tests on the pure helpers (`npm test`)
+The first store submission uses Unlisted visibility.
+User reports are the monitoring channel because TL;DW has no telemetry.
+Public promotion happens only after the unlisted cohort confirms key verification, summary completion, caching, navigation correctness, and policy accuracy.
