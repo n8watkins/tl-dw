@@ -14,7 +14,6 @@ import type {
 } from "../types";
 import {
   AUTO_RUN_CHANNELS_KEY,
-  CACHE_TTL_MS,
   CHANNEL_TAGS_KEY,
   DEFAULT_SETTINGS,
   DELIVERY_STATUS_KEY,
@@ -24,7 +23,6 @@ import {
   localDateKey,
   OPEN_SEARCHES_KEY,
   PENDING_KEY,
-  pruneCache,
   STORAGE_KEYS,
   SUMMARY_CACHE_KEY,
   TAGS_KEY,
@@ -32,6 +30,12 @@ import {
   VIDEO_TAGS_KEY,
 } from "./constants";
 import { createDefaultProfiles } from "./profiles";
+import {
+  findCachedVariant,
+  normalizeSummaryCache,
+  pruneSummaryCache,
+  upsertCachedVariant,
+} from "./summaryCache";
 
 function normalizeBuiltInProfiles(profiles: PromptProfile[]): PromptProfile[] {
   const builtInIds = new Set(createDefaultProfiles().map((profile) => profile.id));
@@ -442,25 +446,58 @@ export async function bumpLifetimeStats(
 
 // --- Summary result cache -------------------------------------------------
 
-type SummaryCache = Record<string, CachedSummary>;
-
-export async function getCachedSummary(videoId: string): Promise<CachedSummary | null> {
+async function readSummaryCache() {
   const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
-  const cache = (r[SUMMARY_CACHE_KEY] as SummaryCache) ?? {};
-  const entry = cache[videoId];
-  if (!entry) return null;
-  if (Date.now() - new Date(entry.cachedAt).getTime() > CACHE_TTL_MS) return null;
-  return entry;
+  return pruneSummaryCache(normalizeSummaryCache(r[SUMMARY_CACHE_KEY]));
 }
 
-export async function setCachedSummary(videoId: string, entry: CachedSummary): Promise<void> {
+export async function getCachedSummary(
+  videoId: string,
+  promptFingerprint?: string,
+): Promise<CachedSummary | null> {
+  return findCachedVariant(await readSummaryCache(), videoId, promptFingerprint);
+}
+
+export async function setCachedSummary(entry: CachedSummary): Promise<void> {
+  await withWriteLock(SUMMARY_CACHE_KEY, async () => {
+    const cache = await readSummaryCache();
+    await chrome.storage.local.set({
+      [SUMMARY_CACHE_KEY]: upsertCachedVariant(cache, entry),
+    });
+  });
+}
+
+export async function clearCachedSummaries(videoId?: string): Promise<void> {
+  await withWriteLock(SUMMARY_CACHE_KEY, async () => {
+    if (!videoId) {
+      await chrome.storage.local.remove(SUMMARY_CACHE_KEY);
+      return;
+    }
+    const cache = await readSummaryCache();
+    await chrome.storage.local.set({
+      [SUMMARY_CACHE_KEY]: {
+        ...cache,
+        entries: cache.entries.filter((entry) => entry.videoId !== videoId),
+      },
+    });
+  });
+}
+
+export async function getCachedSummaryCount(): Promise<number> {
+  return (await readSummaryCache()).entries.length;
+}
+
+/** Persist cache migration and pruning during worker startup. */
+export async function maintainSummaryCache(): Promise<void> {
   await withWriteLock(SUMMARY_CACHE_KEY, async () => {
     const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
-    const cache = (r[SUMMARY_CACHE_KEY] as SummaryCache) ?? {};
-    cache[videoId] = entry;
-    // Bound growth on every write: drop stale entries (TTL) and cap the count.
-    pruneCache(cache);
-    await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
+    if (r[SUMMARY_CACHE_KEY] === undefined) return;
+    const cache = pruneSummaryCache(normalizeSummaryCache(r[SUMMARY_CACHE_KEY]));
+    if (cache.entries.length === 0) {
+      await chrome.storage.local.remove(SUMMARY_CACHE_KEY);
+    } else {
+      await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
+    }
   });
 }
 

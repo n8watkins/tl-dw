@@ -26,9 +26,8 @@ import {
   CHANNEL_TAGS_KEY,
   TAGS_KEY,
   VIDEO_TAGS_KEY,
-  pruneCache,
 } from "../lib/constants";
-import type { SponsorWindowApi, Tag } from "../types";
+import type { CachedSummary, SponsorWindowApi, Tag } from "../types";
 
 // --- intercepted transcript cache ----------------------------------------
 
@@ -421,27 +420,6 @@ type AutoRunChannelEntry = {
   id: string; name: string; avatarUrl: string; addedAt: string;
   autoRunSummary: boolean;
 };
-
-/**
- * Cache a summary that arrived via SET_SUMMARY (the tab-scrape path). The
- * headless Direct-API path caches in the background worker, but tab-mode results
- * were never persisted — so a page refresh kept re-opening the destination tab.
- * Caching here makes a reload serve from cache instead.
- */
-async function cacheScrapedSummary(vid: string, tldw: TldwSummary): Promise<void> {
-  const r = await chrome.storage.local.get("tldwSummaryCache");
-  const cache = (r["tldwSummaryCache"] as Record<string, { cachedAt: string } & Record<string, unknown>>) ?? {};
-  const existing = cache[vid] ?? {};
-  cache[vid] = {
-    ...existing,
-    tldw,
-    cachedAt: new Date().toISOString(),
-  };
-  // Same TTL + count cap the background uses, so the tab-mode path doesn't grow
-  // the cache unbounded.
-  pruneCache(cache);
-  await chrome.storage.local.set({ tldwSummaryCache: cache });
-}
 
 async function readAutoRunChannels(): Promise<AutoRunChannelEntry[]> {
   const r = await chrome.storage.local.get(AUTO_RUN_CHANNELS_KEY);
@@ -1322,6 +1300,8 @@ type RegenOpts = {
   /** Re-run even on a non-auto channel (Regenerate), vs. just dropping back to the
    *  configured flow (Clear cache, which lands the idle CTA for manual channels). */
   forceRun?: boolean;
+  /** Force a live request even if the effective prompt has an exact cache match. */
+  bypassCache?: boolean;
 };
 
 /**
@@ -1333,22 +1313,17 @@ type RegenOpts = {
  * to a single ASK / single count.
  */
 async function regenerateSummary(vid: string | null, opts: RegenOpts = {}): Promise<void> {
-  const { promote = false, forceRun = false } = opts;
+  const { promote = false, forceRun = false, bypassCache = forceRun } = opts;
   const startEpoch = navEpoch;
   // Arm (Regenerate) or clear (Clear cache) the promote offer. The rebuilt
   // summary's tags row recomputes the actual video-only set and drops the flag if
   // none remain, so we only need to flag the video here — no extra storage read.
   pendingTagPromptVid = promote && vid ? vid : null;
 
-  // Drop this video's cache entry. Wrap in try/catch so a storage hiccup can't
+  // Ask the worker to drop every variant for this video. Wrap in try/catch so a storage hiccup can't
   // skip the re-run below — the old clearBtn used .finally to re-run regardless.
   try {
-    const r = await chrome.storage.local.get("tldwSummaryCache");
-    const cache = (r["tldwSummaryCache"] as Record<string, unknown>) ?? {};
-    if (vid && cache[vid]) {
-      delete cache[vid];
-      await chrome.storage.local.set({ tldwSummaryCache: cache });
-    }
+    if (vid) await chrome.runtime.sendMessage({ type: "CACHE_CLEAR", videoId: vid });
   } catch { /* best effort — still re-run below */ }
   // Bail if the user navigated during the awaited storage I/O — otherwise we'd
   // tear down the freshly-injected panel for the NEW video (LESSONS_LEARNED #9).
@@ -1361,7 +1336,7 @@ async function regenerateSummary(vid: string | null, opts: RegenOpts = {}): Prom
   removeSummaryPanel();
   // forceRun makes maybeStartDirectApiRun re-run even on a non-auto channel, so the
   // run decision lives in one place (no post-hoc panel-state inspection here).
-  await maybeStartDirectApiRun({ forceRun });
+  await maybeStartDirectApiRun({ forceRun, bypassCache });
 }
 
 // --- tags row (F6-UI) building blocks ----------------------------------------
@@ -2001,8 +1976,6 @@ function showAutoRunConfirmOverlay(
 
 // --- auto TL;DW ----------------------------------------------------------
 
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
 // The video for which an automatic ASK has already been sent in the CURRENT
 // visit. Both auto paths (channel auto-run + the autoTldwMinutes threshold) set
 // it, so the two can't double-fire — but it's reset on every navigation, so a
@@ -2033,7 +2006,9 @@ function sendAutoAsk(vid: string): boolean {
  * landing the idle CTA, so the run decision lives here rather than being re-derived
  * by the caller from the resulting panel state.
  */
-async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promise<void> {
+async function maybeStartDirectApiRun(
+  opts: { forceRun?: boolean; bypassCache?: boolean } = {},
+): Promise<void> {
   const vid = currentVideoId();
   if (!vid) return;
   // Capture the nav epoch: if the user navigates away during any await below,
@@ -2055,7 +2030,7 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
   // Set currentChannelInfo early so the auto-run toggle can use it even when we return early.
   currentChannelInfo = getChannelInfo();
 
-  const r = await chrome.storage.local.get(["settings", "tldwSummaryCache", AUTO_RUN_CHANNELS_KEY]);
+  const r = await chrome.storage.local.get(["settings", AUTO_RUN_CHANNELS_KEY]);
   if (stale()) return;
   // The on-page widget shows whether or not Direct API is configured. With no
   // key the TL;DW button and auto-summarize run the tab-scrape flow (open the
@@ -2087,11 +2062,10 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
 
   currentAutoRunSummary = channelEntry?.autoRunSummary ?? false;
 
-  type CacheEntry = { tldw: TldwSummary; cachedAt: string };
-
-  // Serve a cached result if fresh.
-  const serveCached = (entry: CacheEntry) => {
-    showSummaryPanel({ ...entry.tldw, source: "cached" }, vid);
+  // Serve the newest variant on passive navigation. The worker owns the read
+  // and records the hit exactly when it delivers a result.
+  const serveCached = (entry: CachedSummary) => {
+    showSummaryPanel({ ...entry.tldw, source: `cached · ${entry.profileName}` }, vid);
     log("served from cache");
   };
 
@@ -2105,13 +2079,6 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
   // arrives via SET_SUMMARY. Manual runs (inline button / retry) pass auto=false so a
   // user click always re-sends, even after a prior failure.
   const startApiCall = async (auto = false) => {
-    const freshR = await chrome.storage.local.get("tldwSummaryCache");
-    if (stale()) { endRunInFlight(); return; }
-    const freshCache = (freshR["tldwSummaryCache"] as Record<string, CacheEntry> | undefined)?.[vid];
-    if (freshCache && Date.now() - new Date(freshCache.cachedAt).getTime() < CACHE_TTL_MS) {
-      serveCached(freshCache);
-      return;
-    }
     // The inline TL;DW button is the sole loading indicator now (no skeleton
     // panel); this arms the "Analyzing…" cue + the loading timeout.
     startRunInFlight();
@@ -2124,21 +2091,29 @@ async function maybeStartDirectApiRun(opts: { forceRun?: boolean } = {}): Promis
       return;
     }
     try {
-      await chrome.runtime.sendMessage({ type: "ASK", source: "page" });
+      await chrome.runtime.sendMessage({
+        type: "ASK",
+        source: "page",
+        bypassCache: opts.bypassCache ?? false,
+      });
     } catch { /* best effort */ }
   };
   // Expose for the loading-timeout retry panel.
   currentSummarizeAction = startApiCall;
 
-  const cache = r["tldwSummaryCache"] as Record<string, CacheEntry> | undefined;
-  const cached = cache?.[vid];
-  const cacheHit = !!(cached && Date.now() - new Date(cached.cachedAt).getTime() < CACHE_TTL_MS);
+  const cacheResult = opts.bypassCache
+    ? undefined
+    : await chrome.runtime.sendMessage({ type: "CACHE_LOOKUP", videoId: vid }) as
+        | { entry?: CachedSummary }
+        | undefined;
+  if (stale()) return;
+  const cached = cacheResult?.entry;
 
   // If we already have a fresh cached result, show it directly — there's no
   // reason to drop the user back to the idle "Get Summary" view for a video
   // we've already summarized. Applies whether or not auto-run is enabled.
-  if (cacheHit) {
-    serveCached(cached!);
+  if (cached) {
+    serveCached(cached);
     return;
   }
 
@@ -2282,9 +2257,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       // run IS done and the summary is cached below; leaving runInFlight set would
       // strand the button on "Analyzing…" and fire a bogus 90s timeout error.
       endRunInFlight();
-      // Persist tab-scrape results so a refresh serves from cache instead of
-      // re-opening a tab. Don't re-cache a result that itself came from cache.
-      if (vid && msg.source !== "cached") void cacheScrapedSummary(vid, tldw);
       showSummaryPanel({ ...tldw, source: msg.source }, vid);
     }
     sendResponse({ ok: true });

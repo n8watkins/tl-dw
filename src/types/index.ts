@@ -46,6 +46,8 @@ export type OpenSearch = {
   destinationId: string;
   destinationLabel: string;
   createdAt: string;
+  /** Original request context used to cache a scraped destination response. */
+  cacheContext?: Omit<CachedSummary, "tldw" | "createdAt">;
 };
 
 /**
@@ -113,12 +115,19 @@ export type Tag = {
   prompt: string;  // e.g. "Include the specific sources/citations the video relies on."
 };
 
-/** Cached summary result keyed by video ID in chrome.storage.local. */
+/** One prompt-aware summary variant stored in the local cache. */
 export type CachedSummary = {
+  videoId: string;
+  promptFingerprint: string;
   tldw: TldwSummary;
-  /** ISO timestamp when this entry was written. */
-  cachedAt: string;
+  profileId: string;
+  profileName: string;
+  modelOrDestination: string;
+  /** ISO timestamp when this variant was created. */
+  createdAt: string;
 };
+
+export type SummaryCache = { version: 2; entries: CachedSummary[] };
 
 /** One entry in the Direct API call log — stored per video summarized. */
 export type GeminiCallEntry = {
@@ -276,7 +285,13 @@ export type AskMessage = {
    * Direct API headlessly (no tab) like the on-page button.
    */
   source?: SummarySource;
+  /** Skip an exact cache match and replace it after a successful run. */
+  bypassCache?: boolean;
 };
+
+export type CacheLookupMessage = { type: "CACHE_LOOKUP"; videoId: string };
+export type CacheClearMessage = { type: "CACHE_CLEAR"; videoId?: string };
+export type CacheCountMessage = { type: "CACHE_COUNT" };
 
 /**
  * Entry point that triggered a summarize. The explicit "send to this
@@ -382,5 +397,8 @@ export type RuntimeMessage =
   | AiSummaryMessage
   | OpenOptionsMessage
   | OpenOrFocusDestinationMessage
+  | CacheLookupMessage
+  | CacheClearMessage
+  | CacheCountMessage
   | GetSponsorSegmentsMessage
   | SponsorSkippedMessage;

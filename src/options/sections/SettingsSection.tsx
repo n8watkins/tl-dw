@@ -16,13 +16,13 @@ export function SettingsSection() {
   const [cacheCount, setCacheCount] = useState(0);
 
   function refreshCacheCount() {
-    void chrome.storage.local.get("tldwSummaryCache").then((r) => {
-      setCacheCount(Object.keys((r["tldwSummaryCache"] as Record<string, unknown>) ?? {}).length);
+    void chrome.runtime.sendMessage({ type: "CACHE_COUNT" }).then((result) => {
+      setCacheCount((result as { count?: number } | undefined)?.count ?? 0);
     });
   }
 
   async function clearSummaryCache() {
-    await chrome.storage.local.remove("tldwSummaryCache");
+    await chrome.runtime.sendMessage({ type: "CACHE_CLEAR" });
     refreshCacheCount();
   }
 

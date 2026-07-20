@@ -1,18 +1,22 @@
 import { buildDestinationPrompt } from "../lib/promptBuilder";
 import { parseTldwBlock } from "../lib/tldw";
 import { selectSummaryProfile } from "../lib/summaryProfile";
-import { GEMINI_URL, getDestination, isYouTubeVideoUrl, localDateKey, pruneCache, STORAGE_KEYS, SUMMARY_CACHE_KEY } from "../lib/constants";
+import { fingerprintPrompt } from "../lib/summaryCache";
+import { GEMINI_URL, getDestination, isYouTubeVideoUrl, localDateKey, STORAGE_KEYS } from "../lib/constants";
 import { addHistoryEntry, expireOldEntries, trimToLimit } from "../lib/history";
 import {
   addOpenSearch,
   bumpLifetimeStats,
+  clearCachedSummaries,
   ensureSeeded,
   getActiveTags,
   getCachedSummary,
+  getCachedSummaryCount,
   getHistory,
   getOpenSearches,
   getProfiles,
   getSettings,
+  maintainSummaryCache,
   pruneOpenSearch,
   pruneOrphanVideoTags,
   recordDeliveryStatus,
@@ -24,7 +28,7 @@ import {
   setPendingPrompt,
 } from "../lib/storage";
 import { extractVideoId } from "../lib/constants";
-import type { RuntimeMessage, Settings, SummarySource, VideoContext, VideoMeta } from "../types";
+import type { OpenSearch, RuntimeMessage, Settings, SummarySource, VideoContext, VideoMeta } from "../types";
 
 const MENU_ROOT = "tldw-root";
 
@@ -82,15 +86,7 @@ async function startupStorageSweep(): Promise<void> {
       const next = trimToLimit(expireOldEntries(history, settings), settings.historyLimit);
       if (next.length !== history.length) await setHistory(next);
     }
-    const r = await chrome.storage.local.get(SUMMARY_CACHE_KEY);
-    const cache = (r[SUMMARY_CACHE_KEY] as Record<string, { cachedAt: string }>) ?? {};
-    const before = Object.keys(cache).length;
-    if (before > 0) {
-      pruneCache(cache);
-      if (Object.keys(cache).length !== before) {
-        await chrome.storage.local.set({ [SUMMARY_CACHE_KEY]: cache });
-      }
-    }
+    await maintainSummaryCache();
     // One-time cleanup: the "block channel" feature was removed, so drop its
     // now-orphaned storage key for users who had blocked channels (no-op after).
     await chrome.storage.local.remove("tldwBlockedChannels");
@@ -248,6 +244,7 @@ async function runSummary(
   senderTabId?: number,
   source: SummarySource = "auto",
   forceFocusTab = false,
+  bypassCache = false,
 ): Promise<void> {
   // A right-clicked video link (a thumbnail) wins over the active tab, so a
   // suggested video gets summarized rather than the page you're sitting on.
@@ -347,12 +344,21 @@ async function runSummary(
     const logPrompt = buildDestinationPrompt(profile, video, destination, null, userCuriosity, activeTags);
 
     const videoId = extractVideoId(url);
+    const modelOrDestination = "gemini-3.1-flash-lite";
+    const promptFingerprint = await fingerprintPrompt(prompt, modelOrDestination);
 
     // --- cache check: serve a previous result instantly, skip the API call ---
-    const cachedSummary = videoId ? await getCachedSummary(videoId) : null;
+    const cachedSummary = videoId && !bypassCache
+      ? await getCachedSummary(videoId, promptFingerprint)
+      : null;
     if (cachedSummary && activeTab?.id !== undefined) {
       void chrome.tabs
-        .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw: cachedSummary.tldw, source: "cached", videoId })
+        .sendMessage(activeTab.id, {
+          type: "SET_SUMMARY",
+          tldw: cachedSummary.tldw,
+          source: `cached · ${cachedSummary.profileName}`,
+          videoId,
+        })
         .catch(() => {});
       // Bump lifetime stats: cache hit.
       void bumpLifetimeStats((s) => { s.cacheHits += 1; });
@@ -410,7 +416,15 @@ async function runSummary(
 
         // Cache the result so future visits to this video skip the API call.
         if (videoId) {
-          void setCachedSummary(videoId, { tldw, cachedAt: new Date().toISOString() });
+          void setCachedSummary({
+            videoId,
+            promptFingerprint,
+            tldw,
+            profileId: profile.id,
+            profileName: profile.name,
+            modelOrDestination,
+            createdAt: new Date().toISOString(),
+          });
         }
 
         // Bump lifetime stats: summary completed (Direct API path).
@@ -444,6 +458,25 @@ async function runSummary(
     return;
   }
 
+  const tabVideoId = extractVideoId(video.url);
+  const tabPromptFingerprint = tabVideoId
+    ? await fingerprintPrompt(prompt, destination.id)
+    : undefined;
+  const tabCachedSummary = tabVideoId && tabPromptFingerprint && !bypassCache
+    ? await getCachedSummary(tabVideoId, tabPromptFingerprint)
+    : null;
+  if (tabCachedSummary && activeTab?.id !== undefined) {
+    void chrome.tabs.sendMessage(activeTab.id, {
+      type: "SET_SUMMARY",
+      tldw: tabCachedSummary.tldw,
+      source: `cached · ${tabCachedSummary.profileName}`,
+      videoId: tabVideoId,
+    }).catch(() => {});
+    void bumpLifetimeStats((stats) => { stats.cacheHits += 1; });
+    void flashBadge("✓", true);
+    return;
+  }
+
   // Open the destination tab and hand its injector the prompt to auto-fill.
   // Gemini's URL is fixed (GEMINI_URL); the rest open their configured URL.
   // When temporary chats are on, prefer the incognito URL if the destination
@@ -460,7 +493,21 @@ async function runSummary(
   });
   if (injectTab.id !== undefined) {
     await setPendingPrompt(injectTab.id, { prompt, sourceTabId: activeTab?.id });
-    await recordOpenSearch(injectTab.id, video, destination, activeTab?.id);
+    await recordOpenSearch(
+      injectTab.id,
+      video,
+      destination,
+      activeTab?.id,
+      tabVideoId && tabPromptFingerprint
+        ? {
+            videoId: tabVideoId,
+            promptFingerprint: tabPromptFingerprint,
+            profileId: profile.id,
+            profileName: profile.name,
+            modelOrDestination: destination.id,
+          }
+        : undefined,
+    );
   }
   if (settings.saveHistoryOnSearch) {
     // Store a transcript-free prompt: the transcript can be tens to hundreds of
@@ -485,6 +532,7 @@ async function recordOpenSearch(
   video: VideoContext,
   destination: { id: string; label: string },
   sourceTabId?: number,
+  cacheContext?: import("../types").OpenSearch["cacheContext"],
 ): Promise<void> {
   await addOpenSearch({
     tabId,
@@ -494,6 +542,7 @@ async function recordOpenSearch(
     destinationId: destination.id,
     destinationLabel: destination.label,
     createdAt: new Date().toISOString(),
+    cacheContext,
   });
 }
 
@@ -525,6 +574,8 @@ chrome.runtime.onMessage.addListener(
         message.userCuriosity,
         sender.tab?.id,
         message.source ?? "auto",
+        false,
+        message.bypassCache ?? false,
       ).then(
         () => sendResponse({ ok: true }),
         // runSummary has awaits outside its inner try (tabs.create, storage
@@ -559,15 +610,28 @@ chrome.runtime.onMessage.addListener(
       const srcTabId = message.sourceTabId;
       void (async () => {
         let videoId: string | undefined;
+        let match: OpenSearch | undefined;
         try {
           const searches = await getOpenSearches();
-          const match =
+          match =
             searches.find((s) => destTabId !== undefined && s.tabId === destTabId) ??
             searches.find((s) => s.sourceTabId === srcTabId);
           if (match?.videoUrl) videoId = extractVideoId(match.videoUrl) ?? undefined;
+          if (match?.cacheContext) {
+            await setCachedSummary({
+              ...match.cacheContext,
+              tldw: message.tldw,
+              createdAt: new Date().toISOString(),
+            });
+          }
         } catch { /* best effort — fall back to no guard */ }
         void chrome.tabs
-          .sendMessage(srcTabId, { type: "SET_SUMMARY", tldw: message.tldw, videoId })
+          .sendMessage(srcTabId, {
+            type: "SET_SUMMARY",
+            tldw: message.tldw,
+            source: match?.destinationLabel,
+            videoId,
+          })
           .catch(() => {});
       })();
       // Bump lifetime stats: summary completed (tab-scrape / AI_SUMMARY path).
@@ -608,6 +672,23 @@ chrome.runtime.onMessage.addListener(
         }
       })();
       return true; // async response
+    }
+    if (message.type === "CACHE_LOOKUP") {
+      void getCachedSummary(message.videoId).then(async (entry) => {
+        if (entry) {
+          await bumpLifetimeStats((stats) => { stats.cacheHits += 1; });
+        }
+        sendResponse({ entry });
+      });
+      return true;
+    }
+    if (message.type === "CACHE_CLEAR") {
+      void clearCachedSummaries(message.videoId).then(() => sendResponse({ ok: true }));
+      return true;
+    }
+    if (message.type === "CACHE_COUNT") {
+      void getCachedSummaryCount().then((count) => sendResponse({ count }));
+      return true;
     }
     if (message.type === "OPEN_OR_FOCUS_DESTINATION") {
       const ytTabId = sender.tab?.id;
