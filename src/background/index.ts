@@ -7,6 +7,7 @@ import { GEMINI_MODEL_ID, GEMINI_URL, getDestination, isYouTubeVideoUrl, localDa
 import { addHistoryEntry, expireOldEntries, trimToLimit } from "../lib/history";
 import {
   addOpenSearch,
+  beginGeminiCall,
   bumpLifetimeStats,
   clearCachedSummaries,
   ensureSeeded,
@@ -21,7 +22,7 @@ import {
   pruneOpenSearch,
   pruneOrphanVideoTags,
   recordDeliveryStatus,
-  recordGeminiCall,
+  finishGeminiCall,
   clearPendingPrompt,
   peekPendingPrompt,
   setCachedSummary,
@@ -386,9 +387,11 @@ async function runSummary(
     // --- live call: fetch from Gemini, then write to cache ---
     let responseText: string | undefined;
     let tldw: ReturnType<typeof parseTldwBlock> | undefined;
+    let callId: string | undefined;
     try {
+      callId = await beginGeminiCall(video, prompt, profile);
       responseText = await callGeminiApi(prompt, apiKey!);
-      await recordGeminiCall(video, logPrompt, responseText);
+      await finishGeminiCall(callId, "success", { response: responseText });
       tldw = parseTldwBlock(responseText);
 
       // Nothing usable parsed — surface it on the page (replace the skeleton with
@@ -457,6 +460,13 @@ async function runSummary(
       void recordDeliveryStatus({ site: "Gemini (API)", ok: true, at: new Date().toISOString() });
     } catch (err) {
       const reason = err instanceof Error ? err.message : "API call failed";
+      if (callId) {
+        const statusMatch = /HTTP (\d{3})/.exec(reason);
+        void finishGeminiCall(callId, "failure", {
+          httpStatus: statusMatch ? Number(statusMatch[1]) : undefined,
+          errorCategory: "unknown",
+        });
+      }
       void flashBadge("!");
       void recordDeliveryStatus({
         site: "Gemini (API)",

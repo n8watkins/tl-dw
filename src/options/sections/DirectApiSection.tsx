@@ -4,11 +4,14 @@ import {
   AI_STUDIO_LINKS,
   DEFAULT_SETTINGS,
   GEMINI_FREE_TIER_RPD,
+  GEMINI_CALL_LOG_KEY,
   GEMINI_MODEL_ID,
   GEMINI_RECOMMENDATION_DATE,
+  GEMINI_USAGE_KEY,
   STORAGE_KEYS,
 } from "../../lib/constants";
 import { keyValidationMessage } from "../../lib/geminiKeyValidation";
+import { emptyGeminiUsage } from "../../lib/geminiUsage";
 import {
   clearGeminiCallLog,
   clearGeminiUsage,
@@ -53,11 +56,7 @@ function dateGroupLabel(iso: string): string {
 export function DirectApiSection() {
   const [settings, setLocal] = useState<Settings | null>(null);
   const [profiles, setProfiles] = useState<PromptProfile[]>([]);
-  const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({
-    totalCalls: 0,
-    allTimeCalls: 0,
-    todayCalls: 0,
-  });
+  const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>(emptyGeminiUsage());
   const [callLog, setCallLog] = useState<GeminiCallEntry[]>([]);
   const [saved, setSaved] = useState(false);
   const [pendingKeyName, setPendingKeyName] = useState("");
@@ -84,6 +83,8 @@ export function DirectApiSection() {
       if (changes[STORAGE_KEYS.settings]?.newValue) {
         setLocal({ ...DEFAULT_SETTINGS, ...(changes[STORAGE_KEYS.settings].newValue as Settings) });
       }
+      if (changes[GEMINI_USAGE_KEY]) void getGeminiUsage().then(setGeminiUsage);
+      if (changes[GEMINI_CALL_LOG_KEY]) void getGeminiCallLog().then(setCallLog);
     };
     chrome.storage.onChanged.addListener(handleChange);
     return () => chrome.storage.onChanged.removeListener(handleChange);
@@ -444,17 +445,16 @@ export function DirectApiSection() {
         <div className="card" style={{ marginBottom: 0 }}>
           {/* Free-tier quota bar */}
           {(() => {
-            const FREE_TIER_LIMIT = 500;
-            const pct = Math.min(100, (geminiUsage.todayCalls / FREE_TIER_LIMIT) * 100);
+            const pct = Math.min(100, (geminiUsage.attemptsToday / GEMINI_FREE_TIER_RPD) * 100);
             const barColor = pct >= 85 ? "#dc2626" : pct >= 60 ? "#d97706" : "#16a34a";
             return (
               <div style={{ marginBottom: 18 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
                   <span style={{ fontSize: 12, fontWeight: 600 }}>
-                    Free tier usage today
+                    TL;DW requests this Gemini quota day
                   </span>
                   <span style={{ fontSize: 12, color: "var(--muted)" }}>
-                    {geminiUsage.todayCalls} / {FREE_TIER_LIMIT} requests
+                    {geminiUsage.attemptsToday} / {GEMINI_FREE_TIER_RPD} attempts
                   </span>
                 </div>
                 <div style={{ background: "var(--border)", borderRadius: 999, height: 7, overflow: "hidden" }}>
@@ -465,14 +465,14 @@ export function DirectApiSection() {
                   }} />
                 </div>
                 <div style={{ marginTop: 5, fontSize: 11, color: "var(--muted)" }}>
-                  Gemini 3.1 Flash Lite free tier · ~500 RPD ·{" "}
+                  Gemini 3.1 Flash-Lite free tier: {GEMINI_FREE_TIER_RPD} RPD as of {GEMINI_RECOMMENDATION_DATE} ·{" "}
                   <a
-                    href="https://ai.google.dev/pricing"
+                    href={AI_STUDIO_LINKS.usage}
                     target="_blank"
                     rel="noreferrer"
                     style={{ color: "var(--muted)", textDecoration: "underline" }}
                   >
-                    Pricing details ↗
+                    AI Studio usage ↗
                   </a>
                 </div>
               </div>
@@ -483,39 +483,47 @@ export function DirectApiSection() {
           <div style={{ display: "flex", gap: 32, flexWrap: "wrap", marginBottom: 16 }}>
             <div>
               <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
-                {geminiUsage.allTimeCalls}
+                {geminiUsage.allTimeAttempts}
               </div>
               <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-                all-time calls
+                all-time attempts
               </div>
             </div>
             <div>
               <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
-                {geminiUsage.todayCalls}
+                {geminiUsage.successesToday}
               </div>
               <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-                today
+                successful today
               </div>
             </div>
             <div>
               <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
-                {geminiUsage.totalCalls}
+                {geminiUsage.failuresToday}
               </div>
               <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-                since last clear
+                failed today
               </div>
             </div>
             <div>
               <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1 }}>
-                {timeAgo(geminiUsage.lastCalledAt)}
+                {timeAgo(geminiUsage.lastSuccessAt)}
               </div>
               <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-                last used
+                last successful request
               </div>
             </div>
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
-            All-time total is permanent and never cleared.
+            This local meter includes requests sent by this Chrome profile through TL;DW.
+            Usage from other apps or keys in the same Google project is visible in AI Studio.
+            The quota day resets at Pacific midnight. All-time attempts are never cleared.
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12, fontSize: 12 }}>
+            <a href={AI_STUDIO_LINKS.usage} target="_blank" rel="noreferrer">Usage</a>
+            <a href={AI_STUDIO_LINKS.apiKeys} target="_blank" rel="noreferrer">API keys</a>
+            <a href={AI_STUDIO_LINKS.billing} target="_blank" rel="noreferrer">Billing</a>
+            <a href={AI_STUDIO_LINKS.budgets} target="_blank" rel="noreferrer">Budgets and alerts</a>
           </div>
           <button className="btn" onClick={() => setConfirmClearStats(true)}>
             Clear stats
@@ -607,6 +615,11 @@ export function DirectApiSection() {
                           <span>⚡ Gemini API</span>
                           <span>·</span>
                           <span>{formatTime(entry.at)}</span>
+                          <span>·</span>
+                          <span style={{ color: entry.outcome === "failure" ? "#dc2626" : "inherit" }}>
+                            {entry.outcome}
+                            {entry.httpStatus ? ` (${entry.httpStatus})` : ""}
+                          </span>
                         </div>
                       </div>
                       <div className="history-actions" onClick={(e) => e.stopPropagation()}>

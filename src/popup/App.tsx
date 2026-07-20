@@ -30,6 +30,7 @@ import {
   setPendingPrompt,
 } from "../lib/storage";
 import type { GeminiUsage } from "../types";
+import { emptyGeminiUsage } from "../lib/geminiUsage";
 
 /* Inline icons — stroke uses currentColor so they inherit each button's color. */
 const iconProps = {
@@ -97,7 +98,7 @@ export function App() {
   const [openSearches, setOpenSearches] = useState<OpenSearch[]>([]);
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   const [statuses, setStatuses] = useState<DeliveryStatus[]>([]);
-  const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>({ totalCalls: 0, allTimeCalls: 0, todayCalls: 0 });
+  const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>(emptyGeminiUsage());
   // Whether the user has made an in-popup choice this session. Once they have,
   // a settings write (e.g. ticking Direct API) must NOT revert it back to the
   // saved default via the storage.onChanged listener below.
@@ -447,12 +448,12 @@ export function App() {
               {settings.useDirectApi && (
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span className="headless-count">
-                    {geminiUsage.totalCalls} call{geminiUsage.totalCalls === 1 ? "" : "s"}
+                    {geminiUsage.attemptsToday} attempt{geminiUsage.attemptsToday === 1 ? "" : "s"} today
                   </span>
                   <button
                     className="section-link"
                     onClick={() => {
-                      void chrome.tabs.create({ url: "https://aistudio.google.com/apikey" });
+                      void chrome.tabs.create({ url: "https://aistudio.google.com/usage" });
                       window.close();
                     }}
                   >

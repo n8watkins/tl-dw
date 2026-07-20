@@ -85,15 +85,19 @@ export type GeminiKeyValidation = {
 
 /** Usage stats for direct Gemini API calls. */
 export type GeminiUsage = {
-  /** Calls since the last manual clear. */
-  totalCalls: number;
-  /** Permanent all-time total — never reset by clearing usage. */
-  allTimeCalls: number;
-  /** Calls made on `todayDate` (resets automatically each new day). */
-  todayCalls: number;
-  /** YYYY-MM-DD of the last call, used to detect day roll-overs. */
-  todayDate?: string;
-  lastCalledAt?: string;
+  version: 2;
+  /** YYYY-MM-DD in Google's Pacific quota timezone. */
+  quotaDay: string;
+  attemptsToday: number;
+  successesToday: number;
+  failuresToday: number;
+  attemptsSinceClear: number;
+  successesSinceClear: number;
+  failuresSinceClear: number;
+  /** Permanent total that manual clearing never resets. */
+  allTimeAttempts: number;
+  lastAttemptAt?: string;
+  lastSuccessAt?: string;
 };
 
 /**
@@ -150,6 +154,11 @@ export type GeminiCallEntry = {
   videoTitle?: string;
   /** ISO timestamp of the call. */
   at: string;
+  profileId?: string;
+  profileName?: string;
+  outcome: "pending" | "success" | "failure";
+  httpStatus?: number;
+  errorCategory?: string;
   /** Transcript-free prompt sent to the API. */
   prompt?: string;
   /** Raw text response from the API. */

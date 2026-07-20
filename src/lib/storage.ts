@@ -20,7 +20,6 @@ import {
   extractVideoId,
   GEMINI_CALL_LOG_KEY,
   GEMINI_USAGE_KEY,
-  localDateKey,
   OPEN_SEARCHES_KEY,
   PENDING_KEY,
   STORAGE_KEYS,
@@ -30,6 +29,12 @@ import {
   VIDEO_TAGS_KEY,
 } from "./constants";
 import { createDefaultProfiles } from "./profiles";
+import {
+  emptyGeminiUsage,
+  migrateGeminiUsage,
+  recordUsageAttempt,
+  recordUsageOutcome,
+} from "./geminiUsage";
 import {
   findCachedVariant,
   normalizeSummaryCache,
@@ -290,24 +295,21 @@ export async function clearDeliveryStatuses(): Promise<void> {
 
 const CALL_LOG_LIMIT = 200;
 
-function emptyUsage(): GeminiUsage {
-  return { totalCalls: 0, allTimeCalls: 0, todayCalls: 0 };
-}
-
 export async function getGeminiUsage(): Promise<GeminiUsage> {
   const r = await chrome.storage.local.get(GEMINI_USAGE_KEY);
-  const stored = r[GEMINI_USAGE_KEY] as Partial<GeminiUsage> | undefined;
-  return { ...emptyUsage(), ...stored };
+  const usage = migrateGeminiUsage(r[GEMINI_USAGE_KEY]);
+  const stored = r[GEMINI_USAGE_KEY] as { version?: number; quotaDay?: string } | undefined;
+  if (stored?.version !== 2 || stored.quotaDay !== usage.quotaDay) {
+    await chrome.storage.local.set({ [GEMINI_USAGE_KEY]: usage });
+  }
+  return usage;
 }
 
-/**
- * Core implementation: writes a Gemini call log entry + updates usage stats.
- * Returns the new entry's id.
- */
-async function _recordGeminiCall(
+/** Count an attempt and create its log entry immediately before generateContent. */
+export async function beginGeminiCall(
   video?: { url: string; title?: string },
   prompt?: string,
-  response?: string,
+  profile?: { id: string; name: string },
 ): Promise<string> {
  return withWriteLock(GEMINI_USAGE_KEY, async () => {
   const [usage, logRaw, settings] = await Promise.all([
@@ -317,18 +319,7 @@ async function _recordGeminiCall(
   ]);
 
   const now = new Date();
-  // Use the LOCAL calendar date: the popup/stats present "today's calls" as the
-  // user's day, so the counter must reset at local midnight, not UTC midnight.
-  const todayDate = localDateKey(now);
-  const isSameDay = usage.todayDate === todayDate;
-
-  const updatedUsage: GeminiUsage = {
-    totalCalls: usage.totalCalls + 1,
-    allTimeCalls: usage.allTimeCalls + 1,
-    todayCalls: isSameDay ? usage.todayCalls + 1 : 1,
-    todayDate,
-    lastCalledAt: now.toISOString(),
-  };
+  const updatedUsage = recordUsageAttempt(usage, now);
 
   const existingLog = (logRaw[GEMINI_CALL_LOG_KEY] as GeminiCallEntry[]) ?? [];
   const id = crypto.randomUUID();
@@ -341,8 +332,10 @@ async function _recordGeminiCall(
     videoUrl: video?.url ?? "",
     videoTitle: video?.title,
     at: now.toISOString(),
+    profileId: profile?.id,
+    profileName: profile?.name,
+    outcome: "pending",
     prompt: keepFull ? prompt : undefined,
-    response: keepFull ? response : undefined,
   };
   const updatedLog = [newEntry, ...existingLog].slice(0, CALL_LOG_LIMIT);
 
@@ -355,28 +348,53 @@ async function _recordGeminiCall(
  });
 }
 
-export async function recordGeminiCall(
-  video?: { url: string; title?: string },
-  prompt?: string,
-  response?: string,
+export async function finishGeminiCall(
+  id: string,
+  outcome: "success" | "failure",
+  details: { response?: string; httpStatus?: number; errorCategory?: string } = {},
 ): Promise<void> {
-  await _recordGeminiCall(video, prompt, response);
+  await withWriteLock(GEMINI_USAGE_KEY, async () => {
+    const [usage, logRaw, settings] = await Promise.all([
+      getGeminiUsage(),
+      chrome.storage.local.get(GEMINI_CALL_LOG_KEY),
+      getSettings(),
+    ]);
+    const log = ((logRaw[GEMINI_CALL_LOG_KEY] as GeminiCallEntry[]) ?? []).map((entry) =>
+      entry.id === id
+        ? {
+            ...entry,
+            outcome,
+            httpStatus: details.httpStatus,
+            errorCategory: details.errorCategory,
+            response: settings.keepFullCallLog ? details.response : undefined,
+          }
+        : entry,
+    );
+    const attempt = log.find((entry) => entry.id === id);
+    const next = attempt
+      ? recordUsageOutcome(usage, outcome, new Date(attempt.at))
+      : usage;
+    await chrome.storage.local.set({ [GEMINI_USAGE_KEY]: next, [GEMINI_CALL_LOG_KEY]: log });
+  });
 }
 
-/** Clears stats (totalCalls, todayCalls, lastCalledAt) but keeps allTimeCalls. */
+/** Clear user-resettable counters while preserving the permanent attempt total. */
 export async function clearGeminiUsage(): Promise<void> {
   const usage = await getGeminiUsage();
   await chrome.storage.local.set({
     [GEMINI_USAGE_KEY]: {
-      ...emptyUsage(),
-      allTimeCalls: usage.allTimeCalls,
+      ...emptyGeminiUsage(),
+      allTimeAttempts: usage.allTimeAttempts,
     } satisfies GeminiUsage,
   });
 }
 
 export async function getGeminiCallLog(): Promise<GeminiCallEntry[]> {
   const r = await chrome.storage.local.get(GEMINI_CALL_LOG_KEY);
-  return (r[GEMINI_CALL_LOG_KEY] as GeminiCallEntry[]) ?? [];
+  return ((r[GEMINI_CALL_LOG_KEY] as GeminiCallEntry[]) ?? []).map((entry) => ({
+    ...entry,
+    outcome: entry.outcome ?? "success",
+  }));
 }
 
 export async function clearGeminiCallLog(): Promise<void> {
