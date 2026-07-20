@@ -39,7 +39,7 @@ SponsorBlock remains optional and on by default after the first-run disclosure.
 - A clean `npm ci` passes on Node 20.19 or newer.
 - Typecheck and ESLint pass.
 - All 87 unit tests pass.
-- All seven built-extension Playwright scenarios pass.
+- All nine built-extension Playwright scenarios pass.
 - The non-bumping Vite production build passes.
 - Full `npm audit` reports zero vulnerabilities.
 - Store package validation passes for `web-store/tldw-1.0.0.zip`.

@@ -14,8 +14,8 @@ The release centers on bring-your-own-key Gemini 3.1 Flash-Lite summaries.
 - `a853f4c` adds structured, actionable Gemini errors.
 - `570b4f6` aligns privacy and Chrome Web Store disclosures.
 
-At this checkpoint, typecheck, ESLint, 87 unit tests, seven built-extension browser tests, the production build, package validation, and the full dependency audit pass.
-The 1.0.0 ZIP is at `web-store/tldw-1.0.0.zip` and has SHA-256 `9e359083b53b210a09f22f176dfcfbe97f1f773ab163ed9bf3e28261e45a0176`.
+At this checkpoint, typecheck, ESLint, 87 unit tests, nine built-extension browser tests, the production build, package validation, and the full dependency audit pass.
+The 1.0.0 ZIP is at `web-store/tldw-1.0.0.zip` and has SHA-256 `4f23656d8b72ef2803d0faa168c138492df3e2bac9654d2811b9047912119fc0`.
 Store graphics are in `store-assets/`.
 
 ## Architecture notes
