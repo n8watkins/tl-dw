@@ -12,6 +12,7 @@ import {
 } from "../../lib/constants";
 import { keyValidationMessage } from "../../lib/geminiKeyValidation";
 import { emptyGeminiUsage } from "../../lib/geminiUsage";
+import { geminiErrorMessage } from "../../lib/geminiApi";
 import {
   clearGeminiCallLog,
   clearGeminiUsage,
@@ -649,6 +650,12 @@ export function DirectApiSection() {
                           <div className="history-detail" style={{ marginTop: 12 }}>
                             <p className="field-label" style={{ marginBottom: 6 }}>⚡ Gemini API response</p>
                             <pre className="prompt-preview">{entry.response}</pre>
+                          </div>
+                        )}
+                        {entry.outcome === "failure" && entry.errorCategory && (
+                          <div className="history-detail" style={{ marginTop: 12, color: "#dc2626" }}>
+                            <p className="field-label" style={{ marginBottom: 6 }}>Failure</p>
+                            <div>{geminiErrorMessage(entry.errorCategory)}</div>
                           </div>
                         )}
                         {!entry.prompt && !entry.response && (

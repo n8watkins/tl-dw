@@ -1,5 +1,6 @@
 import type { GeminiKeyValidation, GeminiKeyValidationFailure } from "../types";
 import { GEMINI_MODEL_ID } from "./constants";
+import { geminiErrorMessage } from "./geminiApi";
 
 export function categorizeKeyVerificationFailure(status?: number): GeminiKeyValidationFailure {
   if (status === 401 || status === 403) return "unauthorized";
@@ -15,18 +16,18 @@ export function keyValidationMessage(validation: GeminiKeyValidation): string {
   if (validation.status === "unverified") return "Saved locally, but not verified yet.";
   switch (validation.failureCategory) {
     case "unauthorized":
-      return "Google rejected this key. Check that it is active and its API restrictions allow the Gemini API.";
+      return geminiErrorMessage("unauthorized");
     case "model_unavailable":
-      return "Gemini 3.1 Flash-Lite is not available to this Google project.";
+      return geminiErrorMessage("model_unavailable");
     case "quota_limited":
-      return "Google rate-limited verification. Wait briefly, then retry.";
+      return geminiErrorMessage("quota_limited");
     case "google_service":
-      return "Google's API is temporarily unavailable. Retry in a moment.";
+      return geminiErrorMessage("google_service");
     case "rejected":
       return "Google rejected the verification request. Review the key and project settings.";
     case "network":
     default:
-      return "TL;DW could not reach Google's API. Check your connection and retry.";
+      return geminiErrorMessage("network");
   }
 }
 

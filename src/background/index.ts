@@ -3,6 +3,7 @@ import { parseTldwBlock } from "../lib/tldw";
 import { selectSummaryProfile } from "../lib/summaryProfile";
 import { fingerprintPrompt } from "../lib/summaryCache";
 import { verifyGeminiKey } from "../lib/geminiKeyValidation";
+import { callGeminiApi, GeminiApiError, normalizeGeminiError } from "../lib/geminiApi";
 import { GEMINI_MODEL_ID, GEMINI_URL, getDestination, isYouTubeVideoUrl, localDateKey, STORAGE_KEYS } from "../lib/constants";
 import { addHistoryEntry, expireOldEntries, trimToLimit } from "../lib/history";
 import {
@@ -172,50 +173,6 @@ async function getVideoMeta(tabId: number): Promise<VideoMeta | null> {
     return res ?? null;
   } catch {
     return null;
-  }
-}
-
-/** Call the Gemini REST API directly and return the response text. */
-async function callGeminiApi(prompt: string, apiKey: string): Promise<string> {
-  // The key goes in the x-goog-api-key header (not the URL) so it can't land in
-  // proxy/referrer logs. HTTPS encrypts both, but headers are the safer surface.
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent`;
-  // Bound the WHOLE request — connection AND body read — so a server that
-  // returns headers then stalls the body can't leave the on-page skeleton
-  // spinning to the 90s loading timeout. The signal stays armed until res.json()
-  // completes; the timer is cleared only in the outer finally.
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60_000);
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.4, maxOutputTokens: 4096 },
-      }),
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      const err = (await res.json().catch(() => null)) as
-        | { error?: { message?: string } }
-        | null;
-      throw new Error(err?.error?.message ?? `HTTP ${res.status}`);
-    }
-    const data = (await res.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
-    };
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    if (!text) throw new Error("Gemini returned an empty response");
-    return text;
-  } catch (err) {
-    if (controller.signal.aborted) {
-      throw new Error("the request timed out — check your connection and try again");
-    }
-    throw err instanceof Error ? err : new Error("network error");
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -391,31 +348,11 @@ async function runSummary(
     try {
       callId = await beginGeminiCall(video, prompt, profile);
       responseText = await callGeminiApi(prompt, apiKey!);
-      await finishGeminiCall(callId, "success", { response: responseText });
       tldw = parseTldwBlock(responseText);
-
-      // Nothing usable parsed — surface it on the page (replace the skeleton with
-      // an error + retry) instead of leaving it to spin for 90s and then show the
-      // misleading "tab flow" message while the badge falsely flashed success.
       if (!tldw) {
-        void flashBadge("!");
-        void recordDeliveryStatus({
-          site: "Gemini (API)",
-          ok: false,
-          reason: "couldn't parse the model's response",
-          at: new Date().toISOString(),
-        });
-        if (activeTab?.id !== undefined) {
-          void chrome.tabs
-            .sendMessage(activeTab.id, {
-              type: "SET_SUMMARY_ERROR",
-              videoId,
-              reason: "the model's response wasn't in the expected format — try again",
-            })
-            .catch(() => {});
-        }
-        return;
+        throw new GeminiApiError("malformed_response");
       }
+      await finishGeminiCall(callId, "success", { response: responseText });
 
       // Save history. Wrapped in its own try so a storage error never prevents
       // the summary from being shown.
@@ -459,12 +396,13 @@ async function runSummary(
       void flashBadge("✓", true);
       void recordDeliveryStatus({ site: "Gemini (API)", ok: true, at: new Date().toISOString() });
     } catch (err) {
-      const reason = err instanceof Error ? err.message : "API call failed";
+      const apiError = normalizeGeminiError(err);
+      const reason = apiError.message;
       if (callId) {
-        const statusMatch = /HTTP (\d{3})/.exec(reason);
         void finishGeminiCall(callId, "failure", {
-          httpStatus: statusMatch ? Number(statusMatch[1]) : undefined,
-          errorCategory: "unknown",
+          response: responseText,
+          httpStatus: apiError.httpStatus,
+          errorCategory: apiError.category,
         });
       }
       void flashBadge("!");
@@ -478,7 +416,12 @@ async function runSummary(
       // with the real reason + a retry, rather than hanging until the 90s timeout.
       if (activeTab?.id !== undefined) {
         void chrome.tabs
-          .sendMessage(activeTab.id, { type: "SET_SUMMARY_ERROR", videoId, reason })
+          .sendMessage(activeTab.id, {
+            type: "SET_SUMMARY_ERROR",
+            videoId,
+            reason,
+            actionUrl: apiError.actionUrl,
+          })
           .catch(() => {});
       }
     }

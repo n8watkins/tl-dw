@@ -1241,7 +1241,7 @@ function startRunInFlight(): void {
  * never returned a usable summary. Offers a one-click retry and explains the
  * tab-mode caveat so the user isn't left staring at a dead skeleton.
  */
-function showSummaryErrorPanel(reason?: string): void {
+function showSummaryErrorPanel(reason?: string, actionUrl?: string): void {
   const host = panelHost();
   if (!host) return;
   removeSummaryPanel();
@@ -1282,6 +1282,21 @@ function showSummaryErrorPanel(reason?: string): void {
   Object.assign(msg.style, { fontSize: "13px", lineHeight: "1.5", color: t.sub });
 
   panel.append(head, msg);
+  if (actionUrl) {
+    const action = document.createElement("a");
+    action.href = actionUrl;
+    action.target = "_blank";
+    action.rel = "noreferrer";
+    action.textContent = "Open Google AI Studio ↗";
+    Object.assign(action.style, {
+      display: "inline-block",
+      marginTop: "8px",
+      color: "#1a73e8",
+      fontWeight: "600",
+      fontSize: "12px",
+    });
+    panel.append(action);
+  }
   summaryPanel = panel;
   summaryPanelKind = "idle";
   host.prepend(panel);
@@ -2268,11 +2283,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // 90s timeout and then show the misleading tab-flow message — but only if a
     // run is still in flight for the video the error is for. (Loading lives in the
     // button now; `runInFlight`, not a panel kind, is the gate.)
-    const msg = message as { videoId?: string; reason?: string };
+    const msg = message as { videoId?: string; reason?: string; actionUrl?: string };
     if (!msg.videoId || msg.videoId === currentVideoId()) {
       if (runInFlight) {
         endRunInFlight();
-        showSummaryErrorPanel(msg.reason);
+        showSummaryErrorPanel(msg.reason, msg.actionUrl);
       }
     }
     sendResponse({ ok: true });
