@@ -16,7 +16,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "node scripts/build-release.mjs",
-    "package": "node scripts/package-store.mjs"
+    "package": "node scripts/package-store.mjs",
+    "validate:package": "node scripts/validate-package.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.3",
