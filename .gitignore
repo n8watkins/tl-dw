@@ -1,6 +1,8 @@
 node_modules/
 dist/
 web-store/
+playwright-report/
+test-results/
 spike-gemini.js
 .DS_Store
 *.local

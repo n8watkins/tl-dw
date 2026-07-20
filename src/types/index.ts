@@ -297,6 +297,8 @@ export type GetPendingMessage = { type: "GET_PENDING" };
  */
 export type AskMessage = {
   type: "ASK";
+  /** YouTube tab selected by the popup, when the sender has no tab context. */
+  sourceTabId?: number;
   profileId?: string;
   destinationId?: string;
   /** Optional one-off question to weave into the prompt for this send. */

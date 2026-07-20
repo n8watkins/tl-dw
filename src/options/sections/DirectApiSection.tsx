@@ -252,7 +252,7 @@ export function DirectApiSection() {
           </li>
           <li>
             <strong>Turn on “Enabled by default”</strong> in the Behavior tab. Then
-            summaries now appear inline on every video.
+            summaries appear inline on every video.
           </li>
         </ol>
         <div className="setting-sub" style={{ marginTop: 12 }}>

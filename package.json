@@ -15,6 +15,7 @@
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "vite build && playwright test",
     "build": "node scripts/build-release.mjs",
     "package": "node scripts/package-store.mjs",
     "validate:package": "node scripts/validate-package.mjs"
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@crxjs/vite-plugin": "2.7.1",
     "@eslint/js": "9.39.5",
+    "@playwright/test": "1.61.1",
     "@types/chrome": "^0.0.287",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

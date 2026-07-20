@@ -202,6 +202,7 @@ export function App() {
     // can take several seconds for non-Gemini destinations).
     void chrome.runtime.sendMessage({
       type: "ASK",
+      sourceTabId: tab?.id,
       profileId: selectedId,
       destinationId: dest.id,
       userCuriosity: curiosity.trim() || undefined,

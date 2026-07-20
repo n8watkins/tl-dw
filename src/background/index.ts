@@ -542,7 +542,7 @@ chrome.runtime.onMessage.addListener(
         undefined,
         message.destinationId,
         message.userCuriosity,
-        sender.tab?.id,
+        message.sourceTabId ?? sender.tab?.id,
         message.source ?? "auto",
         false,
         message.bypassCache ?? false,
