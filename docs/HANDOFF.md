@@ -18,6 +18,8 @@ At this checkpoint, typecheck, ESLint, 87 unit tests, nine built-extension brows
 The 1.0.0 ZIP is at `web-store/tldw-1.0.0.zip` and has SHA-256 `4f23656d8b72ef2803d0faa168c138492df3e2bac9654d2811b9047912119fc0`.
 Store graphics are in `store-assets/`.
 
+The real-key smoke test is complete using the saved local Gemini key. Gemini 3.1 Flash-Lite key verification and a real `generateContent` request passed. The browser flow also confirmed successful usage accounting, profile/question cache misses, passive exact-cache hits, and repeated popup cache hits. No key or account identifier was written to the repository.
+
 ## Architecture notes
 
 - `src/background/index.ts` orchestrates profile resolution, transcript requests, cache access, Gemini calls, destination tabs, history, and runtime messages.
@@ -31,12 +33,11 @@ Store graphics are in `store-assets/`.
 
 ## Required remaining work
 
-1. Run the real-key manual smoke test.
-2. Capture more screenshots if the preferred five-image set is desired.
-3. Re-check the final store dashboard declarations against the packaged manifest.
-4. Upload the validated ZIP and assets through the publisher account.
-5. Submit with Unlisted visibility.
-6. Monitor the soft-launch cohort through user reports.
+1. Capture more screenshots if the preferred five-image set is desired.
+2. Re-check the final store dashboard declarations against the packaged manifest.
+3. Upload the validated ZIP and assets through the publisher account.
+4. Submit with Unlisted visibility.
+5. Monitor the soft-launch cohort through user reports.
 
 ## Constraints
 
