@@ -39,6 +39,15 @@ async function launchExtension(): Promise<ExtensionSession> {
   });
   let worker = context.serviceWorkers()[0];
   if (!worker) worker = await context.waitForEvent("serviceworker");
+  await worker.evaluate(async () => {
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      const state = await chrome.storage.local.get(["profiles", "settings"]);
+      if (state.profiles && state.settings) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error("Extension installation seeding did not finish");
+  });
   const extensionId = new URL(worker.url()).host;
   return {
     context,
