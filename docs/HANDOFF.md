@@ -14,7 +14,9 @@ The release centers on bring-your-own-key Gemini 3.1 Flash-Lite summaries.
 - `a853f4c` adds structured, actionable Gemini errors.
 - `570b4f6` aligns privacy and Chrome Web Store disclosures.
 
-At this checkpoint, 87 unit tests pass, typecheck passes, and a non-bumping Vite production build passes.
+At this checkpoint, typecheck, ESLint, 87 unit tests, seven built-extension browser tests, the production build, package validation, and the full dependency audit pass.
+The 1.0.0 ZIP is at `web-store/tldw-1.0.0.zip` and has SHA-256 `9e359083b53b210a09f22f176dfcfbe97f1f773ab163ed9bf3e28261e45a0176`.
+Store graphics are in `store-assets/`.
 
 ## Architecture notes
 
@@ -29,14 +31,12 @@ At this checkpoint, 87 unit tests pass, typecheck passes, and a non-bumping Vite
 
 ## Required remaining work
 
-1. Upgrade the development baseline and toolchain.
-2. Add ESLint and CI.
-3. Add Playwright coverage for the built extension and the core BYOK, profile, cache, navigation, error, quota rollover, and service-worker restart scenarios.
-4. Set package and lockfile versions to exactly 1.0.0 without running the bumping release helper.
-5. Run the full quality gate and validate the store ZIP contents.
-6. Run the real-key manual smoke test.
-7. Capture store screenshots and the promotional tile without private data.
-8. Re-audit the packaged permissions and submit as Unlisted.
+1. Run the real-key manual smoke test.
+2. Capture more screenshots if the preferred five-image set is desired.
+3. Re-check the final store dashboard declarations against the packaged manifest.
+4. Upload the validated ZIP and assets through the publisher account.
+5. Submit with Unlisted visibility.
+6. Monitor the soft-launch cohort through user reports.
 
 ## Constraints
 

@@ -5,16 +5,16 @@ Detailed listing copy and permission disclosures live in [STORE_SUBMISSION.md](S
 
 ## Release blockers
 
-- [ ] All unit and extension browser tests pass.
-- [ ] Typecheck and lint pass.
-- [ ] The production Vite build passes.
-- [ ] Store package validation passes.
-- [ ] A full dependency audit passes.
-- [ ] `package.json`, `package-lock.json`, and packaged `manifest.json` all report exactly `1.0.0`.
-- [ ] The ZIP has `manifest.json` at its root.
-- [ ] The ZIP contains no source maps, secrets, development assets, or stale build artifacts.
-- [ ] At least one 1280 by 800 screenshot exists.
-- [ ] A 440 by 280 promotional tile exists.
+- [x] All unit and extension browser tests pass.
+- [x] Typecheck and lint pass.
+- [x] The production Vite build passes.
+- [x] Store package validation passes.
+- [x] A full dependency audit passes.
+- [x] `package.json`, `package-lock.json`, and packaged `manifest.json` all report exactly `1.0.0`.
+- [x] The ZIP has `manifest.json` at its root.
+- [x] The ZIP contains no source maps, secrets, development assets, or stale build artifacts.
+- [x] At least one 1280 by 800 screenshot exists.
+- [x] A 440 by 280 promotional tile exists.
 - [ ] A Chrome Web Store developer account with 2-Step Verification and a verified contact email is ready.
 
 ## Real-key verification
@@ -37,17 +37,17 @@ Use a dedicated Google AI Studio project and key that contain no unrelated produ
 
 - [ ] Capture the on-page Direct API summary at 1280 by 800.
 - [ ] Prefer the complete five-image set described in [STORE_SUBMISSION.md](STORE_SUBMISSION.md).
-- [ ] Create the 440 by 280 promotional tile.
-- [ ] Confirm that images contain no API key, account identifier, private call history, or unrelated browser UI.
+- [x] Create the 440 by 280 promotional tile.
+- [x] Confirm that images contain no API key, account identifier, private call history, or unrelated browser UI.
 
 ## Privacy and permissions
 
-- [ ] Re-check [PRIVACY.md](../PRIVACY.md) against the packaged behavior.
-- [ ] Confirm that the key is sent in the `x-goog-api-key` header and never in the URL.
-- [ ] Confirm that parsed summaries are disclosed as locally cached data.
-- [ ] Confirm that call-log metadata disclosure includes video URL, title, timestamp, selected profile, and outcome.
-- [ ] Confirm that every packaged permission and host permission has a matching justification.
-- [ ] Confirm that TL;DW is described as BYOK with no shared developer key and no developer backend.
+- [x] Re-check [PRIVACY.md](../PRIVACY.md) against the packaged behavior.
+- [x] Confirm that the key is sent in the `x-goog-api-key` header and never in the URL.
+- [x] Confirm that parsed summaries are disclosed as locally cached data.
+- [x] Confirm that call-log metadata disclosure includes video URL, title, timestamp, selected profile, and outcome.
+- [x] Confirm that every packaged permission and host permission has a matching justification.
+- [x] Confirm that TL;DW is described as BYOK with no shared developer key and no developer backend.
 
 ## Submit
 

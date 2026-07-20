@@ -36,10 +36,17 @@ SponsorBlock remains optional and on by default after the first-run disclosure.
 
 ## Verification status
 
-- Unit tests, typecheck, and a non-bumping Vite production build pass at this checkpoint.
+- A clean `npm ci` passes on Node 20.19 or newer.
+- Typecheck and ESLint pass.
+- All 87 unit tests pass.
+- All seven built-extension Playwright scenarios pass.
+- The non-bumping Vite production build passes.
+- Full `npm audit` reports zero vulnerabilities.
+- Store package validation passes for `web-store/tldw-1.0.0.zip`.
+- The packaged root manifest reports version 1.0.0.
+- The required 1280 by 800 screenshot and 440 by 280 promotional tile exist in `store-assets/`.
 - Real-key verification remains manual because no secret key is committed to the repository.
-- Built-extension Playwright coverage, lint, CI, packaging validation, final dependency audit, and store graphics remain release work.
-- The final package must report version 1.0.0 and contain no source maps, secrets, development assets, or stale artifacts.
+- Chrome Web Store upload and Unlisted submission remain manual because they require the publisher account.
 
 ## Known follow-up
 
