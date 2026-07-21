@@ -56,7 +56,7 @@ Call logs keep metadata and outcome by default and keep prompt and response bodi
 
 The release gate includes typecheck, ESLint, unit tests, built-extension browser tests, production build, package validation, and full dependency audit.
 CI must run the same checks for pushes and pull requests.
-A manual real-key smoke test remains required.
+A manual real-key smoke test is required for each release candidate; the current 1.0.0 candidate has passed it with the saved local key.
 Live destination selector checks remain manual because external site DOM structures are volatile.
 
 ## Distribution

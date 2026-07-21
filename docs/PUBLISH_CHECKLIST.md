@@ -21,16 +21,16 @@ Detailed listing copy and permission disclosures live in [STORE_SUBMISSION.md](S
 
 Use a dedicated Google AI Studio project and key that contain no unrelated production access.
 
-- [ ] Saving the key immediately runs metadata verification for Gemini 3.1 Flash-Lite.
-- [ ] A valid key is shown as valid.
-- [ ] An invalid or restricted key is saved but shown with an actionable failure.
-- [ ] A Direct API summary succeeds and uses the selected effective profile.
-- [ ] Repeating the exact request produces a cache hit without another Gemini call.
-- [ ] Changing the profile produces a cache miss.
-- [ ] Asking a specific question produces a cache miss.
-- [ ] A failed key and a practical quota-limit simulation leave no loading state stuck.
+- [x] Saving the key immediately runs metadata verification for Gemini 3.1 Flash-Lite.
+- [x] A valid key is shown as valid.
+- [x] An invalid or restricted key is saved but shown with an actionable failure.
+- [x] A Direct API summary succeeds and uses the selected effective profile.
+- [x] Repeating the exact request produces a cache hit without another Gemini call.
+- [x] Changing the profile produces a cache miss.
+- [x] Asking a specific question produces a cache miss.
+- [x] A failed key and a practical quota-limit simulation leave no loading state stuck.
 - [ ] The popup first-run notice works.
-- [ ] YouTube SPA navigation never displays a summary on the wrong video.
+- [x] YouTube SPA navigation never displays a summary on the wrong video.
 - [ ] Open-in-a-tab fallback still works.
 
 ## Store assets

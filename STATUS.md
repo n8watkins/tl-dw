@@ -1,7 +1,7 @@
 # TL;DW Extension Status
 
 **Version:** 1.0.0
-**Last updated:** July 20, 2026
+**Last updated:** July 21, 2026
 
 TL;DW 1.0 is being prepared as an Unlisted Chrome Web Store soft launch centered on bring-your-own-key Gemini access.
 
@@ -45,7 +45,7 @@ SponsorBlock remains optional and on by default after the first-run disclosure.
 - Store package validation passes for `web-store/tldw-1.0.0.zip`.
 - The packaged root manifest reports version 1.0.0.
 - The required 1280 by 800 screenshot and 440 by 280 promotional tile exist in `store-assets/`.
-- Real-key verification remains manual because no secret key is committed to the repository.
+- Real-key verification passed for the current 1.0.0 candidate using the saved local key; it remains an environment-specific manual check because no secret key is committed to the repository.
 - Chrome Web Store upload and Unlisted submission remain manual because they require the publisher account.
 
 ## Known follow-up
