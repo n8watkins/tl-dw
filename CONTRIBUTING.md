@@ -5,7 +5,7 @@ Vite + React for the popup/options, vanilla TS for the content scripts).
 
 ## Prerequisites
 
-- **Node 18+** (the Vite toolchain and the ESM `.mjs` build scripts assume a modern
+- **Node 20.19+** (the Vite toolchain and the ESM `.mjs` build scripts assume a modern
   Node).
 - Google Chrome 111+ (a content script uses `world: "MAIN"`, honored from 111).
 
@@ -24,7 +24,7 @@ which bumps the patch version every run so the popup version always changes.
 
 ```bash
 npm run typecheck  # tsc --noEmit
-npm test           # vitest run — currently 49 passing unit tests
+npm test           # vitest run, always in UTC (set in vitest.config.ts)
 ```
 
 Tests cover the **pure helpers** in `src/lib/` (promptBuilder, tldw, profiles,
