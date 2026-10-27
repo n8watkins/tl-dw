@@ -46,7 +46,11 @@ describe("summary cache variants", () => {
 
   it("replaces the same video and fingerprint while retaining other variants", () => {
     const cache = { version: 2 as const, entries: [entry(), entry({ promptFingerprint: "other" })] };
-    const updated = upsertCachedVariant(cache, entry({ tldw: { summary: "Regenerated" } }));
+    const updated = upsertCachedVariant(
+      cache,
+      entry({ tldw: { summary: "Regenerated" } }),
+      new Date("2026-07-21T00:00:00.000Z").getTime(),
+    );
     expect(updated.entries).toHaveLength(2);
     expect(findCachedVariant(updated, "video", "fingerprint")?.tldw.summary).toBe("Regenerated");
   });

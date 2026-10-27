@@ -39,13 +39,17 @@ export function findCachedVariant(
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null;
 }
 
-export function upsertCachedVariant(cache: SummaryCache, entry: CachedSummary): SummaryCache {
+export function upsertCachedVariant(
+  cache: SummaryCache,
+  entry: CachedSummary,
+  now = Date.now(),
+): SummaryCache {
   const entries = cache.entries.filter(
     (candidate) =>
       candidate.videoId !== entry.videoId ||
       candidate.promptFingerprint !== entry.promptFingerprint,
   );
-  return pruneSummaryCache({ version: SUMMARY_CACHE_VERSION, entries: [entry, ...entries] });
+  return pruneSummaryCache({ version: SUMMARY_CACHE_VERSION, entries: [entry, ...entries] }, now);
 }
 
 export async function fingerprintPrompt(prompt: string, modelOrDestination: string): Promise<string> {
