@@ -38,6 +38,10 @@ It is not live anywhere yet: the 1.0.0 Unlisted Chrome Web Store submission is p
    That stale local setting was removed on 2026-10-27; re-run release-kit's apply step (or add `.githooks/commit-msg` and the `prepare` script it writes) to get the hook.
    The Commit messages CI check still enforces the format on every push.
 
+4. **CI runs on Node 20 (low).**
+   `.github/workflows` pins Node 20.19.0, which has been end-of-life since April 2026 and no longer gets security fixes.
+   Move CI (and `engines`) to Node 24; this also brings an npm that may need `--allow-git` for release-kit (open problem 2).
+
 ### Blocked on the owner
 
 - Chrome Web Store: uploading the ZIP and assets and submitting with Unlisted visibility needs the publisher account (steps 2 to 4 under "Required remaining work" below).
@@ -52,6 +56,7 @@ It is not live anywhere yet: the 1.0.0 Unlisted Chrome Web Store submission is p
 2. Switch the Direct API model to `gemini-3.5-flash-lite` and update the disclosures, then repeat the real-key smoke test with the owner's new key.
 3. Restore the local commit-msg hook via release-kit (open problem 3).
 4. Rebuild and revalidate the store ZIP with `npx vite build`, `npm run package` and `npm run validate:package` (never `npm run build`, which bumps the version), then hand the upload to the owner.
+5. Move CI to Node 24 (open problem 4).
 
 ## Objective
 
