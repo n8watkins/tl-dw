@@ -3,6 +3,11 @@
 Diagnosed 2026-10-26.
 No code was changed for this report.
 
+> **Status (2026-10-27): resolved.**
+> PR #3 (`20b1938`, merged 2026-10-27) applied fixes 1, 2, 4 and 5 below and pinned Vitest to UTC (step 3; the optional extra non-UTC CI run was not added).
+> The Quality gate has passed on master since.
+> This report is kept as the record of the diagnosis.
+
 ## Summary
 
 The `Quality gate` workflow (`.github/workflows/ci.yml`, job `verify`) has failed on both master runs since it was added on 2026-07-20.
