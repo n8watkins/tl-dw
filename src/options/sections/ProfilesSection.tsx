@@ -311,8 +311,9 @@ export function ProfilesSection() {
                     </div>
 
                     <div className="field-group">
-                      <label className="field-label">Name</label>
+                      <label className="field-label" htmlFor={`profile-${profile.id}-name`}>Name</label>
                       <input
+                        id={`profile-${profile.id}-name`}
                         type="text"
                         value={d.name}
                         onChange={(e) => updateDraft(profile.id, { name: e.target.value })}
@@ -320,8 +321,9 @@ export function ProfilesSection() {
                     </div>
 
                     <div className="field-group">
-                      <label className="field-label">Description</label>
+                      <label className="field-label" htmlFor={`profile-${profile.id}-description`}>Description</label>
                       <input
+                        id={`profile-${profile.id}-description`}
                         type="text"
                         value={d.description ?? ""}
                         onChange={(e) => updateDraft(profile.id, { description: e.target.value })}
@@ -329,8 +331,9 @@ export function ProfilesSection() {
                     </div>
 
                     <div className="field-group">
-                      <label className="field-label">Prompt Template</label>
+                      <label className="field-label" htmlFor={`profile-${profile.id}-template`}>Prompt Template</label>
                       <textarea
+                        id={`profile-${profile.id}-template`}
                         value={d.promptTemplate}
                         onChange={(e) => updateDraft(profile.id, { promptTemplate: e.target.value })}
                         rows={11}

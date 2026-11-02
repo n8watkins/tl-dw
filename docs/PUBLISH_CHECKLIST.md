@@ -21,7 +21,7 @@ Detailed listing copy and permission disclosures live in [STORE_SUBMISSION.md](S
 
 Use a dedicated Google AI Studio project and key that contain no unrelated production access.
 
-- [x] Saving the key immediately runs metadata verification for Gemini 3.1 Flash-Lite.
+- [x] Saving the key immediately runs metadata verification for the chosen model (Gemini 3.5 Flash-Lite by default) and, when verified, turns Direct API on.
 - [x] A valid key is shown as valid.
 - [x] An invalid or restricted key is saved but shown with an actionable failure.
 - [x] A Direct API summary succeeds and uses the selected effective profile.

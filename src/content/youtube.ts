@@ -920,7 +920,12 @@ function ensureShimmerStyle(): void {
   if (document.getElementById("tldw-shimmer-style")) return;
   const s = document.createElement("style");
   s.id = "tldw-shimmer-style";
-  s.textContent = "@keyframes tldw-shimmer{0%,100%{opacity:0.35}50%{opacity:0.75}}";
+  // tldw-pulse (the progress step) stays readable at its faintest; neither
+  // animates for people who ask for reduced motion.
+  s.textContent =
+    "@keyframes tldw-shimmer{0%,100%{opacity:0.35}50%{opacity:0.75}}" +
+    "@keyframes tldw-pulse{0%,100%{opacity:0.7}50%{opacity:1}}" +
+    "@media (prefers-reduced-motion: reduce){#tldw-watch-btn,[data-tldw-step]{animation:none!important}}";
   document.head.appendChild(s);
 }
 
@@ -1627,9 +1632,32 @@ function showSummaryErrorPanel(reason?: string, actionUrl?: string, opts: ErrorP
   summaryPanel = panel;
   summaryPanelKind = "idle";
   host.prepend(panel);
+  fitPanelToViewport();
   log("summary error panel shown:", reason ?? "loading timed out");
   refreshSponsorPanel();
 }
+
+/**
+ * Keep the panel inside the window. In a narrow window YouTube's own column
+ * runs a few pixels past both edges (at 420px it spans -3px to 423px), and a
+ * panel filling it would be clipped; inset it by what sticks out.
+ */
+function fitPanelToViewport(): void {
+  const panel = summaryPanel;
+  if (!panel?.isConnected) return;
+  panel.style.marginLeft = "";
+  panel.style.marginRight = "";
+  const rect = panel.getBoundingClientRect();
+  const viewport = document.documentElement.clientWidth;
+  if (rect.left < 0) panel.style.marginLeft = `${Math.ceil(-rect.left) + 4}px`;
+  if (rect.right > viewport) panel.style.marginRight = `${Math.ceil(rect.right - viewport) + 4}px`;
+}
+
+let fitFrame = 0;
+window.addEventListener("resize", () => {
+  cancelAnimationFrame(fitFrame);
+  fitFrame = requestAnimationFrame(fitPanelToViewport);
+});
 
 /** The box every TL;DW panel shares. */
 function panelBoxStyle(t: ReturnType<typeof theme>): Partial<CSSStyleDeclaration> {
@@ -1665,13 +1693,14 @@ function showProgress(step: string | undefined, notice?: string): void {
     stepEl.dataset.tldwStep = "1";
     stepEl.setAttribute("role", "status");
     stepEl.setAttribute("aria-live", "polite");
-    Object.assign(stepEl.style, { fontSize: "13px", lineHeight: "1.5", color: t.sub, animation: "tldw-shimmer 1.4s infinite" });
+    Object.assign(stepEl.style, { fontSize: "13px", lineHeight: "1.5", color: t.sub, animation: "tldw-pulse 1.6s ease-in-out infinite" });
     const noticeEl = document.createElement("div");
     noticeEl.dataset.tldwNotice = "1";
     Object.assign(noticeEl.style, { fontSize: "13px", lineHeight: "1.5", color: t.text, marginTop: "6px" });
     panel.append(head, stepEl, noticeEl);
     summaryPanel = panel;
     host.prepend(panel);
+    fitPanelToViewport();
     if (runInFlight) setWatchButtonState("analyzing");
   }
   summaryPanelKind = kind;
@@ -2109,6 +2138,50 @@ function buildTagsRow(
   return row;
 }
 
+let detailsSeq = 0;
+
+/** Drop Markdown emphasis markers a model leaves in plain text ("**key**" -> "key"). */
+function plainMarkdown(text: string): string {
+  return text.replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1").replace(/`([^`]+)`/g, "$1");
+}
+
+/**
+ * The DETAILS text as paragraphs and lists: lines starting "• " become a
+ * bulleted list, lines starting "1. " a numbered one, anything else a paragraph.
+ * Built with DOM nodes and textContent only (model output is untrusted).
+ */
+function renderDetails(text: string, t: ReturnType<typeof theme>): HTMLElement {
+  const wrap = document.createElement("div");
+  Object.assign(wrap.style, { paddingTop: "6px", fontSize: "13px", lineHeight: "1.55", color: t.sub });
+  let list: HTMLElement | null = null;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const bullet = line.match(/^•\s+(.*)$/);
+    const numbered = line.match(/^(\d{1,2})\.\s+(.*)$/);
+    if (bullet || numbered) {
+      const tag = bullet ? "UL" : "OL";
+      if (!list || list.tagName !== tag) {
+        list = document.createElement(tag.toLowerCase());
+        Object.assign(list.style, { margin: "4px 0", paddingLeft: "20px" });
+        if (numbered) list.setAttribute("start", numbered[1]);
+        wrap.append(list);
+      }
+      const li = document.createElement("li");
+      li.textContent = plainMarkdown(bullet ? bullet[1] : numbered![2]);
+      Object.assign(li.style, { margin: "2px 0" });
+      list.append(li);
+    } else {
+      list = null;
+      const p = document.createElement("p");
+      p.textContent = plainMarkdown(line);
+      Object.assign(p.style, { margin: "4px 0" });
+      wrap.append(p);
+    }
+  }
+  return wrap;
+}
+
 function buildSummaryPanel(
   tldw: TldwSummary,
   videoId?: string | null,
@@ -2121,11 +2194,7 @@ function buildSummaryPanel(
 
   const panel = document.createElement("div");
   panel.id = "tldw-summary";
-  Object.assign(panel.style, {
-    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
-    padding: "10px 14px", marginTop: "12px", marginBottom: "16px",
-    font: "14px/1.4 Roboto, system-ui, sans-serif", color: t.text,
-  });
+  Object.assign(panel.style, panelBoxStyle(t));
 
   // --- header: "⋯" overflow menu (F1) ---
   // The panel is summary-only: no AI verdict pill and no engagement/rating cue.
@@ -2188,48 +2257,50 @@ function buildSummaryPanel(
   const head = buildPanelHead(t, headerControls, currentChannelInfo, true, true, [], [overflowMenu]);
   Object.assign(head.style, { marginBottom: "8px" });
 
-  // --- body: summary always visible; clicking the panel toggles details ---
+  // --- body: summary always visible; a button shows and hides the details ---
   const hasDetails = !!tldw.details;
   const body = document.createElement("div");
 
-  const summaryRow = document.createElement("div");
-  Object.assign(summaryRow.style, { display: "flex", alignItems: "flex-start", gap: "6px" });
-
   const summaryEl = document.createElement("div");
-  summaryEl.textContent = tldw.summary;
-  Object.assign(summaryEl.style, { fontSize: "13px", lineHeight: "1.5", color: t.text, flex: "1" });
-  summaryRow.append(summaryEl);
-  body.append(summaryRow);
+  summaryEl.textContent = plainMarkdown(tldw.summary);
+  Object.assign(summaryEl.style, { fontSize: "14px", lineHeight: "1.5", color: t.text });
+  body.append(summaryEl);
 
   if (hasDetails) {
-    const chevron = document.createElement("span");
-    chevron.textContent = "▾";
-    Object.assign(chevron.style, { fontSize: "11px", color: t.sub, flexShrink: "0", marginTop: "3px" });
-    summaryRow.append(chevron);
+    detailsSeq += 1;
+    const detailsId = `tldw-details-${detailsSeq}`;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.dataset.tldwDetailsToggle = "1";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-controls", detailsId);
+    Object.assign(toggle.style, {
+      display: "inline-flex", alignItems: "center", gap: "4px",
+      marginTop: "6px", padding: "2px 0", background: "transparent", border: "none",
+      color: t.sub, fontSize: "13px", fontWeight: "600", cursor: "pointer",
+    });
 
-    const detailsWrap = document.createElement("div");
-    Object.assign(detailsWrap.style, {
-      display: "grid", gridTemplateRows: "0fr",
-      overflow: "hidden", transition: "grid-template-rows 0.2s ease",
-    });
-    const detailsInner = document.createElement("div");
-    detailsInner.textContent = tldw.details!;
-    Object.assign(detailsInner.style, {
-      overflow: "hidden", paddingTop: "8px",
-      fontSize: "13px", lineHeight: "1.55", color: t.sub,
-    });
-    detailsWrap.append(detailsInner);
-    body.append(detailsWrap);
+    const details = renderDetails(tldw.details!, t);
+    details.id = detailsId;
+    details.hidden = true;
 
     let expanded = false;
-    panel.style.cursor = "pointer";
-    panel.addEventListener("click", (e) => {
-      if (!(e.target as HTMLElement).closest("button, input, a, select")) {
-        expanded = !expanded;
-        detailsWrap.style.gridTemplateRows = expanded ? "1fr" : "0fr";
-        chevron.textContent = expanded ? "▴" : "▾";
-      }
+    const setExpanded = (next: boolean) => {
+      expanded = next;
+      details.hidden = !expanded;
+      toggle.setAttribute("aria-expanded", String(expanded));
+      toggle.textContent = expanded ? "Hide details ▴" : "Show details ▾";
+    };
+    setExpanded(false);
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setExpanded(!expanded);
     });
+    // Clicking the summary text toggles too (a mouse shortcut; the button is
+    // the keyboard and screen-reader control).
+    summaryEl.style.cursor = "pointer";
+    summaryEl.addEventListener("click", () => setExpanded(!expanded));
+    body.append(toggle, details);
   }
 
   // --- tags row (F6-UI): active channel+video tags + add / remove / promote ---
@@ -2273,6 +2344,7 @@ function showSummaryPanel(
   summaryPanel = panel;
   summaryPanelKind = "summary";
   host.prepend(summaryPanel);
+  fitPanelToViewport();
   setWatchButtonState("ready");
   log("summary panel injected");
   refreshSponsorPanel();

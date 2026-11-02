@@ -1,14 +1,17 @@
-# TL;DW 1.0 Manual Smoke Test
+# TL;DW Manual Smoke Test
 
-Run this checklist against the exact packaged 1.0.0 build.
-Use a dedicated Gemini key and project with no unrelated production access.
+Run this checklist against the exact packaged build (manifest version = `package.json` version).
+Use a Gemini key from a project with no unrelated production access.
 
 ## Build and setup
 
-- [ ] Confirm the unpacked and packaged manifests report version 1.0.0.
+- [ ] Confirm the unpacked and packaged manifests report the release version.
 - [ ] Confirm the package contains no source maps, secrets, development assets, or stale files.
 - [ ] Load the production extension in Chrome.
-- [ ] Open the popup once and confirm the SponsorBlock first-run notice appears and can be dismissed.
+- [ ] On a fresh profile, confirm the welcome page opens on install, "Skip, use without a key" works, and a pasted key is verified and turns Direct API on.
+- [ ] Open the popup once and confirm the "Works without a key" tip appears and can be dismissed.
+- [ ] Pick ChatGPT, Claude and NotebookLM as destinations and confirm Chrome asks for each site once, and a send works after allowing it.
+- [ ] Turn on SponsorBlock and confirm Chrome asks for sponsor.ajay.app; turn it off and confirm no more requests go there.
 - [ ] Open every options section and confirm there are no visible layout defects or console errors.
 
 ## Key onboarding
@@ -47,7 +50,10 @@ Use a dedicated Gemini key and project with no unrelated production access.
 ## Usage and quota day
 
 - [ ] Confirm the meter reads "TL;DW requests this Gemini quota day."
-- [ ] Confirm it identifies the Gemini 3.1 Flash-Lite 500 RPD allowance as of July 2026.
+- [ ] Confirm it links to the user's AI Studio rate limits instead of stating a fixed allowance.
+- [ ] Rate-limit Gemini 3.5 Flash-Lite (or wait for a 429) and confirm the summary comes from Gemini 3.1 Flash-Lite with a one-time notice.
+- [ ] On a video without a transcript, confirm the summary is labelled "Watched by Gemini (no transcript)".
+- [ ] Pick another model in Direct API, Behavior, and confirm the key is verified again for it.
 - [ ] Confirm an attempted request increments before its result arrives.
 - [ ] Confirm successful and failed requests update their separate counters.
 - [ ] Confirm a failed request still remains in attempts.

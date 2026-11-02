@@ -626,13 +626,40 @@ async function fillBox(el: HTMLElement, text: string): Promise<boolean> {
   return took();
 }
 
+/**
+ * An element's rendered text with its list items marked ("- item", "1. item"):
+ * a site renders the model's Markdown list as <li> elements, whose rendered
+ * text loses the markers, and TL;DW shows DETAILS lists as lists.
+ */
+function textWithListMarkers(el: HTMLElement): string {
+  if (!el.querySelector("li")) return el.innerText ?? el.textContent ?? "";
+  const clone = el.cloneNode(true) as HTMLElement;
+  for (const li of clone.querySelectorAll("li")) {
+    const list = li.parentElement;
+    const index = list ? [...list.children].filter((c) => c.tagName === "LI").indexOf(li) : 0;
+    const marker = list?.tagName === "OL" ? `${index + 1}. ` : "- ";
+    li.prepend(document.createTextNode(marker));
+  }
+  // innerText needs layout, so measure the clone off-screen.
+  const holder = document.createElement("div");
+  // Not visibility:hidden: innerText leaves out hidden text.
+  holder.style.cssText = "position:fixed;left:-100000px;top:0;width:800px;opacity:0;pointer-events:none";
+  holder.append(clone);
+  document.body.append(holder);
+  try {
+    return clone.innerText ?? clone.textContent ?? "";
+  } finally {
+    holder.remove();
+  }
+}
+
 /** Read the last visible response container's text content. */
 function readLastResponse(responseSelectors: string[]): string {
   for (const sel of responseSelectors) {
     const all = document.querySelectorAll<HTMLElement>(sel);
     const last = all[all.length - 1];
     if (last) {
-      const text = (last.innerText ?? last.textContent ?? "").trim();
+      const text = textWithListMarkers(last).trim();
       if (text.length > 20) return text;
     }
   }

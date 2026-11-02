@@ -102,3 +102,25 @@ describe("parseTldwBlock", () => {
       .toBe("`useEffect` matters.");
   });
 });
+
+describe("list details", () => {
+  it("keeps a bulleted or numbered DETAILS list as one item per line", () => {
+    const parsed = parseTldwBlock([
+      "---TLDW---",
+      "SUMMARY: Three habits matter most.",
+      "DETAILS: The video names three:",
+      "- Sleep eight hours.",
+      "* Walk daily.",
+      "• Eat **protein**.",
+      "---END TLDW---",
+    ].join("\n"));
+    expect(parsed?.details).toBe("The video names three:\n• Sleep eight hours.\n• Walk daily.\n• Eat **protein**.");
+    const numbered = parseTldwBlock("---TLDW---\nSUMMARY: s\nDETAILS:\n1. First.\n2) Second.\n---END TLDW---");
+    expect(numbered?.details).toBe("1. First.\n2. Second.");
+  });
+
+  it("still joins wrapped prose with spaces", () => {
+    const parsed = parseTldwBlock("---TLDW---\nSUMMARY: s\nDETAILS: one line\nwraps here.\n---END TLDW---");
+    expect(parsed?.details).toBe("one line wraps here.");
+  });
+});

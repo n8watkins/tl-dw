@@ -1819,3 +1819,42 @@ test("the model picker changes the model TL;DW calls", async () => {
   }
 });
 
+
+test("details show as a list behind a real button, and the panel fits a narrow window", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context);
+    await session.context.route("https://generativelanguage.googleapis.com/**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ candidates: [{ content: { parts: [{
+          text: "---TLDW---\nSUMMARY: Three habits matter.\nDETAILS: They are:\n- Sleep **eight** hours.\n- Walk daily.\n- Eat protein.\n---END TLDW---",
+        }] } }] }),
+      });
+    });
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-list");
+    await page.locator("#tldw-watch-btn").click();
+    const toggle = page.getByRole("button", { name: "Show details ▾" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator("#tldw-summary li")).toHaveCount(3);
+    await expect(page.locator("#tldw-summary li").first()).toBeHidden();
+    await toggle.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("button", { name: "Hide details ▴" })).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("#tldw-summary li")).toHaveText(["Sleep eight hours.", "Walk daily.", "Eat protein."]);
+    await page.keyboard.press("Space");
+    await expect(page.locator("#tldw-summary li").first()).toBeHidden();
+
+    // A column wider than the window (as YouTube's is at 420px) doesn't clip the panel.
+    await page.evaluate(() => { const below = document.getElementById("below")!; below.style.marginLeft = "-6px"; below.style.width = "calc(100% + 30px)"; });
+    await page.setViewportSize({ width: 420, height: 800 });
+    await expect.poll(() => page.evaluate(() => {
+      const r = document.getElementById("tldw-summary")!.getBoundingClientRect();
+      return r.left >= 0 && r.right <= document.documentElement.clientWidth;
+    })).toBe(true);
+  } finally {
+    await session.close();
+  }
+});

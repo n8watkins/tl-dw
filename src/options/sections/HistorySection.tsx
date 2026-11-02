@@ -160,12 +160,13 @@ export function HistorySection() {
           <div className="history-options-row">
             <div className="history-opt">
               <div className="history-opt-info">
-                <span className="history-opt-label">Save history on search</span>
+                <span className="history-opt-label" id="history-save-label">Save history on search</span>
                 <span className="history-opt-sub">Records the video, profile, and prompt locally each time you search</span>
               </div>
               <label className="toggle">
                 <input
                   type="checkbox"
+                  aria-labelledby="history-save-label"
                   checked={settings.saveHistoryOnSearch}
                   onChange={(e) => void updateSettings({ saveHistoryOnSearch: e.target.checked })}
                 />
@@ -174,9 +175,10 @@ export function HistorySection() {
             </div>
 
             <div className="history-opt">
-              <span className="history-opt-label">Keep at most</span>
+              <span className="history-opt-label" id="history-limit-label">Keep at most</span>
               <select
                 className="setting-select"
+                aria-labelledby="history-limit-label"
                 value={String(settings.historyLimit)}
                 onChange={(e) => {
                   const v = e.target.value;
@@ -191,10 +193,11 @@ export function HistorySection() {
             </div>
 
             <div className="history-opt">
-              <span className="history-opt-label">Auto-delete old</span>
+              <span className="history-opt-label" id="history-expire-label">Auto-delete old entries</span>
               <label className="toggle">
                 <input
                   type="checkbox"
+                  aria-labelledby="history-expire-label"
                   checked={settings.autoExpireHistory}
                   onChange={(e) => void updateSettings({ autoExpireHistory: e.target.checked })}
                 />
@@ -203,9 +206,10 @@ export function HistorySection() {
             </div>
 
             <div className="history-opt">
-              <span className="history-opt-label">After</span>
+              <span className="history-opt-label" id="history-expiry-label">After</span>
               <select
                 className="setting-select"
+                aria-label="Auto-delete entries after"
                 value={String(settings.historyExpiryDays)}
                 disabled={!settings.autoExpireHistory}
                 onChange={(e) =>

@@ -171,6 +171,21 @@ In real Chrome it fails in exactly the place TL;DW copies from: a destination ta
 - To test background-tab behavior, send `Emulation.setFocusEmulationEnabled { enabled: false }` on the page's CDP session.
 - Check the test catches the bug by breaking the fix on purpose (the "background tab" cut-short test fails without the `execCommand("copy")` fallback in `copyText()`, `src/content/inject.ts`).
 
+## 16. `f?.(await g())` skips `g()` when `f` is undefined
+
+`GeminiKeyForm` saved a key and then ran `onSaved?.(await verify(true))`.
+Optional-call short-circuiting skips the whole call, arguments included, when `onSaved` is undefined, so the welcome page and the Direct API page (which pass no `onSaved`) saved keys that were never verified.
+
+- Never put work in the arguments of an optional call: `const ok = await verify(true); onSaved?.(ok);`.
+
+## 17. A host in `content_scripts` is a required permission
+
+Chrome counts every `content_scripts` match as a host permission granted at install, so moving ChatGPT and Claude to `optional_host_permissions` alone would not have shrunk the install prompt.
+TL;DW declares its injector statically only for Gemini and registers the same code for the optional sites with `chrome.scripting.registerContentScripts` once they are granted (`syncInjectorRegistration()` in `src/background/index.ts`).
+
+- crxjs refuses to use one file as both a manifest content script and a `?script&iife` import; import a one-line wrapper (`src/content/inject-optional.ts`).
+- crxjs also lists `?script&iife` output as web-accessible on every site; `vite.config.ts` drops that entry, and `npm run validate:package` checks the store ZIP's permissions.
+
 ---
 
 ### How to add to this file

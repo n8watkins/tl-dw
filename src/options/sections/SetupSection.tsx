@@ -1,4 +1,16 @@
 import { Icon } from "../components/Icons";
+import { shortcutKeys, useSummarizeShortcut } from "../../lib/useShortcut";
+
+/** A shortcut as keycaps: Alt + Shift + G. */
+function Keys({ shortcut }: { shortcut: string }) {
+  return (
+    <span className="keys">
+      {shortcutKeys(shortcut).map((k, i) => (
+        <span key={i}>{i > 0 && " + "}<kbd>{k}</kbd></span>
+      ))}
+    </span>
+  );
+}
 
 function StepYouTubeIcon() {
   return (
@@ -10,6 +22,8 @@ function StepYouTubeIcon() {
 }
 
 export function SetupSection() {
+  const shortcut = useSummarizeShortcut();
+
   function openShortcuts() {
     void chrome.tabs.create({ url: "chrome://extensions/shortcuts" });
   }
@@ -23,7 +37,8 @@ export function SetupSection() {
       <div className="section-header">
         <h1 className="section-title">Summarize any YouTube video.</h1>
         <p className="section-desc">
-          TL;DW pulls the transcript and gets you an AI summary in seconds — customizable with profiles and tags, so you decide if a video is worth your time before you spend it.
+          TL;DW reads the video's transcript and puts an AI summary right under the video, shaped by
+          your profiles and tags, so you can decide whether a video is worth your time before you spend it.
         </p>
       </div>
 
@@ -35,7 +50,7 @@ export function SetupSection() {
           <div className="step-num">Step 1</div>
           <div className="step-title">Open YouTube</div>
           <div className="step-body">
-            Navigate to any video (Shorts aren't supported) and TL;DW detects it automatically, no extra clicking.
+            Open any video (Shorts aren't supported). A blue TL;DW button appears next to Subscribe.
           </div>
         </div>
         <div className="step">
@@ -43,9 +58,10 @@ export function SetupSection() {
             <Icon name="sparkles" />
           </div>
           <div className="step-num">Step 2</div>
-          <div className="step-title">Summarize to your AI</div>
+          <div className="step-title">Press TL;DW</div>
           <div className="step-body">
-            Press <kbd>Alt+Shift+G</kbd>. Gemini, ChatGPT, or Claude opens with the full analysis already running.
+            Click the button{shortcut ? <> or press <Keys shortcut={shortcut} /></> : null}. With a Gemini
+            key the summary comes straight from the API; without one, Gemini works in a background tab.
           </div>
         </div>
         <div className="step">
@@ -55,7 +71,8 @@ export function SetupSection() {
           <div className="step-num">Step 3</div>
           <div className="step-title">Read the summary</div>
           <div className="step-body">
-            The summary lands right on the page — a one-line takeaway plus the key details. Skip what doesn't matter. Your time, your call.
+            The summary lands under the video: a one-line takeaway plus the key details. Skip what
+            doesn't matter.
           </div>
         </div>
       </div>
@@ -65,7 +82,7 @@ export function SetupSection() {
       <div className="section-header">
         <h2 className="section-title" style={{ fontSize: 18 }}>Two ways to summarize</h2>
         <p className="section-desc">
-          TL;DW can hand a video to AI in two ways. Pick one — or use both.
+          TL;DW works without any setup. A free Gemini API key makes it faster and handles more videos.
         </p>
       </div>
 
@@ -74,17 +91,15 @@ export function SetupSection() {
           <div className="mode-card-title">
             <Icon name="sparkles" /> Open in a tab
           </div>
-          <div className="mode-card-tag">No API key · uses your AI subscription</div>
+          <div className="mode-card-tag">No key · works now</div>
           <div className="card-desc">
-            TL;DW opens your chosen AI (Gemini, ChatGPT, Claude, NotebookLM) with
-            the prompt already typed and running. You can keep that tab in the
-            background — TL;DW reads the finished answer back out of it and drops the summary
-            onto the YouTube page for you. Nothing to set up; it just uses wherever you're
-            already signed in.
+            TL;DW opens your chosen AI (Gemini by default, or ChatGPT, Claude or NotebookLM) in a
+            background tab, with the prompt typed and sent, then reads the finished answer and puts the
+            summary on the YouTube page. It uses the account you're already signed in with.
           </div>
           <div className="mode-card-note">
-            Trade-off: a tab opens (it can stay unfocused), and reading the answer depends on
-            each site's layout, so it's a little more fragile than Direct API.
+            Long videos: Gemini watches them from the link; ChatGPT and Claude ask you what to do.
+            Reading the answer depends on each site's layout, so it's a little more fragile than Direct API.
           </div>
         </div>
 
@@ -92,12 +107,11 @@ export function SetupSection() {
           <div className="mode-card-title">
             <Icon name="send" /> Direct API
           </div>
-          <div className="mode-card-tag">Your Gemini key · fully inline</div>
+          <div className="mode-card-tag">Your free Gemini key · recommended</div>
           <div className="card-desc">
-            Calls Google's Gemini API directly, so the summary appears right on
-            the video with <strong>no tab opening</strong>. Gemini 3.1 Flash-Lite is recommended
-            because it currently offers the highest free-tier allowance at up to 500 requests
-            per day as of July 2026. Optional paid capacity stays in your Google project.
+            Calls Google's Gemini API with your own key, so the summary appears under the video in
+            seconds with <strong>no tab</strong>. Long videos are summarized from the full transcript,
+            and Gemini watches videos that have no captions. Getting a free key takes about two minutes.
           </div>
           <button className="btn btn-primary" style={{ marginTop: 4 }} onClick={goToDirectApi}>
             Set up Direct API →
@@ -108,23 +122,27 @@ export function SetupSection() {
       <hr className="divider" />
 
       <div className="section-header">
-        <h2 className="section-title" style={{ fontSize: 18 }}>Keyboard Shortcut</h2>
+        <h2 className="section-title" style={{ fontSize: 18 }}>Keyboard shortcut</h2>
         <p className="section-desc">
-          Chrome uses "suggested" shortcuts — they may need one-time confirmation.
+          The shortcut sends the video to your default destination in a tab, with your default profile.
         </p>
       </div>
 
       <div className="shortcut-box">
         <div className="shortcut-info">
-          <div className="shortcut-label">Alt+Shift+G — Ask your default destination</div>
+          <div className="shortcut-label">Summarize with TL;DW</div>
           <div className="shortcut-sub">
-            If the shortcut isn't working, click the button to confirm it in Chrome's shortcuts manager.
+            {shortcut === null
+              ? "Checking your shortcut…"
+              : shortcut
+                ? "Change it in Chrome's keyboard shortcuts page."
+                : "No shortcut is set (another extension may use it). Pick one in Chrome's keyboard shortcuts page."}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>G</kbd></span>
+        <div className="shortcut-actions">
+          {shortcut ? <Keys shortcut={shortcut} /> : null}
           <button className="btn btn-ghost" onClick={openShortcuts}>
-            Set shortcut →
+            {shortcut ? "Change shortcut →" : "Set shortcut →"}
           </button>
         </div>
       </div>

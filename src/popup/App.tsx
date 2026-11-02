@@ -296,11 +296,11 @@ export function App() {
   }
 
   return (
-    <div className="tldw">
+    <main className="tldw">
       <header>
         <img className="brand-icon" src={ICON_URL} alt="" />
         <div className="brand-copy">
-          <span className="logo">TL;DW</span>
+          <h1 className="logo">TL;DW</h1>
           <span className="tag">Too Long; Didn't Watch</span>
         </div>
         <span className="header-version">v{VERSION}</span>
@@ -571,6 +571,6 @@ export function App() {
       >
         ☕ Buy me a Ko-fi
       </a>
-    </div>
+    </main>
   );
 }
