@@ -37,8 +37,10 @@ let video: HTMLVideoElement | null = null;
 let lastTime = 0;
 let programmaticSeek = false;
 
+/** The watch-page video id, or "" anywhere else (Shorts included). */
 function videoIdFromUrl(): string {
   try {
+    if (location.pathname !== "/watch") return "";
     return new URLSearchParams(location.search).get("v") ?? "";
   } catch {
     return "";
@@ -179,9 +181,31 @@ function attach(): void {
 }
 
 let lastHandledVid = "";
+/** Stop watching the player: no segments, no listeners (used off watch pages). */
+function detach(): void {
+  video?.removeEventListener("timeupdate", onTimeUpdate);
+  video?.removeEventListener("seeked", onSeeked);
+  video = null;
+  segments = [];
+  skipped.clear();
+  disabled.clear();
+  undoableUntil.clear();
+}
+
 async function handleNav(): Promise<void> {
   const vid = videoIdFromUrl();
-  if (!vid || vid === lastHandledVid) return;
+  if (!vid) {
+    // Left the watch page (a Short, the home feed...): never seek another
+    // player with the last video's sponsor segments.
+    if (lastHandledVid) {
+      lastHandledVid = "";
+      currentVid = "";
+      detach();
+      notifyPanel();
+    }
+    return;
+  }
+  if (vid === lastHandledVid) return;
   lastHandledVid = vid;
   currentVid = vid;
   segments = [];

@@ -174,46 +174,46 @@ export function localDateKey(d: Date = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
+function youtubeHost(u: URL): boolean {
+  const host = u.hostname.replace(/^www\./, "");
+  return host === "youtube.com" || host === "m.youtube.com";
+}
+
 /**
- * Extract the YouTube video ID from any watch/shorts/youtu.be URL.
- * Returns null for non-video URLs or URLs that don't parse.
+ * Extract the video ID from a YouTube watch URL (or a youtu.be share link).
+ * Returns null for everything else, Shorts included: TL;DW does not run on
+ * Shorts at all (they have no transcript panel to read).
  */
 export function extractVideoId(url: string): string | null {
   try {
     const u = new URL(url);
-    const host = u.hostname.replace(/^www\./, "");
-    if (host === "youtube.com" || host === "m.youtube.com") {
-      if (u.pathname === "/watch") return u.searchParams.get("v");
-      const shorts = /^\/shorts\/([^/?]+)/.exec(u.pathname);
-      if (shorts) return shorts[1];
+    if (youtubeHost(u)) {
+      return u.pathname === "/watch" ? u.searchParams.get("v") || null : null;
     }
-    if (host === "youtu.be") return u.pathname.slice(1) || null;
+    if (u.hostname === "youtu.be") return u.pathname.slice(1) || null;
   } catch {
     // fall through
   }
   return null;
 }
 
+/** True for a YouTube watch page with a video id: the only page TL;DW acts on. */
 export function isYouTubeVideoUrl(url: string | undefined): boolean {
   if (!url) return false;
   try {
     const u = new URL(url);
-    const host = u.hostname.replace(/^www\./, "");
-    if (host !== "youtube.com" && host !== "m.youtube.com") return false;
-    return u.pathname === "/watch" || u.pathname.startsWith("/shorts/");
+    return youtubeHost(u) && u.pathname === "/watch" && !!u.searchParams.get("v");
   } catch {
     return false;
   }
 }
 
-/** True only for YouTube Shorts URLs — Shorts have no transcript. */
+/** True only for YouTube Shorts URLs, where TL;DW is deliberately unavailable. */
 export function isYouTubeShortUrl(url: string | undefined): boolean {
   if (!url) return false;
   try {
     const u = new URL(url);
-    const host = u.hostname.replace(/^www\./, "");
-    if (host !== "youtube.com" && host !== "m.youtube.com") return false;
-    return u.pathname.startsWith("/shorts/");
+    return youtubeHost(u) && u.pathname.startsWith("/shorts/");
   } catch {
     return false;
   }
