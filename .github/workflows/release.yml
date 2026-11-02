@@ -19,4 +19,4 @@ jobs:
     if: github.repository == 'n8watkins/tl-dw'
     permissions:
       contents: write # only the kit's publish job uses it
-    uses: n8watkins/release-kit/.github/workflows/release.yml@v2.0.0
+    uses: n8watkins/release-kit/.github/workflows/release.yml@v2.0.1
