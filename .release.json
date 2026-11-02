@@ -1,4 +1,5 @@
 {
   "versionFiles": [],
-  "workflows": "package"
+  "workflows": "package",
+  "repository": "n8watkins/tl-dw"
 }
