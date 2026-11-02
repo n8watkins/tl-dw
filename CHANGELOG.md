@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2 - 2026-11-02
+
+### Fixed
+
+- TL;DW no longer summarizes the previous video's transcript after you switch videos, keeps long transcripts within each AI site's limit, reads the real video length behind ads, recognizes live streams, and stops "Analyzing..." with a clear reason when a send can't go through
+
 ## 1.0.1 - 2026-11-02
 
 ### Fixed
