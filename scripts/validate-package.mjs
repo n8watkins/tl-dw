@@ -33,6 +33,31 @@ if (manifest.version !== pkg.version) {
   throw new Error(`Manifest version ${manifest.version} does not match package version ${pkg.version}`);
 }
 
+// The base install asks only for YouTube and Gemini; everything else is an
+// optional permission requested when the user picks that feature.
+const BASE_HOSTS = [
+  "https://www.youtube.com/*",
+  "https://gemini.google.com/*",
+  "https://generativelanguage.googleapis.com/*",
+];
+const hosts = manifest.host_permissions ?? [];
+if (JSON.stringify([...hosts].sort()) !== JSON.stringify([...BASE_HOSTS].sort())) {
+  throw new Error(`Unexpected host_permissions (an e2e build?): ${hosts.join(", ")}`);
+}
+if ((manifest.permissions ?? []).includes("tabs")) {
+  throw new Error('The "tabs" permission is not needed and must not ship');
+}
+for (const host of ["https://chatgpt.com/*", "https://claude.ai/*", "https://sponsor.ajay.app/*"]) {
+  if (!(manifest.optional_host_permissions ?? []).includes(host)) {
+    throw new Error(`${host} must be an optional host permission`);
+  }
+}
+const contentScriptHosts = (manifest.content_scripts ?? []).flatMap((script) => script.matches ?? []);
+const extraHosts = contentScriptHosts.filter((m) => !BASE_HOSTS.includes(m));
+if (extraHosts.length > 0) {
+  throw new Error(`Content scripts match hosts outside the base install: ${extraHosts.join(", ")}`);
+}
+
 const archiveText = execFileSync("unzip", ["-p", zipPath], {
   encoding: "utf8",
   maxBuffer: 20 * 1024 * 1024,

@@ -7,18 +7,19 @@ import type {
   Settings,
 } from "../types";
 import {
+  AI_STUDIO_LINKS,
   DEFAULT_SETTINGS,
   DESTINATIONS,
   destinationVerb,
-  GEMINI_URL,
   getDestination,
   isYouTubeVideoUrl,
   isYouTubeShortUrl,
   STORAGE_KEYS,
 } from "../lib/constants";
+import { requestDestinationAccess } from "../lib/permissions";
+import { useSummarizeShortcut } from "../lib/useShortcut";
 import { DestinationIcon } from "../lib/DestinationIcon";
 import {
-  addOpenSearch,
   clearDeliveryStatuses,
   getDeliveryStatuses,
   getGeminiUsage,
@@ -27,9 +28,8 @@ import {
   getProfiles,
   getSettings,
   setSettings as saveSettings,
-  setPendingPrompt,
 } from "../lib/storage";
-import type { GeminiUsage } from "../types";
+import type { GeminiUsage, VideoMeta } from "../types";
 import { emptyGeminiUsage } from "../lib/geminiUsage";
 
 /* Inline icons — stroke uses currentColor so they inherit each button's color. */
@@ -99,6 +99,10 @@ export function App() {
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   const [statuses, setStatuses] = useState<DeliveryStatus[]>([]);
   const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>(emptyGeminiUsage());
+  // What the YouTube page says about its video: a live broadcast or an
+  // unavailable video has nothing to summarize, so the popup says so.
+  const [pageMeta, setPageMeta] = useState<VideoMeta | null>(null);
+  const shortcut = useSummarizeShortcut();
   // Whether the user has made an in-popup choice this session. Once they have,
   // a settings write (e.g. ticking Direct API) must NOT revert it back to the
   // saved default via the storage.onChanged listener below.
@@ -125,6 +129,11 @@ export function App() {
       setHistory(hist);
       setStatuses(stat);
       setGeminiUsage(usage);
+      if (activeTab?.id !== undefined && isYouTubeVideoUrl(activeTab.url)) {
+        const meta = (await chrome.tabs.sendMessage(activeTab.id, { type: "GET_VIDEO_META" })
+          .catch(() => null)) as VideoMeta | null;
+        setPageMeta(meta);
+      }
       setReady(true);
     })();
   }, []);
@@ -168,8 +177,12 @@ export function App() {
   }
 
   // Watch pages only. TL;DW is deliberately unavailable on Shorts: the popup
-  // says so and offers no send controls.
-  const onVideo = isYouTubeVideoUrl(tab?.url);
+  // says so and offers no send controls. The same goes for a broadcast that is
+  // live right now and for a video YouTube can't play.
+  const onWatchPage = isYouTubeVideoUrl(tab?.url);
+  const liveNow = onWatchPage && !!pageMeta?.current && !!pageMeta.live;
+  const unavailable = onWatchPage && !!pageMeta?.current && !!pageMeta.unavailable;
+  const onVideo = onWatchPage && !liveNow && !unavailable;
   const onShort = isYouTubeShortUrl(tab?.url);
   // When Direct API is configured + enabled and Gemini is the destination, the
   // popup can summarize inline on the page (no tab), matching the on-page button.
@@ -184,9 +197,17 @@ export function App() {
   // Per-session override only: changing the destination here does NOT touch the
   // saved default (set in Settings). Reopening the popup reverts to the default.
   function changeDestination(id: string) {
-    destOverridden.current = true;
-    setDestinationId(id);
     setCopyStatus("");
+    // ChatGPT, Claude and NotebookLM need the user's permission for their site;
+    // ask now, inside the click (it resolves at once when already allowed).
+    void requestDestinationAccess(id).then((granted) => {
+      if (!granted) {
+        setCopyStatus(`${getDestination(id).label} needs your permission so TL;DW can open it and type the prompt.`);
+        return;
+      }
+      destOverridden.current = true;
+      setDestinationId(id);
+    });
   }
 
   function send() {
@@ -225,29 +246,22 @@ export function App() {
     }
   }
 
-  /**
-   * Re-run a past search by reusing its stored prompt — works even if the
-   * original video or destination tab is long gone. Opens the same destination
-   * it was sent to before.
-   */
-  async function askAgain(entry: SearchHistoryEntry) {
-    if (!settings) return;
-    const dest = getDestination(entry.destinationId);
-    const video = { url: entry.videoUrl, title: entry.videoTitle };
-
-    const targetUrl = dest.id === "gemini" ? GEMINI_URL : dest.url;
-    const t = await chrome.tabs.create({ url: targetUrl, active: settings.focusGeminiTab });
-    if (t.id !== undefined) {
-      await setPendingPrompt(t.id, { prompt: entry.prompt });
-      await addOpenSearch({
-        tabId: t.id,
-        videoTitle: video.title,
-        destinationId: dest.id,
-        destinationLabel: dest.label,
-        createdAt: new Date().toISOString(),
-      });
-    }
+  /** Open a recent video in a new tab (summarizing it again is one click there). */
+  function openRecent(entry: SearchHistoryEntry) {
+    void chrome.tabs.create({ url: entry.videoUrl, active: true });
     window.close();
+  }
+
+  function openWelcome() {
+    void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "welcome" });
+    window.close();
+  }
+
+  function dismissFirstRun() {
+    if (!settings) return;
+    const next = { ...settings, firstRunNoticeSeen: true };
+    setSettings(next);
+    void saveSettings(next);
   }
 
   function openOptions() {
@@ -311,29 +325,25 @@ export function App() {
         </button>
       </header>
 
-      {settings && !settings.firstRunNoticeSeen && (
-        <button
-          className="first-run-notice"
-          role="note"
-          title="Dismiss"
-          onClick={() => {
-            const next = { ...settings, firstRunNoticeSeen: true };
-            setSettings(next);
-            void saveSettings(next);
-          }}
-        >
+      {settings && !settings.firstRunNoticeSeen && !settings.geminiApiKey && (
+        <div className="first-run-notice" role="note">
           <p>
-            Auto-skips sponsors (sends the video ID to SponsorBlock) — all
-            on-device.{" "}
-            <span
-              className="first-run-link"
-              role="link"
-              onClick={(e) => { e.stopPropagation(); openOptions(); }}
-            >
-              Settings
-            </span>
+            Works without a key: TL;DW opens Gemini in a tab.{" "}
+            <button type="button" className="first-run-link" onClick={openWelcome}>
+              Add a free Gemini key
+            </button>{" "}
+            (about 2 minutes) for summaries right on the page.
           </p>
-        </button>
+          <button
+            type="button"
+            className="first-run-dismiss"
+            aria-label="Dismiss this tip"
+            title="Dismiss"
+            onClick={dismissFirstRun}
+          >
+            ✕
+          </button>
+        </div>
       )}
 
       {!ready ? (
@@ -343,6 +353,14 @@ export function App() {
           <YouTubeIcon />
           <span className="video-btn-title">{cleanTitle(tab?.title)}</span>
         </button>
+      ) : liveNow ? (
+        <p className="status-note" role="status">
+          This is a live stream. TL;DW can summarize it once the broadcast ends.
+        </p>
+      ) : unavailable ? (
+        <p className="status-note" role="status">
+          YouTube can't play this video here, so there's nothing for TL;DW to summarize.
+        </p>
       ) : onShort ? (
         <p className="empty shorts-note" role="status">
           TL;DW isn't available on YouTube Shorts.
@@ -399,6 +417,8 @@ export function App() {
             <div className="send-row">
               <select
                 className="profile-select"
+                aria-label="Prompt profile"
+                title="Prompt profile"
                 value={selectedId}
                 onChange={(e) => setSelectedId(e.target.value)}
               >
@@ -419,7 +439,9 @@ export function App() {
                   ) : (
                     <>
                       <span>{destinationVerb(getDestination(destinationId))} {getDestination(destinationId).label}</span>
-                      <span className="ask-btn-shortcut">Alt+Shift+G</span>
+                      {shortcut && destinationId === settings?.destinationId && (
+                        <span className="ask-btn-shortcut">{shortcut}</span>
+                      )}
                     </>
                   )}
                 </span>
@@ -449,7 +471,7 @@ export function App() {
                   <button
                     className="section-link"
                     onClick={() => {
-                      void chrome.tabs.create({ url: "https://aistudio.google.com/usage" });
+                      void chrome.tabs.create({ url: AI_STUDIO_LINKS.usage });
                       window.close();
                     }}
                   >
@@ -525,8 +547,8 @@ export function App() {
               <button
                 key={h.id}
                 className="search-item"
-                onClick={() => void askAgain(h)}
-                title={h.videoTitle}
+                onClick={() => openRecent(h)}
+                title={`Open ${h.videoTitle ?? "this video"}`}
               >
                 <span className="search-item-title">
                   {h.videoTitle ?? "YouTube video"}

@@ -85,7 +85,7 @@ function stillPlayingHandledVideo(): boolean {
 async function loadEnabled(): Promise<boolean> {
   const r = await chrome.storage.local.get("settings");
   const s = r["settings"] as { skipSponsors?: boolean } | undefined;
-  return s?.skipSponsors !== false; // default on
+  return s?.skipSponsors === true; // opt-in: off unless the user turned it on
 }
 
 async function fetchSegments(videoId: string): Promise<SponsorSegment[]> {
@@ -291,7 +291,7 @@ navPollTimer = window.setInterval(() => void handleNav(), 1000);
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes["settings"]) return;
   const next = changes["settings"].newValue as { skipSponsors?: boolean } | undefined;
-  enabled = next?.skipSponsors !== false;
+  enabled = next?.skipSponsors === true;
   notifyPanel(); // reflect the toggle in the panel (segments hidden when off)
 });
 

@@ -220,7 +220,8 @@ export const DEFAULT_SETTINGS: Settings = {
   geminiKeyValidation: { status: "unverified" },
   geminiModelId: DEFAULT_GEMINI_MODEL_ID,
   useDirectApi: false,
-  skipSponsors: true,
+  // Opt-in: it sends each watched video's ID to the SponsorBlock API.
+  skipSponsors: false,
   keepFullCallLog: false,
   firstRunNoticeSeen: false,
 };

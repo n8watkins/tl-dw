@@ -843,6 +843,91 @@ test("the popup says TL;DW isn't available on Shorts", async () => {
   }
 });
 
+/** Open the popup as if `tab` were the active tab. */
+async function popupFor(session: ExtensionSession, tab: { id: number; url: string; title?: string }): Promise<Page> {
+  const popup = await session.context.newPage();
+  await popup.addInitScript((fake) => {
+    const query = chrome.tabs.query.bind(chrome.tabs);
+    chrome.tabs.query = (async (info: chrome.tabs.QueryInfo) =>
+      info.active && info.currentWindow ? [fake] : query(info)) as typeof chrome.tabs.query;
+    const w = window as unknown as { __created: string[] };
+    w.__created = [];
+    chrome.tabs.create = (async (props: chrome.tabs.CreateProperties) => {
+      w.__created.push(props.url ?? "");
+      return { id: -1 } as chrome.tabs.Tab;
+    }) as typeof chrome.tabs.create;
+    window.close = () => {};
+  }, tab);
+  await popup.goto(`chrome-extension://${session.extensionId}/src/popup/index.html`);
+  return popup;
+}
+
+test("the popup says when a live stream can't be summarized yet", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context, playerFixture({ isLive: true, captions: false }));
+    const page = await session.context.newPage();
+    await page.goto("https://www.youtube.com/watch?v=fixture-live-popup");
+    await expect.poll(() => page.evaluate(() => !!document.querySelector("ytd-watch-metadata h1"))).toBe(true);
+    const tabId = await tabIdFor(session, page.url());
+    const popup = await popupFor(session, { id: tabId!, url: page.url(), title: "Player Video - YouTube" });
+    await expect(popup.getByRole("status")).toHaveText("This is a live stream. TL;DW can summarize it once the broadcast ends.");
+    await expect(popup.locator(".ask-btn")).toHaveCount(0);
+  } finally {
+    await session.close();
+  }
+});
+
+test("the popup's first-run tip offers a free key, and Recent opens the video instead of re-sending", async () => {
+  const session = await launchExtension();
+  try {
+    await setStorage(session, {
+      profiles: profiles(),
+      settings: { defaultProfileId: "global" },
+      history: [{
+        id: "h1", videoUrl: "https://www.youtube.com/watch?v=recent-1", videoTitle: "A recent video",
+        profileId: "global", profileName: "Global Profile", destinationId: "chatgpt", prompt: "x",
+        createdAt: new Date().toISOString(),
+      }],
+    });
+    const popup = await popupFor(session, { id: 1, url: "chrome://newtab/", title: "New Tab" });
+    const tip = popup.getByRole("note");
+    await expect(tip).toContainText("Works without a key: TL;DW opens Gemini in a tab.");
+    await expect(tip.getByRole("button", { name: "Add a free Gemini key" })).toBeVisible();
+    await popup.locator(".search-item", { hasText: "A recent video" }).click();
+    expect(await popup.evaluate(() => (window as unknown as { __created: string[] }).__created))
+      .toEqual(["https://www.youtube.com/watch?v=recent-1"]);
+    expect(await session.worker.evaluate(async () => Object.keys((await chrome.storage.session.get("pendingPrompts")).pendingPrompts ?? {})))
+      .toHaveLength(0);
+    await tip.getByRole("button", { name: "Dismiss this tip" }).click();
+    await expect(popup.getByRole("note")).toHaveCount(0);
+    expect((await getStorage<{ firstRunNoticeSeen?: boolean }>(session, "settings"))?.firstRunNoticeSeen).toBe(true);
+  } finally {
+    await session.close();
+  }
+});
+
+test("a first install opens the welcome page; a verified key turns Direct API on", async () => {
+  const session = await launchExtension();
+  try {
+    await mockGemini(session.context, []);
+    await expect.poll(() => session.context.pages().map((p) => p.url()).find((u) => u.endsWith("#welcome")))
+      .toBe(`chrome-extension://${session.extensionId}/src/options/index.html#welcome`);
+    const welcome = session.context.pages().find((p) => p.url().endsWith("#welcome"))!;
+    await expect(welcome.getByRole("heading", { name: "Two ways it works" })).toBeVisible();
+    await expect(welcome.getByRole("link", { name: "Google AI Studio ↗" })).toHaveAttribute("href", "https://aistudio.google.com/apikey");
+    await welcome.getByRole("button", { name: "Skip, use without a key" }).click();
+    await expect(welcome.getByRole("status")).toContainText("TL;DW will use Gemini in a tab");
+    await welcome.getByRole("button", { name: "Add a key after all" }).click();
+    await welcome.getByLabel("Gemini API key").fill("fixture-key");
+    await welcome.getByRole("button", { name: "Save key" }).click();
+    await expect(welcome.getByRole("status")).toContainText("You're set: Direct API is on.");
+    expect((await getStorage<{ useDirectApi?: boolean }>(session, "settings"))?.useDirectApi).toBe(true);
+  } finally {
+    await session.close();
+  }
+});
+
 async function transcriptFromPage(session: ExtensionSession, page: Page): Promise<{ transcript: string | null; ms: number }> {
   const tabId = await tabIdFor(session, page.url());
   const started = Date.now();
@@ -1363,7 +1448,7 @@ test("sponsor segments keep being skipped in the miniplayer, but not on Shorts o
     await session.context.route("https://sponsor.ajay.app/**", async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ segment: [10, 20], category: "sponsor" }]) });
     });
-    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), useDirectApi: false } });
+    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), useDirectApi: false, skipSponsors: true } });
     const page = await session.context.newPage();
     await page.goto("https://www.youtube.com/watch?v=fixture-sponsor");
     const playInto = () => page.evaluate(() => (window as unknown as { __playInto: () => Promise<number> }).__playInto());
@@ -1389,6 +1474,28 @@ test("sponsor segments keep being skipped in the miniplayer, but not on Shorts o
   }
 });
 
+test("SponsorBlock is off until the user turns it on: no video ID is sent", async () => {
+  const session = await launchExtension();
+  try {
+    const requests: string[] = [];
+    await routeYouTube(session.context, sponsorFixture);
+    await session.context.route("https://sponsor.ajay.app/**", async (route) => {
+      requests.push(route.request().url());
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ segment: [10, 20], category: "sponsor" }]) });
+    });
+    // A fresh install's settings: SponsorBlock off.
+    expect((await getStorage<{ skipSponsors?: boolean }>(session, "settings"))?.skipSponsors).toBe(false);
+    const page = await session.context.newPage();
+    await page.goto("https://www.youtube.com/watch?v=fixture-sponsor-off");
+    const playInto = () => page.evaluate(() => (window as unknown as { __playInto: () => Promise<number> }).__playInto());
+    await page.waitForTimeout(2_000);
+    expect(await playInto()).toBe(11);
+    expect(requests).toHaveLength(0);
+  } finally {
+    await session.close();
+  }
+});
+
 test("sponsor segments are never applied on a Short", async () => {
   const session = await launchExtension();
   try {
@@ -1396,7 +1503,7 @@ test("sponsor segments are never applied on a Short", async () => {
     await session.context.route("https://sponsor.ajay.app/**", async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ segment: [10, 20], category: "sponsor" }]) });
     });
-    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), useDirectApi: false } });
+    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), useDirectApi: false, skipSponsors: true } });
     const page = await session.context.newPage();
     await page.goto("https://www.youtube.com/watch?v=fixture-sponsor-2");
     const playInto = () => page.evaluate(() => (window as unknown as { __playInto: () => Promise<number> }).__playInto());
@@ -1672,9 +1779,10 @@ test("API errors offer the action that fixes them", async () => {
     await page.locator("#tldw-watch-btn").click();
     const panel = page.locator("#tldw-summary");
     await expect(panel.getByRole("button", { name: "Replace key in TL;DW settings" })).toBeVisible();
-    const optionsPage = session.context.waitForEvent("page");
     await panel.getByRole("button", { name: "Replace key in TL;DW settings" }).click();
-    expect((await optionsPage).url()).toContain("options/index.html#directapi");
+    // It reuses the options tab already open (the welcome page) or opens one.
+    await expect.poll(() => session.context.pages().some((p) => p.url().endsWith("options/index.html#directapi")))
+      .toBe(true);
 
     // Both Flash-Lite models rate limited: offer the Gemini tab instead.
     await session.context.unroute("https://generativelanguage.googleapis.com/**");

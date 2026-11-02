@@ -304,6 +304,8 @@ export type VideoMeta = {
   current?: boolean;
   /** A broadcast that is live right now with no transcript: nothing to summarize yet. */
   live?: boolean;
+  /** YouTube shows "Video unavailable" or won't play the video here. */
+  unavailable?: boolean;
   /**
    * False when Gemini can't watch the video from its link (private, unlisted or
    * unplayable); undefined when unknown.

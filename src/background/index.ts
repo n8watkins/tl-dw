@@ -1,3 +1,6 @@
+// The injector for the optional chat sites, built as a standalone script so it
+// can be registered at runtime once the user allows that site.
+import injectScript from "../content/inject-optional.ts?script&iife";
 import { buildDestinationPrompt, buildDestinationPromptInfo } from "../lib/promptBuilder";
 import { parseTldwBlock } from "../lib/tldw";
 import { selectSummaryProfile } from "../lib/summaryProfile";
@@ -31,6 +34,13 @@ import {
   STORAGE_KEYS,
 } from "../lib/constants";
 import { cacheContextForScrape, findOpenSearchForVideo } from "../lib/openSearchMatch";
+import {
+  accessNeededMessage,
+  destinationOrigins,
+  hasDestinationAccess,
+  hasSponsorBlockAccess,
+  OPTIONAL_DESTINATION_ORIGINS,
+} from "../lib/permissions";
 import { cachedSourceLabel } from "../lib/summarySource";
 import { fillFailureMessage } from "../lib/fillFailure";
 import { addHistoryEntry, expireOldEntries, trimToLimit } from "../lib/history";
@@ -137,14 +147,65 @@ async function startupStorageSweep(): Promise<void> {
   }
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+const INJECTOR_ID = "tldw-optional-destinations";
+
+/**
+ * Register the destination injector on exactly the optional chat sites the user
+ * has allowed (Gemini's is in the manifest). Runs on install, on startup and
+ * whenever a permission is granted or removed, so the registration always
+ * matches the granted origins.
+ */
+async function syncInjectorRegistration(): Promise<void> {
+  try {
+    const granted: string[] = [];
+    for (const origins of Object.values(OPTIONAL_DESTINATION_ORIGINS)) {
+      if (await chrome.permissions.contains({ origins: [...origins] })) granted.push(...origins);
+    }
+    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [INJECTOR_ID] });
+    if (existing.length > 0) await chrome.scripting.unregisterContentScripts({ ids: [INJECTOR_ID] });
+    if (granted.length === 0) return;
+    await chrome.scripting.registerContentScripts([{
+      id: INJECTOR_ID,
+      matches: granted,
+      js: [injectScript],
+      runAt: "document_idle",
+      persistAcrossSessions: true,
+    }]);
+  } catch (error) {
+    console.warn("[TL;DW] couldn't register the destination injector", error);
+  }
+}
+
+/** Whether the injector is registered for `destinationId`'s site (Gemini's always is). */
+async function injectorReady(destinationId: string): Promise<boolean> {
+  const origins = destinationOrigins(destinationId);
+  if (origins.length === 0) return true;
+  const [script] = await chrome.scripting.getRegisteredContentScripts({ ids: [INJECTOR_ID] }).catch(() => []);
+  return !!script?.matches && origins.every((o) => script.matches!.includes(o));
+}
+
+chrome.runtime.onInstalled.addListener((details) => {
   void ensureSeeded().then(() => rebuildContextMenu());
   void startupStorageSweep();
+  void syncInjectorRegistration();
+  // A first install opens the welcome page: what the two modes are and how to
+  // get a free Gemini key (or skip and use TL;DW without one).
+  if (details.reason === "install") {
+    void chrome.tabs.create({ url: chrome.runtime.getURL(`${optionsPagePath()}#welcome`) });
+  }
 });
 
 chrome.runtime.onStartup.addListener(() => {
   void startupStorageSweep();
+  void syncInjectorRegistration();
 });
+
+chrome.permissions.onAdded.addListener(() => void syncInjectorRegistration());
+chrome.permissions.onRemoved.addListener(() => void syncInjectorRegistration());
+
+function optionsPagePath(): string {
+  return chrome.runtime.getManifest().options_ui?.page ?? "src/options/index.html";
+}
 
 // Keep the menu title in sync when the default destination changes in Settings.
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -434,6 +495,10 @@ async function prepareAndSend({
         ok: false,
         error: "this is a live stream. TL;DW can summarize it once the broadcast ends.",
       };
+    }
+    if (meta?.unavailable) {
+      await flashBadge("N/A", "muted");
+      return { ok: false, error: "YouTube can't play this video here, so there's nothing to summarize." };
     }
     if (meta?.title) {
       title = meta.title;
@@ -771,6 +836,27 @@ async function prepareAndSend({
     return { ok: true };
   }
 
+  // ChatGPT, Claude and NotebookLM are optional host permissions: without the
+  // user's permission TL;DW can't type into the site, so say so instead.
+  if (!(await hasDestinationAccess(destination.id))) {
+    const error = accessNeededMessage(destination.label, destination.id);
+    await flashBadge("!");
+    if (pageTabId !== undefined) {
+      void chrome.tabs.sendMessage(pageTabId, {
+        type: "SET_SUMMARY_ERROR",
+        videoId: videoId ?? undefined,
+        reason: error,
+        category: "permission",
+        site: destination.label,
+        destinationId: destination.id,
+        decision: true,
+      }).catch(() => {});
+    }
+    void recordDeliveryStatus({ site: destination.label, ok: false, reason: error, at: new Date().toISOString() });
+    return { ok: false, error, category: "permission", site: destination.label, destinationId: destination.id };
+  }
+  if (!(await injectorReady(destination.id))) await syncInjectorRegistration();
+
   if (pageTabId !== undefined && isPromptDest) {
     progress(pageTabId, videoId, `Waiting for ${destination.label}'s answer in its tab…`, notice);
   }
@@ -980,6 +1066,11 @@ chrome.runtime.onMessage.addListener(
       const videoId = message.videoId;
       void (async () => {
         try {
+          // SponsorBlock is opt-in: without the user's permission nothing is sent.
+          if (!(await hasSponsorBlockAccess())) {
+            sendResponse({ segments: [] });
+            return;
+          }
           const url =
             "https://sponsor.ajay.app/api/skipSegments?videoID=" +
             encodeURIComponent(videoId) +
@@ -1057,24 +1148,20 @@ chrome.runtime.onMessage.addListener(
         // Deep-link to a sidebar section via the page's URL hash. Focus an
         // existing options tab if one's open (so the address bar updates in
         // place) rather than piling up duplicates; otherwise open a new tab.
-        const base = chrome.runtime.getURL(
-          chrome.runtime.getManifest().options_ui?.page ?? "src/options/index.html",
-        );
+        // Found through runtime contexts, which needs no "tabs" permission.
+        const base = chrome.runtime.getURL(optionsPagePath());
         const url = `${base}#${section}`;
         void (async () => {
-          const tabs = await chrome.tabs.query({});
-          const existing = tabs.find(
-            (tb) => tb.url?.startsWith(base) || tb.pendingUrl?.startsWith(base),
-          );
-          if (existing?.id != null) {
-            await chrome.tabs.update(existing.id, { url, active: true });
-            if (existing.windowId != null) {
-              await chrome.windows.update(existing.windowId, { focused: true });
-            }
+          const contexts = await chrome.runtime.getContexts({ contextTypes: [chrome.runtime.ContextType.TAB] })
+            .catch(() => [] as chrome.runtime.ExtensionContext[]);
+          const existing = contexts.find((c) => c.documentUrl?.startsWith(base) && c.tabId >= 0);
+          if (existing) {
+            const tab = await chrome.tabs.update(existing.tabId, { url, active: true });
+            if (tab?.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
           } else {
             await chrome.tabs.create({ url });
           }
-        })();
+        })().catch(() => {});
       } else {
         void chrome.runtime.openOptionsPage();
       }

@@ -5,30 +5,35 @@ It is a Manifest V3 Chrome extension that turns a YouTube transcript into a conc
 
 ## Product
 
-- Direct API mode calls Gemini 3.1 Flash-Lite with a Gemini key supplied by the user and renders the summary on YouTube.
-- Gemini 3.1 Flash-Lite is recommended because it currently offers the highest free-tier allowance at up to 500 requests per day as of July 2026.
-- Users can remain on the free tier or attach billing to their own Google project for additional capacity.
-- TL;DW has no shared developer key, developer backend, accounts, analytics, or telemetry.
-- Open-in-a-tab mode supports Gemini, ChatGPT, Claude, and NotebookLM using the user's existing signed-in sessions.
-- Prompt profiles, channel and video tags, and specific questions shape the generated summary.
-- Automatic summaries can run for selected channels or videos over a configured duration.
-- SponsorBlock integration can skip community-reported sponsor segments.
-- Summary activity, history, and usage are stored locally.
+- Works out of the box with no key: the TL;DW button under a video opens Gemini in a background tab and brings its answer back to the YouTube page.
+- With your own free Gemini API key (Direct API), the summary appears on the page in seconds with no tab: long videos are summarized from the full transcript, and videos without captions are watched by Gemini from their link.
+- Direct API uses Gemini 3.5 Flash-Lite and switches to Gemini 3.1 Flash-Lite by itself when Google reports a rate or quota limit; a model picker offers larger models for people who pay or want more depth.
+- TL;DW never cuts a transcript silently: too long for the Gemini tab means Gemini watches the link, and for ChatGPT or Claude the page asks what to do.
+- Open-in-a-tab mode also supports ChatGPT, Claude and NotebookLM, using your signed-in sessions; Chrome asks for access to each site the first time you pick it.
+- Prompt profiles, channel and video tags, and specific questions shape the summary.
+- Automatic summaries can run for chosen channels or for videos over a set length.
+- Optional SponsorBlock integration (off by default) skips community-reported sponsor segments.
+- Summary activity, history and usage are stored locally.
+- No shared developer key, backend, accounts, analytics or telemetry.
 
-## BYOK privacy
+## Bring your own Gemini key (about 2 minutes)
 
-The Gemini key remains in `chrome.storage.local`.
-TL;DW sends it only to Google's Generative Language API in the `x-goog-api-key` header.
-Key setup saves the key locally first, then verifies access to Gemini 3.1 Flash-Lite with a metadata request.
-Verification does not count as a summary request.
+1. Open [Google AI Studio API keys](https://aistudio.google.com/apikey) and sign in with your Google account.
+2. Click "Create API key". A project just for TL;DW is optional.
+3. Paste the key into TL;DW (the welcome page that opens on install, or Settings, Direct API). TL;DW verifies it with a metadata request and turns Direct API on.
 
+The free tier needs no billing; its limits depend on the model and project ([rate limits](https://aistudio.google.com/docs/rate-limits)).
+On the free tier, Google may use what you send to improve its products ([Gemini API terms](https://aistudio.google.com/docs/terms)).
+
+## Privacy
+
+The Gemini key stays in `chrome.storage.local` and is sent only to Google's Gemini API, in the `x-goog-api-key` header.
 The full transcript is never persisted.
 History stores a transcript-free prompt and video metadata.
-The prompt-aware summary cache stores parsed summaries, prompt fingerprints, profile metadata, destination or model, and timestamps for up to seven days.
-Direct API call logs store video URL, title, timestamp, profile, and outcome by default.
-Full prompt and response bodies are stored only when full call logging is enabled.
+The summary cache keeps parsed summaries, prompt fingerprints, profile metadata and timestamps for up to seven days.
+Direct API call logs store video URL, title, time, profile and outcome by default; full prompt and response bodies only when full call logging is on.
 
-See [PRIVACY.md](PRIVACY.md) for the complete policy.
+See [PRIVACY.md](PRIVACY.md) for what is sent where in each mode.
 
 ## Development
 
@@ -54,7 +59,7 @@ npx vite build
 npm run package
 ```
 
-The 1.0.0 release is planned as an Unlisted Chrome Web Store soft launch.
+The first Chrome Web Store release is planned as an Unlisted soft launch.
 See [docs/PUBLISH_CHECKLIST.md](docs/PUBLISH_CHECKLIST.md) and [docs/STORE_SUBMISSION.md](docs/STORE_SUBMISSION.md).
 
 ## Documentation
