@@ -362,6 +362,8 @@ export type InjectResultMessage = {
   reason?: string;
   /** Set when the site kept only part of the prompt: the share it kept, in percent. */
   keptPercent?: number;
+  /** Whether the destination tab put the full prompt on the clipboard. */
+  copied?: boolean;
 };
 
 /** Compact structured data extracted from the AI response and injected onto the YouTube page. */

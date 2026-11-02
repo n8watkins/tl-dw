@@ -193,18 +193,89 @@ function playerFixture(player: { lengthSeconds?: number; isLive?: boolean; capti
 </html>`;
 }
 
+/**
+ * A watch page with YouTube's engagement panels as rendered on 2026-11-02: the
+ * old `engagement-panel-searchable-transcript` panel still exists but stays
+ * hidden, and "Show transcript" expands a different panel, either
+ * `PAmodern_transcript_view` or the "In this video" panel, which has no
+ * target-id. The segments render only after the get_panel response arrives.
+ * `openByUser` starts with that panel already open on the user's own choice,
+ * showing the transcript or, for the "In this video" panel, its chapters.
+ */
+function modernPanelFixture(targetId: string | null, opts: { openByUser?: "transcript" | "chapters" } = {}): string {
+  const target = targetId ? ` target-id="${targetId}"` : "";
+  const visibility = opts.openByUser ? "ENGAGEMENT_PANEL_VISIBILITY_EXPANDED" : "ENGAGEMENT_PANEL_VISIBILITY_HIDDEN";
+  return `<!doctype html>
+<html>
+  <head><title>Panel Video - YouTube</title></head>
+  <body>
+    <ytd-watch-metadata>
+      <h1>Panel Video</h1>
+      <div id="owner">
+        <div id="channel-name"><a href="/@FixtureChannel">Fixture Channel</a></div>
+        <div id="subscribe-button"></div>
+      </div>
+      <ytd-video-description-transcript-section-renderer>
+        <button id="show-transcript">Show transcript</button>
+      </ytd-video-description-transcript-section-renderer>
+    </ytd-watch-metadata>
+    <div id="below"></div>
+    <ytd-engagement-panel-section-list-renderer target-id="engagement-panel-searchable-transcript" visibility="ENGAGEMENT_PANEL_VISIBILITY_HIDDEN">
+      <div id="visibility-button"><button id="old-close" aria-label="Close transcript">x</button></div>
+    </ytd-engagement-panel-section-list-renderer>
+    <ytd-engagement-panel-section-list-renderer target-id="engagement-panel-comments-section" visibility="ENGAGEMENT_PANEL_VISIBILITY_HIDDEN">
+      <div id="visibility-button"><button aria-label="Close">x</button></div>
+    </ytd-engagement-panel-section-list-renderer>
+    <ytd-engagement-panel-section-list-renderer id="modern-panel"${target} visibility="${visibility}">
+      <div id="header"><div id="visibility-button"><button id="modern-close" aria-label="Close">x</button></div></div>
+      <div id="content">${opts.openByUser === "transcript"
+        ? modernSegment("0:02", "2 seconds", "The user opened this transcript themselves.")
+        : opts.openByUser === "chapters" ? "<div>Chapter 1</div>" : ""}</div>
+    </ytd-engagement-panel-section-list-renderer>
+    <script>
+      window.__oldCloseClicks = 0;
+      window.__modernCloseClicks = 0;
+      window.__showClicks = 0;
+      const modern = document.getElementById("modern-panel");
+      document.getElementById("old-close").addEventListener("click", () => { window.__oldCloseClicks++; });
+      document.getElementById("modern-close").addEventListener("click", () => {
+        window.__modernCloseClicks++;
+        modern.setAttribute("visibility", "ENGAGEMENT_PANEL_VISIBILITY_HIDDEN");
+      });
+      document.getElementById("show-transcript").addEventListener("click", () => {
+        window.__showClicks++;
+        modern.setAttribute("visibility", "ENGAGEMENT_PANEL_VISIBILITY_EXPANDED");
+        fetch("/youtubei/v1/get_panel?prettyPrint=false", { method: "POST", body: "{}" }).then(() => {
+          setTimeout(() => {
+            modern.querySelector("#content").innerHTML = ${JSON.stringify(
+              modernSegment("0:02", "2 seconds", "Intercepted panel text arrives from the network."),
+            )};
+          }, 300);
+        });
+      });
+    </script>
+  </body>
+</html>`;
+}
+
 // A Gemini web app stand-in whose composer keeps only the first 500
 // characters of whatever is typed into it, like a site with a length limit.
+// The composer mounts a moment after load, as the real app's does.
 const truncatingGeminiFixture = `<!doctype html>
 <html>
   <head><title>Gemini</title></head>
   <body>
-    <div class="ql-editor" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>
     <script>
-      const editor = document.querySelector(".ql-editor");
-      editor.addEventListener("input", () => {
-        if (editor.textContent.length > 500) editor.textContent = editor.textContent.slice(0, 500);
-      });
+      setTimeout(() => {
+        const editor = document.createElement("div");
+        editor.className = "ql-editor";
+        editor.contentEditable = "true";
+        editor.style.cssText = "min-height:40px;border:1px solid #ccc";
+        editor.addEventListener("input", () => {
+          if (editor.textContent.length > 500) editor.textContent = editor.textContent.slice(0, 500);
+        });
+        document.body.appendChild(editor);
+      }, 1500);
     </script>
   </body>
 </html>`;
@@ -896,43 +967,102 @@ test("a live stream is recognized once its pre-roll ad ends, and is never sent",
   }
 });
 
-test("a prompt the destination cuts short is reported, copied, and ends the page's run", async () => {
-  const session = await launchExtension();
-  try {
-    await routeYouTube(session.context);
-    await session.context.route("https://gemini.google.com/**", async (route) => {
-      await route.fulfill({ status: 200, contentType: "text/html", body: truncatingGeminiFixture });
-    });
-    await setStorage(session, {
-      profiles: profiles(),
-      settings: { ...directSettings(), useDirectApi: false, temporaryChats: false, focusGeminiTab: false },
-    });
-    const page = await openVideo(session.context, "fixture-tab");
-    // Context routes don't reach a tab the extension opens itself, so open it
-    // blank and load the routed Gemini stand-in into it from here.
-    await session.worker.evaluate(() => {
-      const create = chrome.tabs.create.bind(chrome.tabs);
-      chrome.tabs.create = ((props: chrome.tabs.CreateProperties) =>
-        create({ ...props, url: "about:blank" })) as typeof chrome.tabs.create;
-    });
-    const geminiPage = session.context.waitForEvent("page");
-    await page.locator("#tldw-watch-btn").click();
-    const gemini = await geminiPage;
-    await gemini.goto("https://gemini.google.com/app");
+// Where the destination tab is when TL;DW copies the prompt: in front, in the
+// background (where Chrome refuses the async Clipboard API), or somewhere every
+// way of copying fails.
+for (const clipboard of ["front tab", "background tab", "blocked"] as const) {
+  test(`a prompt the destination cuts short is reported and ends the page's run (${clipboard})`, async () => {
+    const session = await launchExtension();
+    try {
+      await routeYouTube(session.context);
+      await session.context.route("https://gemini.google.com/**", async (route) => {
+        await route.fulfill({ status: 200, contentType: "text/html", body: truncatingGeminiFixture });
+      });
+      await session.context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "https://gemini.google.com" });
+      await setStorage(session, {
+        profiles: profiles(),
+        settings: { ...directSettings(), useDirectApi: false, temporaryChats: false, focusGeminiTab: false },
+      });
+      const page = await openVideo(session.context, "fixture-tab");
+      // Context routes don't reach a tab the extension opens itself, so open it
+      // blank and load the routed Gemini stand-in into it from here.
+      await session.worker.evaluate(() => {
+        const create = chrome.tabs.create.bind(chrome.tabs);
+        chrome.tabs.create = ((props: chrome.tabs.CreateProperties) =>
+          create({ ...props, url: "about:blank" })) as typeof chrome.tabs.create;
+      });
+      const geminiPage = session.context.waitForEvent("page");
+      await page.locator("#tldw-watch-btn").click();
+      const gemini = await geminiPage;
+      // TL;DW's own script runs in an isolated world; find it to break copying.
+      const cdp = await session.context.newCDPSession(gemini);
+      const contexts: Array<{ id: number; origin: string; auxData?: { type?: string } }> = [];
+      cdp.on("Runtime.executionContextCreated", ({ context }) => contexts.push(context));
+      await cdp.send("Runtime.enable");
+      // Playwright makes every page report focus; a background tab must not.
+      if (clipboard !== "front tab") await cdp.send("Emulation.setFocusEmulationEnabled", { enabled: false });
+      await gemini.goto("https://gemini.google.com/app");
+      if (clipboard === "front tab") await gemini.bringToFront();
+      else await page.bringToFront();
+      const isolatedWorld = async () => {
+        await expect.poll(() => contexts.some(
+          (c) => c.auxData?.type === "isolated" && c.origin === `chrome-extension://${session.extensionId}`,
+        )).toBe(true);
+        return contexts.filter(
+          (c) => c.auxData?.type === "isolated" && c.origin === `chrome-extension://${session.extensionId}`,
+        ).at(-1)!.id;
+      };
+      if (clipboard === "blocked") {
+        await cdp.send("Runtime.evaluate", {
+          contextId: await isolatedWorld(),
+          expression: `
+            window.__realWriteText = navigator.clipboard.writeText.bind(navigator.clipboard);
+            window.__realExecCommand = document.execCommand.bind(document);
+            Object.defineProperty(navigator.clipboard, "writeText", { configurable: true, value: () => Promise.reject(new DOMException("blocked", "NotAllowedError")) });
+            document.execCommand = (command, ...rest) => command === "copy" ? false : window.__realExecCommand(command, ...rest);
+          `,
+        });
+      }
+      const clipboardText = async () => {
+        await cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+        return gemini.evaluate(() => navigator.clipboard.readText());
+      };
 
-    // The site kept only the start: TL;DW says so, empties the composer so the
-    // partial prompt can't be sent, and keeps the full prompt for pasting.
-    await expect(gemini.locator("[data-tldw-toast]")).toContainText("Gemini cut the prompt off");
-    await expect(gemini.locator(".ql-editor")).toHaveText("");
-    // The YouTube page stops "Analyzing..." at once, with the reason.
-    await expect(page.locator("#tldw-summary")).toContainText("Gemini took only about", { timeout: 10_000 });
-    await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
-    const status = await session.worker.evaluate(async () => (await chrome.storage.session.get(null)));
-    expect(JSON.stringify(status)).toContain('"ok":false');
-  } finally {
-    await session.close();
-  }
-});
+      // The site kept only the start: TL;DW says so and empties the composer so
+      // the partial prompt can't be sent.
+      await expect(gemini.locator("[data-tldw-toast]")).toContainText("Gemini cut the prompt off");
+      await expect(gemini.locator(".ql-editor")).toHaveText("");
+      // The YouTube page stops "Analyzing..." at once, with the reason and what
+      // to do with the full prompt.
+      await expect(page.locator("#tldw-summary")).toContainText("Gemini took only about", { timeout: 10_000 });
+      await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
+      if (clipboard !== "blocked") {
+        await expect(page.locator("#tldw-summary")).toContainText("The full prompt is on your clipboard: paste it into the Gemini tab.");
+        expect(await clipboardText()).toContain("watch?v=fixture-tab");
+      } else {
+        await expect(page.locator("#tldw-summary")).not.toContainText("clipboard");
+        await expect(page.locator("#tldw-summary")).toContainText('open the Gemini tab and click "Copy prompt"');
+        expect(await clipboardText()).not.toContain("watch?v=fixture-tab");
+        // The notice stays up with a button that copies the prompt on a click.
+        await gemini.waitForTimeout(500);
+        await cdp.send("Runtime.evaluate", {
+          contextId: await isolatedWorld(),
+          expression: `
+            Object.defineProperty(navigator.clipboard, "writeText", { configurable: true, value: window.__realWriteText });
+            document.execCommand = window.__realExecCommand;
+          `,
+        });
+        await gemini.locator("[data-tldw-toast]").getByRole("button", { name: "Copy prompt" }).click();
+        await expect(gemini.locator("[data-tldw-toast]")).toContainText("Copied");
+        expect(await clipboardText()).toContain("watch?v=fixture-tab");
+      }
+      const status = await session.worker.evaluate(async () => (await chrome.storage.session.get(null)));
+      expect(JSON.stringify(status)).toContain('"ok":false');
+    } finally {
+      await session.close();
+    }
+  });
+}
 
 test("a refused send ends the page's run with the reason", async () => {
   const session = await launchExtension();
@@ -1000,6 +1130,255 @@ test("closing the auto-run confirmation leaves no key listener behind", async ()
       await expect(page.locator("#tldw-autorun-overlay")).toHaveCount(0);
       expect(await keydownListeners(), `after closing with ${close}`).toBe(before);
     }
+  } finally {
+    await session.close();
+  }
+});
+
+type PanelCounters = { __oldCloseClicks: number; __modernCloseClicks: number; __showClicks: number };
+const panelState = (page: Page) => page.evaluate(() => ({
+  visibility: document.getElementById("modern-panel")!.getAttribute("visibility"),
+  ...(({ __oldCloseClicks, __modernCloseClicks, __showClicks }) => ({ __oldCloseClicks, __modernCloseClicks, __showClicks }))(
+    window as unknown as PanelCounters,
+  ),
+}));
+
+for (const targetId of ["PAmodern_transcript_view", null]) {
+  test(`the transcript panel TL;DW opens is closed again (target-id ${targetId ?? "none"})`, async () => {
+    const session = await launchExtension();
+    try {
+      const prompts: string[] = [];
+      await routeYouTube(session.context, modernPanelFixture(targetId));
+      await session.context.route("https://www.youtube.com/youtubei/v1/get_panel**", async (route) => {
+        await route.fulfill({ status: 200, contentType: "application/json", body: getPanelBody("fixture-modern") });
+      });
+      await mockGemini(session.context, prompts);
+      await setStorage(session, { profiles: profiles(), settings: directSettings() });
+      const page = await openVideo(session.context, "fixture-modern");
+      await page.locator("#tldw-watch-btn").click();
+      await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+      expect(prompts[0]).toContain("Intercepted panel text arrives from the network.");
+      // The panel that opened is the one that gets closed; the hidden legacy
+      // panel is never touched.
+      await expect.poll(() => panelState(page)).toEqual({
+        visibility: "ENGAGEMENT_PANEL_VISIBILITY_HIDDEN",
+        __oldCloseClicks: 0,
+        __modernCloseClicks: 1,
+        __showClicks: 1,
+      });
+    } finally {
+      await session.close();
+    }
+  });
+}
+
+for (const [targetId, openByUser] of [["PAmodern_transcript_view", "transcript"], [null, "chapters"]] as const) {
+  test(`a panel the user opened stays open (${openByUser})`, async () => {
+    const session = await launchExtension();
+    try {
+      await routeYouTube(session.context, modernPanelFixture(targetId, { openByUser }));
+      await session.context.route("https://www.youtube.com/youtubei/v1/get_panel**", async (route) => {
+        await route.fulfill({ status: 200, contentType: "application/json", body: getPanelBody("fixture-user-panel") });
+      });
+      await mockGemini(session.context, []);
+      await setStorage(session, { profiles: profiles(), settings: directSettings() });
+      const page = await openVideo(session.context, "fixture-user-panel");
+      await page.locator("#tldw-watch-btn").click();
+      await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+      await page.waitForTimeout(2_500);
+      const state = await panelState(page);
+      expect(state.visibility).toBe("ENGAGEMENT_PANEL_VISIBILITY_EXPANDED");
+      expect(state.__oldCloseClicks + state.__modernCloseClicks).toBe(0);
+    } finally {
+      await session.close();
+    }
+  });
+}
+
+test("a long video's automatic summary shows Analyzing and then the failure reason", async () => {
+  const session = await launchExtension();
+  try {
+    const logs: string[] = [];
+    await mockGemini(session.context, [], 429);
+    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), autoTldwMinutes: 30 } });
+    await routeYouTube(session.context, playerFixture({ lengthSeconds: 3600, captions: false }));
+    // Record every label the TL;DW button shows, however briefly.
+    await session.context.addInitScript(() => {
+      const w = window as unknown as { __buttonLabels: string[] };
+      w.__buttonLabels = [];
+      new MutationObserver(() => {
+        const label = document.getElementById("tldw-watch-btn")?.textContent ?? "";
+        if (label && w.__buttonLabels.at(-1) !== label) w.__buttonLabels.push(label);
+      }).observe(document, { subtree: true, childList: true, characterData: true });
+    });
+    const page = await session.context.newPage();
+    page.on("console", (m) => logs.push(m.text()));
+    await page.goto("https://www.youtube.com/watch?v=fixture-auto-long-fail");
+    await expect(page.locator("#tldw-summary")).toContainText("quota limit was reached", { timeout: 10_000 });
+    await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
+    expect(await page.evaluate(() => (window as unknown as { __buttonLabels: string[] }).__buttonLabels)).toContain("Analyzing…");
+    // The console names the real reason, not a timeout.
+    expect(logs.some((l) => l.includes("summary error panel shown") && l.includes("quota limit was reached"))).toBe(true);
+    expect(logs.some((l) => l.includes("loading timed out"))).toBe(false);
+  } finally {
+    await session.close();
+  }
+});
+
+test("a Direct API error keeps its AI Studio link even when the reply beats the error message", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context);
+    await mockGemini(session.context, [], 429);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    // Deliver the worker's SET_SUMMARY_ERROR late, so the ASK reply lands first.
+    await session.worker.evaluate(() => {
+      const send = chrome.tabs.sendMessage.bind(chrome.tabs) as (...args: unknown[]) => Promise<unknown>;
+      (chrome.tabs as unknown as { sendMessage: unknown }).sendMessage = (...args: unknown[]) => {
+        const msg = args[1] as { type?: string };
+        if (msg?.type === "SET_SUMMARY_ERROR") {
+          return new Promise((resolve) => setTimeout(resolve, 500)).then(() => send(...args));
+        }
+        return send(...args);
+      };
+    });
+    const page = await openVideo(session.context, "fixture-action-link");
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText("quota limit was reached");
+    await expect(page.locator("#tldw-summary a", { hasText: "Open Google AI Studio" })).toBeVisible();
+    await page.waitForTimeout(800);
+    await expect(page.locator("#tldw-summary a", { hasText: "Open Google AI Studio" })).toBeVisible();
+  } finally {
+    await session.close();
+  }
+});
+
+test("the live gate ignores the previous video's player and shows the button once it's known not live", async () => {
+  const session = await launchExtension();
+  try {
+    await mockGemini(session.context, []);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    // Right after an in-page navigation the player still holds the previous
+    // video, a live stream with its LIVE badge; 2 s later it loads this one.
+    await routeYouTube(session.context, playerFixture(null, `<script>
+      const player = document.getElementById("movie_player");
+      const badge = document.createElement("div");
+      badge.className = "ytp-live-badge";
+      badge.textContent = "LIVE";
+      player.appendChild(badge);
+      let current = false;
+      player.getPlayerResponse = () => ({
+        videoDetails: current
+          ? { videoId: new URLSearchParams(location.search).get("v"), lengthSeconds: "600", isLive: false }
+          : { videoId: "fixture-previous-live", lengthSeconds: "0", isLive: true },
+      });
+      setTimeout(() => { current = true; badge.remove(); }, 2000);
+    </script>`));
+    const page = await session.context.newPage();
+    await page.goto("https://www.youtube.com/watch?v=fixture-not-live");
+    await page.waitForTimeout(1_800);
+    await expect(page.locator("#tldw-watch-btn")).toBeVisible();
+    await page.waitForTimeout(1_000);
+    await expect(page.locator("#tldw-watch-btn")).toBeVisible();
+
+    // Without player data, a LIVE badge left over from the previous video hides
+    // the button only until a later check finds no badge.
+    await session.context.unroute("https://www.youtube.com/**");
+    await routeYouTube(session.context, playerFixture(null, `<script>
+      const player = document.getElementById("movie_player");
+      const badge = document.createElement("div");
+      badge.className = "ytp-live-badge";
+      badge.textContent = "LIVE";
+      player.appendChild(badge);
+      setTimeout(() => badge.remove(), 2500);
+    </script>`));
+    const second = await session.context.newPage();
+    await second.goto("https://www.youtube.com/watch?v=fixture-not-live-2");
+    await expect(second.locator("#tldw-watch-btn")).toBeVisible({ timeout: 6_000 });
+  } finally {
+    await session.close();
+  }
+});
+
+// A watch page whose <video> has no media: the test drives currentTime and
+// fires timeupdate itself. The player reports the video in `window.__playerVid`.
+const sponsorFixture = `<!doctype html>
+<html>
+  <head><title>Sponsor Video - YouTube</title></head>
+  <body>
+    <div id="movie_player" class="html5-video-player"><video class="html5-main-video"></video></div>
+    <script>
+      window.__playerVid = new URLSearchParams(location.search).get("v");
+      document.getElementById("movie_player").getPlayerResponse = () => ({
+        videoDetails: { videoId: window.__playerVid, lengthSeconds: "600", isLive: false },
+      });
+      // Play from 5 s into 11 s, inside the 10-20 s sponsor; return where it ends up.
+      window.__playInto = async () => {
+        const v = document.querySelector("video");
+        v.currentTime = 5; v.dispatchEvent(new Event("timeupdate"));
+        await new Promise((r) => setTimeout(r, 50));
+        v.currentTime = 11; v.dispatchEvent(new Event("timeupdate"));
+        await new Promise((r) => setTimeout(r, 50));
+        const t = v.currentTime;
+        v.dispatchEvent(new Event("seeked"));
+        return t;
+      };
+      window.__go = (path) => {
+        history.pushState({}, "", path);
+        window.dispatchEvent(new Event("yt-navigate-finish"));
+      };
+    </script>
+  </body>
+</html>`;
+
+test("sponsor segments keep being skipped in the miniplayer, but not on Shorts or another video", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context, sponsorFixture);
+    await session.context.route("https://sponsor.ajay.app/**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ segment: [10, 20], category: "sponsor" }]) });
+    });
+    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), useDirectApi: false } });
+    const page = await session.context.newPage();
+    await page.goto("https://www.youtube.com/watch?v=fixture-sponsor");
+    const playInto = () => page.evaluate(() => (window as unknown as { __playInto: () => Promise<number> }).__playInto());
+    const go = async (path: string) => {
+      await page.evaluate((p) => (window as unknown as { __go: (p: string) => void }).__go(p), path);
+      await page.waitForTimeout(1_200);
+    };
+    // On the watch page the sponsor is skipped.
+    await expect.poll(playInto, { timeout: 10_000 }).toBe(20);
+
+    // Browsing the home feed with the video in the miniplayer: still skipped.
+    await go("/");
+    expect(await playInto()).toBe(20);
+    await go("/results?search_query=fixture");
+    expect(await playInto()).toBe(20);
+
+    // The miniplayer moves on to another video: its sponsor times don't apply.
+    await page.evaluate(() => { (window as unknown as { __playerVid: string }).__playerVid = "fixture-other"; });
+    await go("/feed/subscriptions");
+    expect(await playInto()).toBe(11);
+  } finally {
+    await session.close();
+  }
+});
+
+test("sponsor segments are never applied on a Short", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context, sponsorFixture);
+    await session.context.route("https://sponsor.ajay.app/**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ segment: [10, 20], category: "sponsor" }]) });
+    });
+    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), useDirectApi: false } });
+    const page = await session.context.newPage();
+    await page.goto("https://www.youtube.com/watch?v=fixture-sponsor-2");
+    const playInto = () => page.evaluate(() => (window as unknown as { __playInto: () => Promise<number> }).__playInto());
+    await expect.poll(playInto, { timeout: 10_000 }).toBe(20);
+    await page.evaluate(() => (window as unknown as { __go: (p: string) => void }).__go("/shorts/fixture-short"));
+    await page.waitForTimeout(1_200);
+    expect(await playInto()).toBe(11);
   } finally {
     await session.close();
   }

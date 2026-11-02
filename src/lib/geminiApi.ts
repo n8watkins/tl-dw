@@ -51,12 +51,16 @@ export function geminiErrorForStatus(
   status: number,
   googleMessage?: unknown,
   apiKey = "",
+  googleReason?: string,
 ): GeminiApiError {
   const safeMessage = safeGoogleMessage(googleMessage, apiKey);
-  if (status === 400) return new GeminiApiError("invalid_request", status, undefined, safeMessage);
-  if (status === 401 || status === 403) {
+  // Google answers a key that doesn't exist with 400 INVALID_ARGUMENT and the
+  // reason API_KEY_INVALID: a key problem, not a prompt problem.
+  const badKey = googleReason === "API_KEY_INVALID";
+  if (status === 401 || status === 403 || (status === 400 && badKey)) {
     return new GeminiApiError("unauthorized", status, AI_STUDIO_LINKS.apiKeys, safeMessage);
   }
+  if (status === 400) return new GeminiApiError("invalid_request", status, undefined, safeMessage);
   if (status === 404) {
     return new GeminiApiError("model_unavailable", status, AI_STUDIO_LINKS.apiKeys, safeMessage);
   }
@@ -91,8 +95,14 @@ export async function callGeminiApi(
       },
     );
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-      throw geminiErrorForStatus(response.status, body?.error?.message, apiKey);
+      const body = (await response.json().catch(() => null)) as {
+        error?: { message?: string; details?: Array<{ reason?: unknown }> };
+      } | null;
+      const details = body?.error?.details;
+      const reason = Array.isArray(details)
+        ? (details.find((detail) => typeof detail?.reason === "string")?.reason as string | undefined)
+        : undefined;
+      throw geminiErrorForStatus(response.status, body?.error?.message, apiKey, reason);
     }
     const data = (await response.json()) as {
       candidates?: { content?: { parts?: { text?: string }[] } }[];

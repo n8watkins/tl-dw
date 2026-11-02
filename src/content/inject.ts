@@ -13,6 +13,7 @@
  * onto a hidden/off-screen element. The clipboard fallback covers the rest.
  */
 
+import { COMPOSER_MISSING_REASON } from "../lib/fillFailure";
 import { insertedShare, promptInsertedWhole } from "../lib/promptInsert";
 
 type SiteConfig = {
@@ -235,9 +236,8 @@ async function findEnabledSendButton(
   return null;
 }
 
-function showToast(text: string, durationMs = 5000): void {
+function createToast(): HTMLDivElement {
   const el = document.createElement("div");
-  el.textContent = text;
   Object.assign(el.style, {
     position: "fixed",
     bottom: "24px",
@@ -254,22 +254,110 @@ function showToast(text: string, durationMs = 5000): void {
   });
   el.setAttribute("role", "status");
   el.dataset.tldwToast = "";
+  return el;
+}
+
+function showToast(text: string, durationMs = 5000): void {
+  const el = createToast();
+  el.textContent = text;
   document.body.appendChild(el);
   setTimeout(() => el.remove(), durationMs);
 }
 
+function toastButton(label: string, primary: boolean): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.textContent = label;
+  Object.assign(btn.style, {
+    padding: "4px 12px",
+    borderRadius: "999px",
+    border: primary ? "none" : "1px solid rgba(255,255,255,.35)",
+    background: primary ? "#8ab4f8" : "transparent",
+    color: primary ? "#1f2937" : "#fff",
+    font: "600 13px/1.4 system-ui, sans-serif",
+    cursor: "pointer",
+    flexShrink: "0",
+  });
+  return btn;
+}
+
+/**
+ * Put `text` on the clipboard. The async Clipboard API refuses a tab in the
+ * background ("Document is not focused"), which is where a destination tab
+ * usually is, so fall back to execCommand("copy"): the extension's
+ * clipboardWrite permission lets a content script copy that way unfocused.
+ */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    /* not focused or blocked: try the other way */
+  }
+  const onCopy = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+    event.clipboardData.setData("text/plain", text);
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const holder = document.createElement("textarea");
+  holder.value = text;
+  holder.setAttribute("readonly", "");
+  Object.assign(holder.style, { position: "fixed", top: "-1000px", opacity: "0" });
+  document.body.appendChild(holder);
+  window.addEventListener("copy", onCopy, true);
+  try {
+    holder.select();
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    window.removeEventListener("copy", onCopy, true);
+    holder.remove();
+  }
+}
+
+/**
+ * A notice that stays until it's dismissed, with a button that copies the
+ * prompt, for when TL;DW couldn't copy it on its own.
+ */
+function showCopyNotice(text: string, prompt: string): void {
+  const el = createToast();
+  Object.assign(el.style, { display: "flex", alignItems: "center", gap: "12px" });
+  const msg = document.createElement("span");
+  msg.textContent = text;
+  const copyBtn = toastButton("Copy prompt", true);
+  const closeBtn = toastButton("Dismiss", false);
+  copyBtn.addEventListener("click", () => {
+    void copyText(prompt).then((copied) => {
+      if (!copied) {
+        msg.textContent = "TL;DW: Chrome blocked the copy. Click the page, then try again.";
+        return;
+      }
+      msg.textContent = "TL;DW: Copied. Paste it (Ctrl+V) to send.";
+      copyBtn.remove();
+      setTimeout(() => el.remove(), 8000);
+    });
+  });
+  closeBtn.addEventListener("click", () => el.remove());
+  el.append(msg, copyBtn, closeBtn);
+  document.body.appendChild(el);
+}
+
 /**
  * Copy the prompt to the clipboard and say so on the page. `problem` names
- * what went wrong (default: the composer couldn't be filled).
+ * what went wrong (default: the composer couldn't be filled). Returns whether
+ * the prompt is on the clipboard; when it isn't, the notice stays up with a
+ * button that copies it.
  */
-async function fallbackToClipboard(prompt: string, site: string, problem?: string): Promise<void> {
+async function fallbackToClipboard(prompt: string, site: string, problem?: string): Promise<boolean> {
   const what = problem ?? `couldn't auto-fill ${site}`;
-  try {
-    await navigator.clipboard.writeText(prompt);
+  if (await copyText(prompt)) {
     showToast(`TL;DW: ${what}. The full prompt is copied: paste it (Ctrl+V) to send.`, 12000);
-  } catch {
-    showToast(`TL;DW: ${what}. Open the TL;DW popup to copy the prompt.`, 12000);
+    return true;
   }
+  showCopyNotice(`TL;DW: ${what}. Copy the full prompt, then paste it (Ctrl+V) to send.`, prompt);
+  return false;
 }
 
 /** Find a clickable element by its visible text (case-insensitive contains). */
@@ -643,7 +731,7 @@ async function waitForResponseAndSend(
   }
 }
 
-type Outcome = { ok: boolean; reason?: string; keptPercent?: number };
+type Outcome = { ok: boolean; reason?: string; keptPercent?: number; copied?: boolean };
 
 /** Tell the background how the fill went, so the popup can surface failures. */
 async function reportOutcome(site: string, outcome: Outcome): Promise<void> {
@@ -654,6 +742,7 @@ async function reportOutcome(site: string, outcome: Outcome): Promise<void> {
       ok: outcome.ok,
       reason: outcome.reason,
       keptPercent: outcome.keptPercent,
+      copied: outcome.copied,
     });
   } catch {
     /* background may be asleep mid-navigation; best effort */
@@ -692,8 +781,8 @@ async function runNotebookLM(content: string): Promise<Outcome> {
   const sourceBtn = await waitForClickableByText(sourceBtnTexts, 12000);
   if (!sourceBtn) {
     nlog("source button not found:", sourceBtnTexts);
-    await fallbackToClipboard(content, "NotebookLM");
-    return { ok: false, reason: `couldn't find the "${sourceBtnTexts[0]}" source button` };
+    const copied = await fallbackToClipboard(content, "NotebookLM");
+    return { ok: false, reason: `didn't show the "${sourceBtnTexts[0]}" source button`, copied };
   }
   nlog("clicking source button");
   sourceBtn.click();
@@ -703,8 +792,8 @@ async function runNotebookLM(content: string): Promise<Outcome> {
   const box = await waitForSourceBox(boxSelectors, boxPrefer, 20000);
   if (!box) {
     nlog("source input not found");
-    await fallbackToClipboard(content, "NotebookLM");
-    return { ok: false, reason: "couldn't find the source input box" };
+    const copied = await fallbackToClipboard(content, "NotebookLM");
+    return { ok: false, reason: "didn't show the source input box", copied };
   }
   nlog(
     "filling source input; length:",
@@ -721,8 +810,8 @@ async function runNotebookLM(content: string): Promise<Outcome> {
     nlog(`fill attempt ${attempt}: ${filled ? "stuck" : "empty"}`);
   }
   if (!filled) {
-    await fallbackToClipboard(content, "NotebookLM");
-    return { ok: false, reason: "found the source box but couldn't fill it" };
+    const copied = await fallbackToClipboard(content, "NotebookLM");
+    return { ok: false, reason: "wouldn't take the text TL;DW typed into the source box", copied };
   }
 
   // 3. Submit the source — wait for "Insert" to enable after the fill registers.
@@ -731,7 +820,7 @@ async function runNotebookLM(content: string): Promise<Outcome> {
     return { ok: true };
   }
   showToast('TL;DW: source filled in — click "Insert" to add it.');
-  return { ok: false, reason: 'filled the source box but couldn\'t click "Insert"' };
+  return { ok: false, reason: 'didn\'t enable "Insert" after TL;DW filled the source box' };
 }
 
 /**
@@ -823,11 +912,12 @@ async function run(): Promise<void> {
   // load can land well past document_idle.
   const editor = await waitFor<HTMLElement>(config.editorSelectors, 20000);
   if (!editor) {
-    await fallbackToClipboard(prompt, config.name);
-    await reportOutcome(config.name, {
-      ok: false,
-      reason: "couldn't find the composer (its selectors may be out of date)",
-    });
+    const copied = await fallbackToClipboard(
+      prompt,
+      config.name,
+      `couldn't find ${config.name}'s message box. If you're signed out, sign in first`,
+    );
+    await reportOutcome(config.name, { ok: false, reason: COMPOSER_MISSING_REASON, copied });
     return;
   }
 
@@ -844,7 +934,7 @@ async function run(): Promise<void> {
     const cutShort = share > 0;
     if (cutShort) clearComposer(editor);
     const pct = Math.round(share * 100);
-    await fallbackToClipboard(
+    const copied = await fallbackToClipboard(
       prompt,
       config.name,
       cutShort ? `${config.name} cut the prompt off (it kept about ${pct}%)` : undefined,
@@ -852,9 +942,10 @@ async function run(): Promise<void> {
     await reportOutcome(config.name, {
       ok: false,
       reason: cutShort
-        ? `cut the prompt off at about ${pct}% (too long for it); nothing was sent`
-        : "found the composer but couldn't type into it",
+        ? `cut the prompt off at about ${pct}% because it was too long, so nothing was sent`
+        : "wouldn't take the prompt TL;DW typed into its message box",
       keptPercent: cutShort ? pct : undefined,
+      copied,
     });
     return;
   }

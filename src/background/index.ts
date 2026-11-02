@@ -17,6 +17,7 @@ import {
 } from "../lib/constants";
 import { cacheContextForScrape, findOpenSearchForVideo } from "../lib/openSearchMatch";
 import { cachedSourceLabel } from "../lib/summarySource";
+import { fillFailureMessage } from "../lib/fillFailure";
 import { addHistoryEntry, expireOldEntries, trimToLimit } from "../lib/history";
 import {
   addOpenSearch,
@@ -204,7 +205,8 @@ async function getTranscriptFromTab(
 }
 
 /** How a summary run ended, for the ASK reply: a refusal or failure carries the reason. */
-type RunOutcome = { ok: true } | { ok: false; error: string };
+/** A failure can carry a link to where the user can fix it (AI Studio). */
+type RunOutcome = { ok: true } | { ok: false; error: string; actionUrl?: string };
 
 // Runs between "send" and the hand-off; while any is preparing (reading the
 // page, fetching the transcript) the toolbar badge shows a grey "…".
@@ -564,7 +566,9 @@ async function prepareAndSend(
           })
           .catch(() => {});
       }
-      return { ok: false, error: reason };
+      // The reply carries the link too: whichever of the two reaches the page
+      // first ends the run, and the error panel must keep its link either way.
+      return { ok: false, error: reason, actionUrl: apiError.actionUrl };
     }
     return { ok: true };
   }
@@ -722,11 +726,12 @@ chrome.runtime.onMessage.addListener(
           const search = (await getOpenSearches()).find((s) => s.tabId === destTabId);
           if (search?.sourceTabId === undefined) return;
           const videoId = search.videoUrl ? extractVideoId(search.videoUrl) ?? undefined : undefined;
-          const site = message.site;
-          const reason = message.keptPercent !== undefined
-            ? `${site} took only about ${message.keptPercent}% of the prompt (it was too long), ` +
-              `so nothing was sent. The ${site} tab has the full prompt ready to paste.`
-            : `TL;DW couldn't fill the ${site} tab (${message.reason ?? "unknown problem"}).`;
+          const reason = fillFailureMessage({
+            site: message.site,
+            reason: message.reason,
+            keptPercent: message.keptPercent,
+            copied: message.copied,
+          });
           await chrome.tabs.sendMessage(search.sourceTabId, { type: "SET_SUMMARY_ERROR", videoId, reason });
         })().catch(() => {});
       }
