@@ -9,8 +9,9 @@ import { SettingsSection } from "./sections/SettingsSection";
 import { DirectApiSection } from "./sections/DirectApiSection";
 import { AboutSection } from "./sections/AboutSection";
 import { SupportSection } from "./sections/SupportSection";
+import { WelcomeSection } from "./sections/WelcomeSection";
 
-type NavItem = "setup" | "stats" | "profiles" | "history" | "channels" | "tags" | "settings" | "directapi" | "support" | "about";
+type NavItem = "welcome" | "setup" | "stats" | "profiles" | "history" | "channels" | "tags" | "settings" | "directapi" | "support" | "about";
 
 const NAV: { id: NavItem; label: string; icon: string }[] = [
   { id: "setup",     label: "Setup",      icon: "◎" },
@@ -28,7 +29,8 @@ const NAV: { id: NavItem; label: string; icon: string }[] = [
 const ICON_URL = chrome.runtime.getURL("icons/tl-dw-48.png");
 const VERSION = chrome.runtime.getManifest().version;
 
-const NAV_IDS = NAV.map((n) => n.id);
+// "welcome" (the first-install page) is reachable by URL but not in the sidebar.
+const NAV_IDS: NavItem[] = ["welcome", ...NAV.map((n) => n.id)];
 function hashToNav(): NavItem | null {
   const id = window.location.hash.replace(/^#/, "") as NavItem;
   return NAV_IDS.includes(id) ? id : null;
@@ -52,6 +54,14 @@ export function OptionsApp() {
   function navigate(id: NavItem) {
     setActive(id);
     if (window.location.hash !== `#${id}`) window.location.hash = id;
+  }
+
+  if (active === "welcome") {
+    return (
+      <main className="welcome-layout">
+        <WelcomeSection onDone={() => navigate("setup")} />
+      </main>
+    );
   }
 
   return (

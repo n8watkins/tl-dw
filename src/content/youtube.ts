@@ -585,7 +585,15 @@ function getCurrentVideoMeta(): VideoMeta {
   const title = heading || cleanDocumentTitle(document.title) || undefined;
   const info = playerInfoForCurrentVideo();
   const watchable = info ? info.isPublic !== false && (info.playability ?? "OK") === "OK" : undefined;
-  return { videoId, current: true, title, live: isUnsummarizableLive(), watchable, ...getVideoMeta() };
+  return {
+    videoId,
+    current: true,
+    title,
+    live: isUnsummarizableLive(),
+    unavailable: videoUnavailable(),
+    watchable,
+    ...getVideoMeta(),
+  };
 }
 
 /**
@@ -1546,6 +1554,16 @@ function errorPanelActions(opts: ErrorPanelOptions): PanelAction[] {
     ];
   }
   if (opts.choice === "no-transcript") return [geminiTab, keyAction];
+  if (opts.category === "permission") {
+    return [
+      {
+        label: `Allow ${opts.site ?? "the site"} in TL;DW settings`,
+        primary: true,
+        onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "settings" }),
+      },
+      { ...geminiTab, primary: false, label: "Send to Gemini instead" },
+    ];
+  }
   if (opts.category === "unauthorized") {
     return [{ label: "Replace key in TL;DW settings", primary: true, onClick: openKeySetup }, retry];
   }
@@ -1580,7 +1598,7 @@ function showSummaryErrorPanel(reason?: string, actionUrl?: string, opts: ErrorP
   const msg = document.createElement("div");
   // A specific reason from the worker (an API error, no transcript, a choice);
   // without one, the run timed out.
-  msg.textContent = reason && (opts.noTranscript || opts.choice)
+  msg.textContent = reason && (opts.noTranscript || opts.choice || opts.category === "permission")
     ? reason
     : reason
     ? `Couldn't get the summary: ${reason}`

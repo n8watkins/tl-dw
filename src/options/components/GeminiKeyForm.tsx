@@ -112,7 +112,7 @@ export function GeminiKeyForm({
         type="password"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Paste API key - you won't be able to view it after saving"
+        placeholder="Paste API key"
         className="key-input"
         autoComplete="new-password"
         spellCheck={false}
