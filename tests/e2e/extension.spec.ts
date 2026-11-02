@@ -380,20 +380,36 @@ function directSettings() {
   };
 }
 
+type GeminiCall = { model: string; prompt: string; videoUrl?: string; mediaResolution?: string };
+
 async function mockGemini(
   context: BrowserContext,
   prompts: string[],
-  status = 200,
+  status: number | ((model: string) => number) = 200,
+  calls: GeminiCall[] = [],
 ): Promise<void> {
   await context.route("https://generativelanguage.googleapis.com/**", async (route) => {
+    const model = new URL(route.request().url()).pathname.match(/models\/([^:/]+)/)?.[1] ?? "";
+    const code = typeof status === "function" ? status(model) : status;
     if (route.request().method() === "GET") {
-      await route.fulfill({ status, contentType: "application/json", body: status === 200 ? "{}" : '{"error":{"message":"rejected"}}' });
+      await route.fulfill({ status: code, contentType: "application/json", body: code === 200 ? "{}" : '{"error":{"message":"rejected"}}' });
       return;
     }
-    const body = route.request().postDataJSON() as { contents?: { parts?: { text?: string }[] }[] };
-    prompts.push(body.contents?.[0]?.parts?.[0]?.text ?? "");
-    if (status !== 200) {
-      await route.fulfill({ status, contentType: "application/json", body: '{"error":{"message":"quota reached"}}' });
+    const body = route.request().postDataJSON() as {
+      contents?: { parts?: { text?: string; fileData?: { fileUri?: string } }[] }[];
+      generationConfig?: { mediaResolution?: string };
+    };
+    const parts = body.contents?.[0]?.parts ?? [];
+    const prompt = parts.map((part) => part.text ?? "").join("");
+    prompts.push(prompt);
+    calls.push({
+      model,
+      prompt,
+      videoUrl: parts.find((part) => part.fileData)?.fileData?.fileUri,
+      mediaResolution: body.generationConfig?.mediaResolution,
+    });
+    if (code !== 200) {
+      await route.fulfill({ status: code, contentType: "application/json", body: '{"error":{"message":"quota reached"}}' });
       return;
     }
     await route.fulfill({
@@ -441,10 +457,12 @@ test("saving a key verifies and persists valid metadata", async () => {
     await options.getByPlaceholder("Name this key (e.g. Personal AI Studio key)").fill("E2E key");
     await options.getByPlaceholder(/Paste API key/).fill("fixture-key");
     await options.getByRole("button", { name: "Save key" }).click();
-    await expect(options.getByText("Verified for Gemini 3.1 Flash-Lite.")).toBeVisible();
-    const settings = await getStorage<{ geminiApiKey?: string; geminiKeyValidation?: { status?: string } }>(session, "settings");
+    await expect(options.getByText("Verified for Gemini 3.5 Flash-Lite.")).toBeVisible();
+    const settings = await getStorage<{ geminiApiKey?: string; geminiKeyValidation?: { status?: string }; useDirectApi?: boolean }>(session, "settings");
     expect(settings?.geminiApiKey).toBe("fixture-key");
     expect(settings?.geminiKeyValidation?.status).toBe("valid");
+    // A verified key turns Direct API mode on by itself.
+    expect(settings?.useDirectApi).toBe(true);
     const usage = await getStorage<{ attemptsToday?: number }>(session, "geminiUsage");
     expect(usage?.attemptsToday).toBe(0);
   } finally {
@@ -462,9 +480,10 @@ test("invalid key verification remains saved with actionable status", async () =
     await options.getByPlaceholder(/Paste API key/).fill("restricted-key");
     await options.getByRole("button", { name: "Save key" }).click();
     await expect(options.getByText(/Google rejected this API key/)).toBeVisible();
-    const settings = await getStorage<{ geminiApiKey?: string; geminiKeyValidation?: { status?: string } }>(session, "settings");
+    const settings = await getStorage<{ geminiApiKey?: string; geminiKeyValidation?: { status?: string }; useDirectApi?: boolean }>(session, "settings");
     expect(settings?.geminiApiKey).toBe("restricted-key");
     expect(settings?.geminiKeyValidation?.status).toBe("invalid");
+    expect(settings?.useDirectApi).toBe(false);
   } finally {
     await session.close();
   }
@@ -615,7 +634,7 @@ test("a timed-out request ends loading with a retry", async () => {
     await setStorage(session, { profiles: profiles(), settings: directSettings() });
     const page = await openVideo(session.context, "fixture-timeout");
     await page.locator("#tldw-watch-btn").click();
-    await expect(page.locator("#tldw-summary")).toContainText("60-second timeout");
+    await expect(page.locator("#tldw-summary")).toContainText("Gemini took too long to answer");
     await expect(page.getByRole("button", { name: "↻ Try again" })).toBeVisible();
     await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
   } finally {
@@ -842,7 +861,8 @@ test("the previous video's transcript never reaches the next, uncaptioned video"
     await session.context.route("https://www.youtube.com/youtubei/v1/get_panel**", async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: getPanelBody("fixture-a") });
     });
-    await mockGemini(session.context, prompts);
+    const calls: GeminiCall[] = [];
+    await mockGemini(session.context, prompts, 200, calls);
     await setStorage(session, { profiles: profiles(), settings: directSettings() });
     const page = await openVideo(session.context, "fixture-a");
 
@@ -852,9 +872,13 @@ test("the previous video's transcript never reaches the next, uncaptioned video"
     await page.locator("#tldw-watch-btn").click();
     // While the send prepares, the toolbar badge shows progress.
     await expect.poll(() => session.worker.evaluate(() => chrome.action.getBadgeText({})), { timeout: 3_000, intervals: [50] }).toBe("…");
-    // B has no transcript, so nothing is sent: the page says so instead.
-    await expect(page.locator("#tldw-summary")).toContainText("No transcript available for this video");
-    expect(prompts).toHaveLength(0);
+    // B has no transcript, so Gemini watches B from its link: A's transcript
+    // is never sent, and the summary says how it was made.
+    await expect(page.locator("#tldw-summary")).toContainText("Watched by Gemini (no transcript)");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].videoUrl).toBe("https://www.youtube.com/watch?v=fixture-b");
+    expect(calls[0].mediaResolution).toBe("MEDIA_RESOLUTION_LOW");
+    expect(calls[0].prompt).not.toContain("Video A's transcript");
     // A's stale button was never clicked.
     expect(await page.evaluate(() => (window as unknown as { __panelClicks: number }).__panelClicks)).toBe(0);
     // Nothing built on A's transcript is cached under B.
@@ -908,9 +932,9 @@ test("auto-run-if-long uses the video's length, not a pre-roll ad's", async () =
       }, 4000);
     </script>`));
     const page = await openVideo(session.context, "fixture-long-ad");
-    // The run fires; the video has no transcript, so it ends saying so.
-    await expect(page.locator("#tldw-summary")).toContainText("No transcript available", { timeout: 15_000 });
-    expect(prompts).toHaveLength(0);
+    // The run fires; the video has no transcript, so Gemini watches it.
+    await expect(page.locator("#tldw-summary")).toContainText("Watched by Gemini (no transcript)", { timeout: 15_000 });
+    expect(prompts).toHaveLength(1);
     await page.close();
 
     // With the player's data, the real length is known during the ad, and it is
@@ -922,7 +946,7 @@ test("auto-run-if-long uses the video's length, not a pre-roll ad's", async () =
       player.querySelector(".ytp-time-duration").textContent = "0:15";
     </script>`));
     const second = await openVideo(session.context, "fixture-long-ad-2");
-    await expect(second.locator("#tldw-summary")).toContainText("No transcript available", { timeout: 15_000 });
+    await expect(second.locator("#tldw-summary")).toContainText("Watched by Gemini (no transcript)", { timeout: 15_000 });
     const tabId = await tabIdFor(session, second.url());
     const meta = await session.worker.evaluate(async (id) => chrome.tabs.sendMessage(id!, { type: "GET_VIDEO_META" }), tabId);
     expect((meta as { durationSeconds: number }).durationSeconds).toBe(3600);
@@ -1419,22 +1443,54 @@ test("when YouTube fails to load a transcript, TL;DW stops waiting at once", asy
   }
 });
 
-for (const destination of ["direct API", "chatgpt", "chatgpt by shortcut"] as const) {
-  test(`no transcript means no summary from the title alone (${destination})`, async () => {
+test("no transcript with a key: Gemini watches the video, and a private one is refused clearly", async () => {
+  const session = await launchExtension();
+  try {
+    const calls: GeminiCall[] = [];
+    await routeYouTube(session.context, failingTranscriptFixture);
+    await routeFailingTranscript(session.context);
+    await mockGemini(session.context, [], 200, calls);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-no-transcript");
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+    await expect(page.locator("#tldw-summary [data-tldw-label]")).toHaveText("Watched by Gemini (no transcript)");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      model: "gemini-3.5-flash-lite",
+      videoUrl: "https://www.youtube.com/watch?v=fixture-no-transcript",
+      mediaResolution: "MEDIA_RESOLUTION_LOW",
+    });
+    // The prompt never pretends to hold a transcript.
+    expect(calls[0].prompt).not.toContain("TRANSCRIPT START");
+
+    // Gemini refusing the video (private, age-restricted, removed) says so.
+    await session.context.unroute("https://generativelanguage.googleapis.com/**");
+    await mockGemini(session.context, [], 403, calls);
+    await session.worker.evaluate(() => chrome.storage.local.remove("tldwSummaryCache"));
+    await page.reload();
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText("Gemini couldn't watch this video");
+    await expect(page.locator("#tldw-summary")).toContainText("private, unlisted, age-restricted");
+  } finally {
+    await session.close();
+  }
+});
+
+for (const destination of ["chatgpt", "chatgpt by shortcut"] as const) {
+  test(`no transcript for a site that can't watch YouTube offers Gemini instead (${destination})`, async () => {
     const session = await launchExtension();
     try {
       const prompts: string[] = [];
       await routeYouTube(session.context, failingTranscriptFixture);
       await routeFailingTranscript(session.context);
       await mockGemini(session.context, prompts);
-      const settings = destination === "direct API"
-        ? directSettings()
-        : { ...directSettings(), useDirectApi: false, destinationId: "chatgpt" };
+      const settings = { ...directSettings(), useDirectApi: false, destinationId: "chatgpt", focusGeminiTab: true };
       await setStorage(session, { profiles: profiles(), settings });
       const page = await openVideo(session.context, "fixture-no-transcript");
       const pagesBefore = session.context.pages().length;
       if (destination === "chatgpt by shortcut") {
-        // What Alt+Shift+G sends, from an extension page.
+        // What the keyboard shortcut sends, from an extension page.
         const tabId = await tabIdFor(session, page.url());
         const helper = await session.context.newPage();
         await helper.goto(`chrome-extension://${session.extensionId}/src/popup/index.html`);
@@ -1445,16 +1501,213 @@ for (const destination of ["direct API", "chatgpt", "chatgpt by shortcut"] as co
       } else {
         await page.locator("#tldw-watch-btn").click();
       }
-      await expect(page.locator("#tldw-summary")).toContainText(
-        "No transcript available for this video, so TL;DW didn't summarize it",
-      );
-      await expect(page.locator("#tldw-summary")).not.toContainText("Couldn't get the summary");
+      const panel = page.locator("#tldw-summary");
+      await expect(panel).toContainText("ChatGPT can't watch YouTube videos");
+      await expect(panel).not.toContainText("Couldn't get the summary");
       await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
       expect(prompts).toHaveLength(0);
       expect(session.context.pages().length).toBe(pagesBefore);
       expect(await session.worker.evaluate(() => chrome.action.getBadgeText({}))).toBe("N/A");
+      await expect(panel.getByRole("button", { name: "Add a free key" })).toBeVisible();
+
+      // "Send to Gemini instead" opens Gemini in the background with the link
+      // (no title-only prompt, no transcript), and the video keeps the focus.
+      await session.worker.evaluate(() => {
+        const create = chrome.tabs.create.bind(chrome.tabs);
+        (globalThis as unknown as { __created: chrome.tabs.CreateProperties[] }).__created = [];
+        chrome.tabs.create = ((props: chrome.tabs.CreateProperties) => {
+          (globalThis as unknown as { __created: chrome.tabs.CreateProperties[] }).__created.push(props);
+          return create({ ...props, url: "about:blank" });
+        }) as typeof chrome.tabs.create;
+      });
+      await panel.getByRole("button", { name: "Send to Gemini instead (it watches the link)" }).click();
+      await expect.poll(() => session.worker.evaluate(() =>
+        (globalThis as unknown as { __created: chrome.tabs.CreateProperties[] }).__created)).toHaveLength(1);
+      const created = await session.worker.evaluate(() =>
+        (globalThis as unknown as { __created: chrome.tabs.CreateProperties[] }).__created[0]);
+      expect(created.url).toBe("https://gemini.google.com/app");
+      expect(created.active).toBe(false);
+      const pending = await session.worker.evaluate(async () => JSON.stringify(await chrome.storage.session.get("pendingPrompts")));
+      expect(pending).toContain("watch?v=fixture-no-transcript");
+      expect(pending).not.toContain("TRANSCRIPT START");
+      await expect(panel).toContainText("couldn't read a transcript for this video, so Gemini will watch it from the link");
     } finally {
       await session.close();
     }
   });
 }
+
+/** A watch page whose rendered transcript is about `chars` characters long. */
+function longTranscriptFixture(chars: number): string {
+  const line = "This lecture keeps going with careful detail about the topic at hand and more. ";
+  const segments = Array.from({ length: Math.ceil(chars / line.length) }, (_, i) =>
+    modernSegment(`${Math.floor(i / 60)}:${String(i % 60).padStart(2, "0")}`, `${i} seconds`, line + i)).join("");
+  return youtubeFixture.replace(/<transcript-segment-view-model[\s\S]*<\/transcript-segment-view-model>/, segments);
+}
+
+/** Make chrome.tabs.create open about:blank and record what it was asked to open. */
+async function recordTabCreates(session: ExtensionSession): Promise<() => Promise<chrome.tabs.CreateProperties[]>> {
+  await session.worker.evaluate(() => {
+    const create = chrome.tabs.create.bind(chrome.tabs);
+    const g = globalThis as unknown as { __created: chrome.tabs.CreateProperties[] };
+    g.__created = [];
+    chrome.tabs.create = ((props: chrome.tabs.CreateProperties) => {
+      g.__created.push(props);
+      return create({ ...props, url: "about:blank" });
+    }) as typeof chrome.tabs.create;
+  });
+  return () => session.worker.evaluate(() => (globalThis as unknown as { __created: chrome.tabs.CreateProperties[] }).__created);
+}
+
+async function pendingPrompt(session: ExtensionSession): Promise<string> {
+  return session.worker.evaluate(async () => {
+    const r = await chrome.storage.session.get("pendingPrompts");
+    const all = Object.values((r.pendingPrompts ?? {}) as Record<string, { prompt: string }>);
+    return all.at(-1)?.prompt ?? "";
+  });
+}
+
+test("a long video goes to the Gemini tab as a link, with a notice, never as a cut transcript", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context, longTranscriptFixture(40_000));
+    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), geminiApiKey: "", useDirectApi: false } });
+    const page = await openVideo(session.context, "fixture-long-gemini");
+    const created = await recordTabCreates(session);
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText(
+      "This video is long, so Gemini will watch it from the link. Add a free API key to summarize long videos from the transcript.",
+    );
+    await expect(page.locator("#tldw-summary")).toContainText("Waiting for Gemini's answer in its tab");
+    await expect.poll(async () => (await created()).length).toBe(1);
+    expect((await created())[0]).toMatchObject({ url: "https://gemini.google.com/app", active: false });
+    const prompt = await pendingPrompt(session);
+    expect(prompt).toContain("watch?v=fixture-long-gemini");
+    expect(prompt).not.toContain("TRANSCRIPT START");
+    expect(prompt).not.toContain("transcript truncated");
+  } finally {
+    await session.close();
+  }
+});
+
+test("a transcript too long for ChatGPT asks first, and sends the first part only when chosen", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context, longTranscriptFixture(70_000));
+    await setStorage(session, {
+      profiles: profiles(),
+      settings: { ...directSettings(), geminiApiKey: "", useDirectApi: false, destinationId: "chatgpt", temporaryChats: false },
+    });
+    const page = await openVideo(session.context, "fixture-long-chatgpt");
+    const created = await recordTabCreates(session);
+    await page.locator("#tldw-watch-btn").click();
+    const panel = page.locator("#tldw-summary");
+    await expect(panel).toContainText("too long for ChatGPT's message box");
+    await expect(panel.getByRole("button", { name: "Send to Gemini instead (it watches the link)" })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Add a free key" })).toBeVisible();
+    expect(await created()).toHaveLength(0);
+    await panel.getByRole("button", { name: "Send the first part only (truncated)" }).click();
+    await expect.poll(async () => (await created()).length).toBe(1);
+    expect((await created())[0]).toMatchObject({ url: "https://chatgpt.com/", active: false });
+    const prompt = await pendingPrompt(session);
+    expect(prompt).toContain("only its first part is included");
+    expect(prompt.length).toBeLessThanOrEqual(50_000);
+  } finally {
+    await session.close();
+  }
+});
+
+test("with a key, a long transcript goes to the API whole", async () => {
+  const session = await launchExtension();
+  try {
+    const calls: GeminiCall[] = [];
+    await routeYouTube(session.context, longTranscriptFixture(120_000));
+    await mockGemini(session.context, [], 200, calls);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-long-api");
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].videoUrl).toBeUndefined();
+    expect(calls[0].prompt.length).toBeGreaterThan(120_000);
+    expect(calls[0].prompt).not.toContain("transcript truncated");
+  } finally {
+    await session.close();
+  }
+});
+
+test("a rate-limited default model falls back to 3.1 Flash-Lite and says so once", async () => {
+  const session = await launchExtension();
+  try {
+    const calls: GeminiCall[] = [];
+    await routeYouTube(session.context);
+    await mockGemini(session.context, [], (model) => (model === "gemini-3.5-flash-lite" ? 429 : 200), calls);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-fallback");
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+    await expect(page.locator("#tldw-summary [data-tldw-note]")).toHaveText(
+      "Gemini 3.5 Flash-Lite hit its rate or quota limit, so TL;DW used Gemini 3.1 Flash-Lite for this summary.",
+    );
+    expect(calls.map((c) => c.model)).toEqual(["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]);
+    await expect(page.locator("#tldw-summary")).toContainText("⚡ Gemini 3.1 Flash-Lite");
+
+    // The next summary falls back again but doesn't repeat the notice.
+    const second = await openVideo(session.context, "fixture-fallback-2");
+    await second.locator("#tldw-watch-btn").click();
+    await expect(second.locator("#tldw-summary")).toContainText("Fixture summary.");
+    await expect(second.locator("#tldw-summary [data-tldw-note]")).toHaveCount(0);
+  } finally {
+    await session.close();
+  }
+});
+
+test("API errors offer the action that fixes them", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context);
+    await mockGemini(session.context, [], 401);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-bad-key");
+    await page.locator("#tldw-watch-btn").click();
+    const panel = page.locator("#tldw-summary");
+    await expect(panel.getByRole("button", { name: "Replace key in TL;DW settings" })).toBeVisible();
+    const optionsPage = session.context.waitForEvent("page");
+    await panel.getByRole("button", { name: "Replace key in TL;DW settings" }).click();
+    expect((await optionsPage).url()).toContain("options/index.html#directapi");
+
+    // Both Flash-Lite models rate limited: offer the Gemini tab instead.
+    await session.context.unroute("https://generativelanguage.googleapis.com/**");
+    const calls: GeminiCall[] = [];
+    await mockGemini(session.context, [], 429, calls);
+    const limited = await openVideo(session.context, "fixture-limited");
+    await limited.locator("#tldw-watch-btn").click();
+    await expect(limited.locator("#tldw-summary").getByRole("button", { name: "Send to Gemini in a tab instead" })).toBeVisible();
+    expect(calls.map((c) => c.model)).toEqual(["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]);
+  } finally {
+    await session.close();
+  }
+});
+
+test("the model picker changes the model TL;DW calls", async () => {
+  const session = await launchExtension();
+  try {
+    const calls: GeminiCall[] = [];
+    await routeYouTube(session.context);
+    await mockGemini(session.context, [], 200, calls);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const options = await session.context.newPage();
+    await options.goto(`chrome-extension://${session.extensionId}/src/options/index.html#directapi`);
+    await options.getByRole("tab", { name: "Behavior" }).click();
+    await options.getByRole("radio", { name: /Gemini 3\.6 Flash/ }).check();
+    await expect.poll(async () => (await getStorage<{ geminiModelId?: string }>(session, "settings"))?.geminiModelId)
+      .toBe("gemini-3.6-flash");
+    const page = await openVideo(session.context, "fixture-model");
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+    expect(calls.at(-1)?.model).toBe("gemini-3.6-flash");
+  } finally {
+    await session.close();
+  }
+});
+

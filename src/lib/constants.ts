@@ -5,16 +5,66 @@ import type {
 } from "../types";
 
 export const GEMINI_URL = "https://gemini.google.com/app";
-export const GEMINI_MODEL_ID = "gemini-3.1-flash-lite";
-export const GEMINI_FREE_TIER_RPD = 500;
 export const GEMINI_QUOTA_TIME_ZONE = "America/Los_Angeles";
-export const GEMINI_RECOMMENDATION_DATE = "July 2026";
 export const AI_STUDIO_LINKS = {
   usage: "https://aistudio.google.com/usage",
   apiKeys: "https://aistudio.google.com/apikey",
+  rateLimits: "https://aistudio.google.com/rate-limit",
+  rateLimitDocs: "https://aistudio.google.com/docs/rate-limits",
+  pricing: "https://aistudio.google.com/docs/pricing",
+  terms: "https://aistudio.google.com/docs/terms",
   billing: "https://console.cloud.google.com/billing",
   budgets: "https://console.cloud.google.com/billing/budgets",
 } as const;
+
+/**
+ * The Gemini API models TL;DW offers. Model codes as listed on
+ * aistudio.google.com/docs/models (checked 2026-11-02). The default is the
+ * cheapest fast model; when Google answers 429 (rate or quota limit) for it,
+ * TL;DW retries once on the fallback.
+ */
+export const DEFAULT_GEMINI_MODEL_ID = "gemini-3.5-flash-lite";
+export const FALLBACK_GEMINI_MODEL_ID = "gemini-3.1-flash-lite";
+
+export type GeminiModelOption = { id: string; label: string; note: string };
+
+export const GEMINI_MODELS: GeminiModelOption[] = [
+  {
+    id: DEFAULT_GEMINI_MODEL_ID,
+    label: "Gemini 3.5 Flash-Lite",
+    note: "Recommended. Fast and the cheapest; works on the free tier.",
+  },
+  {
+    id: FALLBACK_GEMINI_MODEL_ID,
+    label: "Gemini 3.1 Flash-Lite",
+    note: "The previous Flash-Lite. TL;DW switches to it automatically when 3.5 Flash-Lite hits a limit.",
+  },
+  {
+    id: "gemini-3.6-flash",
+    label: "Gemini 3.6 Flash",
+    note: "More thorough summaries. Costs more per summary and usually has lower free-tier limits.",
+  },
+  {
+    id: "gemini-3.8-flash",
+    label: "Gemini 3.8 Flash",
+    note: "Google's newest Flash model. Costs more per summary and usually has lower free-tier limits.",
+  },
+  {
+    id: "gemini-3.1-pro-preview",
+    label: "Gemini 3.1 Pro (preview)",
+    note: "The most capable and the slowest. Best with billing enabled; free-tier limits are low or none.",
+  },
+];
+
+/** The saved model when TL;DW still offers it, otherwise the default. */
+export function resolveGeminiModelId(id: string | undefined): string {
+  return GEMINI_MODELS.some((m) => m.id === id) ? id! : DEFAULT_GEMINI_MODEL_ID;
+}
+
+/** A model's display name ("Gemini 3.5 Flash-Lite"), or its code when unknown. */
+export function geminiModelLabel(id: string | undefined): string {
+  return GEMINI_MODELS.find((m) => m.id === id)?.label ?? id ?? GEMINI_MODELS[0].label;
+}
 
 /**
  * Where summaries can be sent. Each destination is auto-filled by its content
@@ -129,6 +179,9 @@ export const OPEN_SEARCHES_KEY = "openSearches";
 /** chrome.storage.session key holding recent auto-fill outcomes for the popup. */
 export const DELIVERY_STATUS_KEY = "deliveryStatus";
 
+/** chrome.storage.local key holding the Direct API model fallback state. */
+export const MODEL_FALLBACK_KEY = "tldwModelFallback";
+
 /** chrome.storage.local key holding direct Gemini API usage stats. */
 export const GEMINI_USAGE_KEY = "geminiUsage";
 
@@ -165,6 +218,7 @@ export const DEFAULT_SETTINGS: Settings = {
   geminiApiKey: "",
   geminiApiKeyName: "",
   geminiKeyValidation: { status: "unverified" },
+  geminiModelId: DEFAULT_GEMINI_MODEL_ID,
   useDirectApi: false,
   skipSponsors: true,
   keepFullCallLog: false,

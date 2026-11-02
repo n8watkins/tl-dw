@@ -1,5 +1,5 @@
 import type { GeminiKeyValidation, GeminiKeyValidationFailure } from "../types";
-import { GEMINI_MODEL_ID } from "./constants";
+import { DEFAULT_GEMINI_MODEL_ID, geminiModelLabel } from "./constants";
 import { geminiErrorMessage } from "./geminiApi";
 
 export function categorizeKeyVerificationFailure(status?: number): GeminiKeyValidationFailure {
@@ -11,8 +11,11 @@ export function categorizeKeyVerificationFailure(status?: number): GeminiKeyVali
   return "network";
 }
 
-export function keyValidationMessage(validation: GeminiKeyValidation): string {
-  if (validation.status === "valid") return "Verified for Gemini 3.1 Flash-Lite.";
+export function keyValidationMessage(
+  validation: GeminiKeyValidation,
+  model: string = DEFAULT_GEMINI_MODEL_ID,
+): string {
+  if (validation.status === "valid") return `Verified for ${geminiModelLabel(model)}.`;
   if (validation.status === "unverified") return "Saved locally, but not verified yet.";
   switch (validation.failureCategory) {
     case "unauthorized":
@@ -35,11 +38,12 @@ export async function verifyGeminiKey(
   apiKey: string,
   fetcher: typeof fetch = fetch,
   now: Date = new Date(),
+  model: string = DEFAULT_GEMINI_MODEL_ID,
 ): Promise<GeminiKeyValidation> {
   const verifiedAt = now.toISOString();
   try {
     const response = await fetcher(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`,
       { headers: { "x-goog-api-key": apiKey } },
     );
     return response.ok

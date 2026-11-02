@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDestinationPrompt, TLDW_REMINDER, TRANSCRIPT_TRUNCATED_NOTE } from "./promptBuilder";
+import { buildDestinationPrompt, buildDestinationPromptInfo, TLDW_REMINDER, TRANSCRIPT_TRUNCATED_NOTE } from "./promptBuilder";
 import type { Destination, PromptProfile, VideoContext } from "../types";
 
 const profile: PromptProfile = {
@@ -191,5 +191,36 @@ describe("buildDestinationPrompt", () => {
     // Blank curiosity adds nothing — no labelled "address this" line appears.
     expect(out.startsWith("Summarize My Video at https://youtube.com/watch?v=abc")).toBe(true);
     expect(out).not.toContain("In particular, address this");
+  });
+});
+
+describe("buildDestinationPromptInfo", () => {
+  const video = { url: "https://www.youtube.com/watch?v=abc" };
+  const site: Destination = { id: "s", label: "Site", url: "https://example.com", maxPromptChars: 6000 };
+
+  it("reports whether the transcript fit", () => {
+    const short = buildDestinationPromptInfo(profile, video, site, "short words", null, null);
+    expect(short.truncated).toBe(false);
+    expect(short.prompt).toContain("short words");
+    const long = buildDestinationPromptInfo(profile, video, site, "word ".repeat(5000), null, null);
+    expect(long.truncated).toBe(true);
+    expect(long.prompt.length).toBeLessThanOrEqual(6000);
+  });
+
+  it("keeps only the start, labelled, when asked to send the first part", () => {
+    const transcript = "start ".repeat(2000) + "ENDING";
+    const { prompt, truncated } = buildDestinationPromptInfo(profile, video, site, transcript, null, null, { cut: "head" });
+    expect(truncated).toBe(true);
+    expect(prompt).toContain("only its first part is included");
+    expect(prompt).toMatch(/the last \d+% of the transcript is left out/);
+    expect(prompt).not.toContain("ENDING");
+    expect(prompt.length).toBeLessThanOrEqual(6000);
+  });
+
+  it("fits a long transcript whole into the API budget", () => {
+    const transcript = "word ".repeat(40_000);
+    const { truncated, prompt } = buildDestinationPromptInfo(profile, video, site, transcript, null, null, { maxChars: 1_000_000 });
+    expect(truncated).toBe(false);
+    expect(prompt).toContain(transcript.trim());
   });
 });

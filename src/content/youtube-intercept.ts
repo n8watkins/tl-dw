@@ -54,8 +54,10 @@ const PLAYER_INFO_REQUEST = "tldw:player-info-request";
 const PLAYER_INFO_REPLY = "tldw:player-info";
 
 type PlayerResponseLike = {
-  videoDetails?: { videoId?: unknown; lengthSeconds?: unknown; isLive?: unknown };
+  videoDetails?: { videoId?: unknown; lengthSeconds?: unknown; isLive?: unknown; isPrivate?: unknown };
   captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: unknown } };
+  playabilityStatus?: { status?: unknown };
+  microformat?: { playerMicroformatRenderer?: { isUnlisted?: unknown } };
 };
 
 function readPlayerInfo(): string {
@@ -72,6 +74,11 @@ function readPlayerInfo(): string {
       lengthSeconds: Number(details.lengthSeconds) || 0,
       isLive: details.isLive === true,
       hasCaptions: Array.isArray(tracks) && tracks.length > 0,
+      // "OK" when the video plays; "ERROR", "UNPLAYABLE", "LOGIN_REQUIRED"...
+      // when YouTube shows "Video unavailable" or asks to sign in.
+      playability: typeof res?.playabilityStatus?.status === "string" ? res.playabilityStatus.status : undefined,
+      // Gemini can watch only public videos from their link.
+      isPublic: details.isPrivate !== true && res?.microformat?.playerMicroformatRenderer?.isUnlisted !== true,
     });
   } catch {
     return "null";

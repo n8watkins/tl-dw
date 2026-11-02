@@ -50,6 +50,8 @@ export type OpenSearch = {
   cacheContext?: Omit<CachedSummary, "tldw" | "createdAt">;
   /** The video whose transcript went into the prompt, when one did. */
   transcriptVideoId?: string;
+  /** Label for the summary read back from this tab (e.g. Gemini watched the link). */
+  summaryLabel?: string;
 };
 
 /**
@@ -252,6 +254,8 @@ export type Settings = {
   geminiApiKeyName: string;
   /** Validation metadata only. No additional secret material is stored. */
   geminiKeyValidation: GeminiKeyValidation;
+  /** Gemini API model for Direct API summaries (see GEMINI_MODELS). */
+  geminiModelId: string;
   /** Use the direct API path when a key is present (can be toggled off in the popup). */
   useDirectApi: boolean;
   /** Whether the user has acknowledged the first-run privacy notice (SponsorBlock). */
@@ -300,6 +304,11 @@ export type VideoMeta = {
   current?: boolean;
   /** A broadcast that is live right now with no transcript: nothing to summarize yet. */
   live?: boolean;
+  /**
+   * False when Gemini can't watch the video from its link (private, unlisted or
+   * unplayable); undefined when unknown.
+   */
+  watchable?: boolean;
   durationSeconds: number;
   channel: string;
   /** Channel id/href (getChannelInfo().id) — for channel-tag resolution. */
@@ -334,12 +343,22 @@ export type AskMessage = {
   source?: SummarySource;
   /** Skip an exact cache match and replace it after a successful run. */
   bypassCache?: boolean;
+  /** Send only the first part of a transcript too long for the destination (an explicit choice). */
+  allowTruncate?: boolean;
 };
+
+/**
+ * Model fallback state for the Direct API: the Pacific quota day on which the
+ * default model's per-day quota ran out (later calls that day go straight to
+ * the fallback), and the day the user was last told about a switch.
+ */
+export type ModelFallbackState = { dailyLimitDay?: string; notifiedDay?: string };
 
 export type CacheLookupMessage = { type: "CACHE_LOOKUP"; videoId: string };
 export type CacheClearMessage = { type: "CACHE_CLEAR"; videoId?: string };
 export type CacheCountMessage = { type: "CACHE_COUNT" };
-export type VerifyGeminiKeyMessage = { type: "VERIFY_GEMINI_KEY" };
+/** `enableOnSuccess`: a key just saved turns Direct API mode on once verified. */
+export type VerifyGeminiKeyMessage = { type: "VERIFY_GEMINI_KEY"; enableOnSuccess?: boolean };
 
 /**
  * Entry point that triggered a summarize. The explicit "send to this
@@ -349,7 +368,7 @@ export type VerifyGeminiKeyMessage = { type: "VERIFY_GEMINI_KEY" };
  * ("popup-inline") run headless when Direct API is on, filling the TL;DW widget
  * in place instead of opening a tab.
  */
-export type SummarySource = "menu" | "command" | "popup" | "popup-inline" | "page" | "auto";
+export type SummarySource = "menu" | "command" | "popup" | "popup-inline" | "page" | "page-tab" | "auto";
 
 /** Sent from options page after profiles change to sync the context menu. */
 export type RebuildMenuMessage = { type: "REBUILD_MENU" };
@@ -372,6 +391,8 @@ export type TldwSummary = {
   summary: string;
   /** 1-2 sentences of supporting evidence or key context. */
   details?: string;
+  /** How the summary was made, shown with it (e.g. "Watched by Gemini (no transcript)"). */
+  label?: string;
 };
 
 /**

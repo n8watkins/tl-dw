@@ -49,8 +49,8 @@ export function describeSummarySource(
   }
   if (resolved === "api") {
     return {
-      label: "⚡ Gemini API",
-      title: "This summary came straight from the Gemini API: instant, no tab. Click for Direct API settings.",
+      label: source && source !== "Gemini API" ? `⚡ ${source}` : "⚡ Gemini API",
+      title: "This summary came straight from the Gemini API: no tab. Click for Direct API settings.",
       section: "directapi",
     };
   }
