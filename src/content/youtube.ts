@@ -127,12 +127,14 @@ let captured: string | null = null;
 let capturedVideoId: string | null = null;
 // Transcript-panel responses seen so far, and the video the latest was for.
 let panelResponseSeq = 0;
+// The HTTP status when the latest of those responses was an error, else null.
+let lastPanelResponseFailed: number | null = null;
 let lastPanelResponseVideoId: string | null = null;
 
 window.addEventListener("message", (event) => {
   if (event.source !== window) return;
   const data = event.data as
-    | { __tldw?: boolean; kind?: string; body?: unknown; videoId?: string }
+    | { __tldw?: boolean; kind?: string; body?: unknown; videoId?: string; failedStatus?: number }
     | undefined;
   if (!data || data.__tldw !== true) return;
 
@@ -157,6 +159,10 @@ window.addEventListener("message", (event) => {
   if (videoId && (data.kind === "get_panel" || data.kind === "get_transcript")) {
     panelResponseSeq++;
     lastPanelResponseVideoId = videoId;
+    lastPanelResponseFailed = typeof data.failedStatus === "number" ? data.failedStatus : null;
+    if (lastPanelResponseFailed !== null) {
+      log("YouTube couldn't load the transcript for", videoId, "(HTTP", `${lastPanelResponseFailed})`);
+    }
   }
 
   if (text && videoId) {
@@ -426,6 +432,19 @@ async function fetchTranscript(vid: string): Promise<string | null> {
       // read nothing and treat this video as having none.
       restore();
       log("transcript response was for", lastPanelResponseVideoId, "not", vid, "- no transcript");
+      return null;
+    }
+    // YouTube's own request for this video's transcript failed, so its panel
+    // has nothing to show either: stop waiting (unless the panel already holds
+    // segments) instead of running out the clock.
+    if (answered && lastPanelResponseVideoId === vid && lastPanelResponseFailed !== null) {
+      const scraped = scrapeRenderedTranscript();
+      restore();
+      if (scraped) {
+        log("transcript scraped from the panel:", scraped.length, "chars");
+        return scraped;
+      }
+      log("YouTube didn't provide a transcript for this video");
       return null;
     }
     // Fallback for when the network response can't be read: scrape the panel,
@@ -1403,7 +1422,7 @@ function startRunInFlight(): void {
  * never returned a usable summary. Offers a one-click retry and explains the
  * tab-mode caveat so the user isn't left staring at a dead skeleton.
  */
-function showSummaryErrorPanel(reason?: string, actionUrl?: string): void {
+function showSummaryErrorPanel(reason?: string, actionUrl?: string, opts: { noTranscript?: boolean } = {}): void {
   const host = panelHost();
   if (!host) return;
   removeSummaryPanel();
@@ -1437,7 +1456,10 @@ function showSummaryErrorPanel(reason?: string, actionUrl?: string): void {
   const msg = document.createElement("div");
   // Prefer a specific reason from the Direct-API path (e.g. "quota exceeded",
   // "input too long"); fall back to the generic tab-flow timeout copy.
-  msg.textContent = reason
+  // No transcript is not a failed request: say so plainly, with no prefix.
+  msg.textContent = reason && opts.noTranscript
+    ? reason
+    : reason
     ? `Couldn't get the summary: ${reason}`
     : "Couldn't get the summary back in time. If you're using the tab flow (no API key), " +
       "the destination tab may still be working or may need a sign-in — check it, then retry.";
@@ -2200,10 +2222,10 @@ function sendAutoAsk(vid: string): boolean {
  * the reason, instead of leaving the button on "Analyzing..." until the timeout.
  */
 function handleAskReply(vid: string, reply: unknown): void {
-  const res = reply as { ok?: boolean; error?: string; actionUrl?: string } | undefined;
+  const res = reply as { ok?: boolean; error?: string; actionUrl?: string; noTranscript?: boolean } | undefined;
   if (res?.ok !== false || currentVideoId() !== vid || !runInFlight) return;
   endRunInFlight();
-  showSummaryErrorPanel(res.error, res.actionUrl);
+  showSummaryErrorPanel(res.error, res.actionUrl, { noTranscript: res.noTranscript });
 }
 
 /**
@@ -2571,11 +2593,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // 90s timeout and then show the misleading tab-flow message — but only if a
     // run is still in flight for the video the error is for. (Loading lives in the
     // button now; `runInFlight`, not a panel kind, is the gate.)
-    const msg = message as { videoId?: string; reason?: string; actionUrl?: string };
+    // "No transcript" is shown for any send (popup, shortcut, menu), not only
+    // for a run the page started: otherwise nothing would say why no summary came.
+    const msg = message as { videoId?: string; reason?: string; actionUrl?: string; noTranscript?: boolean };
     if (!msg.videoId || msg.videoId === currentVideoId()) {
-      if (runInFlight) {
+      if (runInFlight || msg.noTranscript) {
         endRunInFlight();
-        showSummaryErrorPanel(msg.reason, msg.actionUrl);
+        showSummaryErrorPanel(msg.reason, msg.actionUrl, { noTranscript: msg.noTranscript });
       }
     }
     sendResponse({ ok: true });

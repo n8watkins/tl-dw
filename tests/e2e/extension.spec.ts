@@ -852,12 +852,9 @@ test("the previous video's transcript never reaches the next, uncaptioned video"
     await page.locator("#tldw-watch-btn").click();
     // While the send prepares, the toolbar badge shows progress.
     await expect.poll(() => session.worker.evaluate(() => chrome.action.getBadgeText({})), { timeout: 3_000, intervals: [50] }).toBe("…");
-    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
-
-    expect(prompts).toHaveLength(1);
-    expect(prompts[0]).toContain("watch?v=fixture-b");
-    expect(prompts[0]).not.toContain("Video A's transcript");
-    expect(prompts[0]).not.toContain("<<<TRANSCRIPT START>>>");
+    // B has no transcript, so nothing is sent: the page says so instead.
+    await expect(page.locator("#tldw-summary")).toContainText("No transcript available for this video");
+    expect(prompts).toHaveLength(0);
     // A's stale button was never clicked.
     expect(await page.evaluate(() => (window as unknown as { __panelClicks: number }).__panelClicks)).toBe(0);
     // Nothing built on A's transcript is cached under B.
@@ -911,8 +908,9 @@ test("auto-run-if-long uses the video's length, not a pre-roll ad's", async () =
       }, 4000);
     </script>`));
     const page = await openVideo(session.context, "fixture-long-ad");
-    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.", { timeout: 15_000 });
-    expect(prompts).toHaveLength(1);
+    // The run fires; the video has no transcript, so it ends saying so.
+    await expect(page.locator("#tldw-summary")).toContainText("No transcript available", { timeout: 15_000 });
+    expect(prompts).toHaveLength(0);
     await page.close();
 
     // With the player's data, the real length is known during the ad, and it is
@@ -924,7 +922,7 @@ test("auto-run-if-long uses the video's length, not a pre-roll ad's", async () =
       player.querySelector(".ytp-time-duration").textContent = "0:15";
     </script>`));
     const second = await openVideo(session.context, "fixture-long-ad-2");
-    await expect(second.locator("#tldw-summary")).toContainText("Fixture summary.", { timeout: 15_000 });
+    await expect(second.locator("#tldw-summary")).toContainText("No transcript available", { timeout: 15_000 });
     const tabId = await tabIdFor(session, second.url());
     const meta = await session.worker.evaluate(async (id) => chrome.tabs.sendMessage(id!, { type: "GET_VIDEO_META" }), tabId);
     expect((meta as { durationSeconds: number }).durationSeconds).toBe(3600);
@@ -1201,7 +1199,10 @@ test("a long video's automatic summary shows Analyzing and then the failure reas
     const logs: string[] = [];
     await mockGemini(session.context, [], 429);
     await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), autoTldwMinutes: 30 } });
-    await routeYouTube(session.context, playerFixture({ lengthSeconds: 3600, captions: false }));
+    await routeYouTube(session.context, playerFixture(
+      { lengthSeconds: 3600, captions: true },
+      modernSegment("0:01", "1 second", "A long lecture begins."),
+    ));
     // Record every label the TL;DW button shows, however briefly.
     await session.context.addInitScript(() => {
       const w = window as unknown as { __buttonLabels: string[] };
@@ -1383,3 +1384,77 @@ test("sponsor segments are never applied on a Short", async () => {
     await session.close();
   }
 });
+
+// A watch page with YouTube's legacy transcript panel: "Show transcript" calls
+// get_transcript, which YouTube answers for some captioned videos with
+// 400 FAILED_PRECONDITION (seen 2026-11-02 on 3Blue1Brown videos), leaving its
+// own panel empty.
+const failingTranscriptFixture = playerFixture({ lengthSeconds: 1140, captions: true }, `
+  <ytd-video-description-transcript-section-renderer>
+    <button onclick="window.__clicks = (window.__clicks || 0) + 1; fetch('/youtubei/v1/get_transcript?prettyPrint=false', { method: 'POST', body: '{}' })">Show transcript</button>
+  </ytd-video-description-transcript-section-renderer>`);
+
+async function routeFailingTranscript(context: BrowserContext): Promise<void> {
+  await context.route("https://www.youtube.com/youtubei/v1/get_transcript**", async (route) => {
+    await route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: 400, message: "Precondition check failed.", status: "FAILED_PRECONDITION" } }),
+    });
+  });
+}
+
+test("when YouTube fails to load a transcript, TL;DW stops waiting at once", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context, failingTranscriptFixture);
+    await routeFailingTranscript(session.context);
+    const page = await openVideo(session.context, "fixture-precondition");
+    const { transcript, ms } = await transcriptFromPage(session, page);
+    expect(transcript).toBeNull();
+    expect(await page.evaluate(() => (window as unknown as { __clicks: number }).__clicks)).toBe(1);
+    expect(ms).toBeLessThan(3_000);
+  } finally {
+    await session.close();
+  }
+});
+
+for (const destination of ["direct API", "chatgpt", "chatgpt by shortcut"] as const) {
+  test(`no transcript means no summary from the title alone (${destination})`, async () => {
+    const session = await launchExtension();
+    try {
+      const prompts: string[] = [];
+      await routeYouTube(session.context, failingTranscriptFixture);
+      await routeFailingTranscript(session.context);
+      await mockGemini(session.context, prompts);
+      const settings = destination === "direct API"
+        ? directSettings()
+        : { ...directSettings(), useDirectApi: false, destinationId: "chatgpt" };
+      await setStorage(session, { profiles: profiles(), settings });
+      const page = await openVideo(session.context, "fixture-no-transcript");
+      const pagesBefore = session.context.pages().length;
+      if (destination === "chatgpt by shortcut") {
+        // What Alt+Shift+G sends, from an extension page.
+        const tabId = await tabIdFor(session, page.url());
+        const helper = await session.context.newPage();
+        await helper.goto(`chrome-extension://${session.extensionId}/src/popup/index.html`);
+        await helper.evaluate(async (sourceTabId) => {
+          await chrome.runtime.sendMessage({ type: "ASK", source: "command", sourceTabId });
+        }, tabId);
+        await helper.close();
+      } else {
+        await page.locator("#tldw-watch-btn").click();
+      }
+      await expect(page.locator("#tldw-summary")).toContainText(
+        "No transcript available for this video, so TL;DW didn't summarize it",
+      );
+      await expect(page.locator("#tldw-summary")).not.toContainText("Couldn't get the summary");
+      await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
+      expect(prompts).toHaveLength(0);
+      expect(session.context.pages().length).toBe(pagesBefore);
+      expect(await session.worker.evaluate(() => chrome.action.getBadgeText({}))).toBe("N/A");
+    } finally {
+      await session.close();
+    }
+  });
+}

@@ -13,6 +13,7 @@ import {
   isYouTubeShortUrl,
   isYouTubeVideoUrl,
   localDateKey,
+  NO_TRANSCRIPT_MESSAGE,
   STORAGE_KEYS,
 } from "../lib/constants";
 import { cacheContextForScrape, findOpenSearchForVideo } from "../lib/openSearchMatch";
@@ -206,7 +207,8 @@ async function getTranscriptFromTab(
 
 /** How a summary run ended, for the ASK reply: a refusal or failure carries the reason. */
 /** A failure can carry a link to where the user can fix it (AI Studio). */
-type RunOutcome = { ok: true } | { ok: false; error: string; actionUrl?: string };
+/** `noTranscript` marks the refusal to summarize a video whose transcript couldn't be read. */
+type RunOutcome = { ok: true } | { ok: false; error: string; actionUrl?: string; noTranscript?: true };
 
 // Runs between "send" and the hand-off; while any is preparing (reading the
 // page, fetching the transcript) the toolbar badge shows a grey "…".
@@ -414,12 +416,26 @@ async function prepareAndSend(
   // so the structured TL;DW block often never comes back. Including the
   // transcript makes the tab flow as reliable as the headless path.
   let transcript: string | null = null;
-  if (
-    destination.payload !== "link" &&
-    !isThumbnail &&
-    activeTab?.id !== undefined
-  ) {
-    transcript = await getTranscriptFromTab(activeTab.id, extractVideoId(url));
+  const transcriptTabId = destination.payload !== "link" && !isThumbnail ? activeTab?.id : undefined;
+  const readsTranscript = transcriptTabId !== undefined;
+  if (transcriptTabId !== undefined) {
+    transcript = await getTranscriptFromTab(transcriptTabId, extractVideoId(url));
+  }
+  // Without the transcript, the Gemini API and the chat sites that can't watch
+  // YouTube would summarize the title and nothing else, and present a guess as
+  // the video's content. Say there's no transcript instead. (The Gemini web app
+  // watches the URL, so it still gets the link.)
+  if (readsTranscript && !transcript && isPromptDest && (willUseDirectApi || !destination.canWatch)) {
+    await flashBadge("N/A", "muted");
+    // Say it on the page too: a send from the popup, the shortcut or the menu
+    // has no run on the page waiting for this reply.
+    void chrome.tabs.sendMessage(transcriptTabId, {
+      type: "SET_SUMMARY_ERROR",
+      videoId: extractVideoId(url) ?? undefined,
+      reason: NO_TRANSCRIPT_MESSAGE,
+      noTranscript: true,
+    }).catch(() => {});
+    return { ok: false, error: NO_TRANSCRIPT_MESSAGE, noTranscript: true };
   }
 
   // Video metadata (read once above) feeds channel-tracking stats, the

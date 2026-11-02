@@ -24,10 +24,11 @@ function relay(
   kind: "get_panel" | "get_transcript" | "timedtext",
   body: unknown,
   videoId: string | undefined,
+  failedStatus?: number,
 ): void {
   // Target our own origin (not "*") so a same-page cross-origin iframe can't read
   // the relayed transcript; the isolated-world listener also checks event.source.
-  window.postMessage({ __tldw: true, kind, body, videoId }, location.origin);
+  window.postMessage({ __tldw: true, kind, body, videoId, failedStatus }, location.origin);
 }
 
 /** The watch video id from the current URL (the page being viewed when the
@@ -118,7 +119,11 @@ window.fetch = function patchedFetch(
         res
           .clone()
           .json()
-          .then((body) => relay("get_transcript", body, reqVideoId))
+          .catch(() => null)
+          // get_transcript serves only transcripts, so a failure is this
+          // video's transcript failing to load (YouTube answers some videos
+          // with 400 FAILED_PRECONDITION, and its own panel stays empty).
+          .then((body) => relay("get_transcript", body, reqVideoId, res.ok ? undefined : res.status))
           .catch(() => {}),
       );
     } else if (url.includes(TIMEDTEXT_PATH)) {
