@@ -192,7 +192,25 @@ function detach(): void {
   undoableUntil.clear();
 }
 
+let navPollTimer: number | undefined;
+
+/** Whether this script still belongs to a live extension (not orphaned by an update). */
+function extensionContextAlive(): boolean {
+  try {
+    return !!chrome.runtime?.id;
+  } catch {
+    return false;
+  }
+}
+
 async function handleNav(): Promise<void> {
+  if (!extensionContextAlive()) {
+    // Orphaned by an extension update or reload: stop skipping and polling.
+    if (navPollTimer !== undefined) window.clearInterval(navPollTimer);
+    navPollTimer = undefined;
+    detach();
+    return;
+  }
   const vid = videoIdFromUrl();
   if (!vid) {
     // Left the watch page (a Short, the home feed...): never seek another
@@ -231,7 +249,7 @@ async function handleNav(): Promise<void> {
 // event + a low-frequency poll for navigations that fire neither.
 void handleNav();
 window.addEventListener("yt-navigate-finish", () => void handleNav());
-window.setInterval(() => void handleNav(), 1000);
+navPollTimer = window.setInterval(() => void handleNav(), 1000);
 
 // React live to the toggle so turning it off stops skipping without a reload.
 chrome.storage.onChanged.addListener((changes, area) => {

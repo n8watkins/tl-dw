@@ -48,6 +48,8 @@ export type OpenSearch = {
   createdAt: string;
   /** Original request context used to cache a scraped destination response. */
   cacheContext?: Omit<CachedSummary, "tldw" | "createdAt">;
+  /** The video whose transcript went into the prompt, when one did. */
+  transcriptVideoId?: string;
 };
 
 /**
@@ -217,6 +219,12 @@ export type Destination = {
    * content script handles the toggle (e.g. clicking the temp-chat button).
    */
   incognitoUrl?: string;
+  /**
+   * The longest message (in characters) the destination's composer reliably
+   * accepts. Longer transcripts are shortened to fit, with a clear marker, so a
+   * site that silently cuts long input never drops the end of the prompt.
+   */
+  maxPromptChars?: number;
 };
 
 export type Settings = {
@@ -290,6 +298,8 @@ export type VideoMeta = {
   title?: string;
   /** Whether the metadata below is for `videoId` yet (false during that lag). */
   current?: boolean;
+  /** A broadcast that is live right now with no transcript: nothing to summarize yet. */
+  live?: boolean;
   durationSeconds: number;
   channel: string;
   /** Channel id/href (getChannelInfo().id) — for channel-tag resolution. */
@@ -350,6 +360,8 @@ export type InjectResultMessage = {
   site: string;
   ok: boolean;
   reason?: string;
+  /** Set when the site kept only part of the prompt: the share it kept, in percent. */
+  keptPercent?: number;
 };
 
 /** Compact structured data extracted from the AI response and injected onto the YouTube page. */

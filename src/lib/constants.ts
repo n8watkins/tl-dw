@@ -21,12 +21,22 @@ export const AI_STUDIO_LINKS = {
  * script (the injector types the prompt into the site's composer); only Gemini
  * can watch the YouTube URL itself, so the rest get the transcript included.
  */
+/**
+ * Prompt size limits. The Gemini web app kept only the first ~32,000 characters
+ * of a 175,000-character prompt when signed out (2026-11-02), so tab-flow
+ * prompts stay under each site's limit and long transcripts are shortened with a
+ * marker. The Direct API model takes far more (a million-token context).
+ */
+export const GEMINI_WEB_MAX_PROMPT_CHARS = 30_000;
+export const DIRECT_API_MAX_PROMPT_CHARS = 1_000_000;
+
 export const DESTINATIONS: Destination[] = [
   {
     id: "gemini",
     label: "Gemini",
     url: GEMINI_URL,
     canWatch: true,
+    maxPromptChars: GEMINI_WEB_MAX_PROMPT_CHARS,
     // Gemini temporary chat has no URL param — content script clicks the button.
   },
   {
@@ -34,12 +44,15 @@ export const DESTINATIONS: Destination[] = [
     label: "ChatGPT",
     url: "https://chatgpt.com/",
     incognitoUrl: "https://chatgpt.com/?temporary-chat=true",
+    // Free ChatGPT plans have a small context window; stay well inside it.
+    maxPromptChars: 50_000,
   },
   {
     id: "claude",
     label: "Claude",
     url: "https://claude.ai/new",
     incognitoUrl: "https://claude.ai/new?incognito=true",
+    maxPromptChars: 100_000,
   },
   {
     id: "notebooklm",

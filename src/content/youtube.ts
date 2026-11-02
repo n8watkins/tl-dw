@@ -30,6 +30,12 @@ import {
   joinSegments,
   stripSegmentTimeLabels,
 } from "../lib/youtubeTranscript";
+import { createKeyedSingleFlight } from "../lib/singleFlight";
+import {
+  cachedSourceLabel,
+  describeSummarySource,
+  type SummarySourceKind,
+} from "../lib/summarySource";
 import type { CachedSummary, SponsorWindowApi, Tag, VideoMeta } from "../types";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -52,10 +58,68 @@ function pageShowsCurrentVideo(): boolean {
   return !shown || shown === vid;
 }
 
+/**
+ * Whether the description (and the "Show transcript" button inside it) has
+ * re-rendered for the video in the URL. `ytd-watch-metadata` carries the id of
+ * the video its description belongs to; it can lag `ytd-watch-flexy`, and until
+ * it catches up the button on screen opens the PREVIOUS video's transcript.
+ */
+function descriptionShowsCurrentVideo(): boolean {
+  const vid = currentVideoId();
+  if (!vid || !pageShowsCurrentVideo()) return false;
+  const shown = document.querySelector("ytd-watch-metadata")?.getAttribute("video-id");
+  return !shown || shown === vid;
+}
+
+// --- the page's own player data (via the MAIN-world bridge) ----------------
+
+type PlayerInfo = {
+  videoId: string;
+  /** The content video's length, even while a pre-roll ad plays. */
+  lengthSeconds: number;
+  isLive: boolean;
+  /** No caption tracks means YouTube has no transcript for this video. */
+  hasCaptions: boolean;
+};
+
+/**
+ * YouTube's player response for the video in the URL, read through
+ * youtube-intercept.ts (the player API lives in the page's world). Null when
+ * the bridge or the player isn't there, or the player still holds another
+ * video (right after an in-page navigation).
+ */
+function playerInfoForCurrentVideo(): PlayerInfo | null {
+  const vid = currentVideoId();
+  if (!vid) return null;
+  const reply: { info: PlayerInfo | null } = { info: null };
+  const onReply = (event: Event) => {
+    try {
+      reply.info = JSON.parse(String((event as CustomEvent).detail)) as PlayerInfo | null;
+    } catch {
+      reply.info = null;
+    }
+  };
+  document.addEventListener("tldw:player-info", onReply);
+  try {
+    document.dispatchEvent(new CustomEvent("tldw:player-info-request"));
+  } finally {
+    document.removeEventListener("tldw:player-info", onReply);
+  }
+  return reply.info && reply.info.videoId === vid ? reply.info : null;
+}
+
+/** Whether the player is showing an ad (its <video> and clock are the ad's). */
+function adShowing(): boolean {
+  return !!document.getElementById("movie_player")?.classList.contains("ad-showing");
+}
+
 // --- intercepted transcript cache ----------------------------------------
 
 let captured: string | null = null;
 let capturedVideoId: string | null = null;
+// Transcript-panel responses seen so far, and the video the latest was for.
+let panelResponseSeq = 0;
+let lastPanelResponseVideoId: string | null = null;
 
 window.addEventListener("message", (event) => {
   if (event.source !== window) return;
@@ -80,10 +144,17 @@ window.addEventListener("message", (event) => {
     text = extractFromTimedText(data.body);
   }
 
+  // Count every transcript-panel response, whichever video it is for, so a
+  // fetch can tell "YouTube answered for another video" from "no answer yet".
+  if (videoId && (data.kind === "get_panel" || data.kind === "get_transcript")) {
+    panelResponseSeq++;
+    lastPanelResponseVideoId = videoId;
+  }
+
   if (text && videoId) {
     captured = text;
     capturedVideoId = videoId;
-    log("intercepted transcript:", text.length, "chars");
+    log("intercepted transcript:", text.length, "chars", videoId === currentVideoId() ? "" : `(for ${videoId}, not this video)`);
   }
 });
 
@@ -118,22 +189,39 @@ function collapseDescription(): void {
     ?.click();
 }
 
+/**
+ * YouTube's "Show transcript" button, skipping any copy YouTube has hidden (the
+ * previous video's description lingers, hidden, for a beat after an in-page
+ * navigation). Callers that will CLICK it use transcriptButtonForCurrentVideo.
+ */
 function findShowTranscriptButton(): HTMLElement | null {
-  const section = document.querySelector(
+  const usable = (el: HTMLElement | null | undefined): el is HTMLElement =>
+    !!el && !el.closest("[hidden]");
+  for (const section of document.querySelectorAll(
     "ytd-video-description-transcript-section-renderer",
-  );
-  const sectionBtn = section?.querySelector<HTMLElement>("button");
-  if (sectionBtn) return sectionBtn;
+  )) {
+    const sectionBtn = section.querySelector<HTMLElement>("button");
+    if (usable(sectionBtn)) return sectionBtn;
+  }
 
   for (const el of document.querySelectorAll<HTMLElement>("button[aria-label]")) {
-    if (/transcript/i.test(el.getAttribute("aria-label") ?? "")) return el;
+    if (/transcript/i.test(el.getAttribute("aria-label") ?? "") && usable(el)) return el;
   }
   for (const el of document.querySelectorAll<HTMLElement>(
     "button, ytd-button-renderer, tp-yt-paper-button, yt-button-shape",
   )) {
-    if (/^show transcript$/i.test(el.textContent?.trim() ?? "")) return el;
+    if (/^show transcript$/i.test(el.textContent?.trim() ?? "") && usable(el)) return el;
   }
   return null;
+}
+
+/**
+ * The "Show transcript" button, but only once the description has re-rendered
+ * for the video in the URL: clicking a stale button would load the previous
+ * video's transcript.
+ */
+function transcriptButtonForCurrentVideo(): HTMLElement | null {
+  return descriptionShowsCurrentVideo() ? findShowTranscriptButton() : null;
 }
 
 // --- DOM scrape fallback --------------------------------------------------
@@ -162,8 +250,8 @@ function segmentText(segment: Element): string {
 
 function scrapeRenderedTranscript(): string | null {
   // Right after an in-page navigation the panel may still hold the previous
-  // video's segments; never read it until the page shows the current video.
-  if (!pageShowsCurrentVideo()) return null;
+  // video's segments; never read it until the description shows the current video.
+  if (!descriptionShowsCurrentVideo()) return null;
   for (const selector of [
     // Modern view-model panel: the whole transcript renders at once.
     "transcript-segment-view-model, .ytwTranscriptSegmentViewModelHost",
@@ -215,81 +303,127 @@ function closeTranscriptPanel(): void {
     closeBtn.click();
     return;
   }
-  findShowTranscriptButton()?.click();
+  transcriptButtonForCurrentVideo()?.click();
 }
 
-/**
- * Open YouTube's transcript panel so its segments render (and any fetch fires).
- * Returns whether *we* opened it, so the caller can close it again afterward
- * without disturbing a panel the user had already open.
- */
-async function openTranscriptPanel(): Promise<{ openedByUs: boolean; expandedByUs: boolean }> {
-  if (transcriptPanelOpen()) return { openedByUs: false, expandedByUs: false };
-  const expandedByUs = expandDescription();
-  let button: HTMLElement | null = null;
-  const buttonDeadline = Date.now() + 4000;
-  while (Date.now() < buttonDeadline) {
-    button = findShowTranscriptButton();
-    if (button) break;
-    await sleep(200);
+/** How long to wait for the page to catch up with the URL after a navigation. */
+const PAGE_CATCH_UP_MS = 4000;
+/** Grace for the "Show transcript" button to render once the description has. */
+const BUTTON_GRACE_WITH_CAPTIONS_MS = 3000;
+const BUTTON_GRACE_UNKNOWN_MS = 1000;
+/** How long to wait for YouTube's transcript response after opening the panel. */
+const RESPONSE_TIMEOUT_MS = 10000;
+/** Scrape the rendered panel only after the network response had this long to arrive. */
+const SCRAPE_AFTER_MS = 2000;
+
+/** Wait for the button that opens THIS video's transcript, or null. */
+async function waitForTranscriptButton(vid: string): Promise<HTMLElement | null> {
+  const catchUp = Date.now() + PAGE_CATCH_UP_MS;
+  while (!descriptionShowsCurrentVideo() && Date.now() < catchUp) {
+    await sleep(150);
+    if (currentVideoId() !== vid) return null;
   }
-  if (button) {
+  if (!descriptionShowsCurrentVideo()) {
+    log("page never caught up with the URL; no transcript");
+    return null;
+  }
+  const info = playerInfoForCurrentVideo();
+  if (info && !info.hasCaptions) {
+    log("this video has no captions, so no transcript");
+    return null;
+  }
+  // The section renders with the description, so a short grace is enough; no
+  // button by then means YouTube offers no transcript for this video.
+  const grace = Date.now() + (info?.hasCaptions ? BUTTON_GRACE_WITH_CAPTIONS_MS : BUTTON_GRACE_UNKNOWN_MS);
+  for (;;) {
+    const button = transcriptButtonForCurrentVideo();
+    if (button || Date.now() >= grace || currentVideoId() !== vid) return button;
+    await sleep(150);
+  }
+}
+
+/** Fetch the transcript for `vid` by opening YouTube's panel, or null. */
+async function fetchTranscript(vid: string): Promise<string | null> {
+  const button = await waitForTranscriptButton(vid);
+  if (!button || currentVideoId() !== vid) {
+    log("no 'Show transcript' button for this video");
+    return null;
+  }
+  // A transcript may have arrived meanwhile (the user opened the panel).
+  const early = cachedForCurrentVideo();
+  if (early) return early;
+
+  // Leave the page as we found it: collapse the panel AND the description if
+  // *we* opened/expanded them. A panel/description the user already had open
+  // is left untouched. Skip the restore entirely if the user navigated away
+  // mid-fetch, or we'd click the NEW video's controls.
+  const openedByUs = !transcriptPanelOpen();
+  const expandedByUs = openedByUs && expandDescription();
+  const seqAtClick = panelResponseSeq;
+  const clickedAt = Date.now();
+  if (openedByUs) {
     log("opening transcript panel");
-    button.click();
-    return { openedByUs: true, expandedByUs };
+    // Expanding can re-render the description, so look the button up again.
+    (transcriptButtonForCurrentVideo() ?? button).click();
   }
-  log("no 'Show transcript' button found");
-  return { openedByUs: false, expandedByUs };
+  const restore = () => {
+    if (currentVideoId() !== vid) return;
+    if (openedByUs) closeTranscriptPanel();
+    if (expandedByUs) collapseDescription();
+  };
+
+  while (Date.now() - clickedAt < RESPONSE_TIMEOUT_MS) {
+    await sleep(250);
+    if (currentVideoId() !== vid) return null;
+    const hit = cachedForCurrentVideo();
+    if (hit) {
+      restore();
+      log("transcript captured:", hit.length, "chars");
+      return hit;
+    }
+    const answered = panelResponseSeq !== seqAtClick;
+    if (answered && lastPanelResponseVideoId !== vid) {
+      // YouTube answered with another video's transcript: the button belonged to
+      // the previous video. Whatever the panel shows now is that transcript, so
+      // read nothing and treat this video as having none.
+      restore();
+      log("transcript response was for", lastPanelResponseVideoId, "not", vid, "- no transcript");
+      return null;
+    }
+    // Fallback for when the network response can't be read: scrape the panel,
+    // but only when no response arrived, or the one that did was for this video
+    // and couldn't be parsed (then the panel shows this video too). A response
+    // for another video returned above, so its transcript is never scraped.
+    if (Date.now() - clickedAt >= SCRAPE_AFTER_MS && (!answered || lastPanelResponseVideoId === vid)) {
+      const scraped = scrapeRenderedTranscript();
+      if (scraped) {
+        restore();
+        log("transcript scraped from the panel:", scraped.length, "chars");
+        return scraped;
+      }
+    }
+  }
+  restore();
+  log("no transcript captured");
+  return null;
 }
 
-// Serialises concurrent calls so only one panel-open attempt runs at a time.
-let activeTranscriptFetch: Promise<string | null> | null = null;
+// One panel-open attempt per video at a time. Keyed by video id, so a slow
+// fetch for the previous video can't hand its result (or its cleanup) to the
+// next one.
+const transcriptFlight = createKeyedSingleFlight<string | null>();
 
 async function getTranscript(): Promise<string | null> {
   // Watch pages only: on a Short (or any other page) there is nothing to read,
   // and we must not click anything on it.
-  if (!currentVideoId()) return null;
+  const vid = currentVideoId();
+  if (!vid) return null;
   const immediate = available();
   if (immediate) {
     log("transcript ready:", immediate.length, "chars");
     return immediate;
   }
-
-  if (activeTranscriptFetch) return activeTranscriptFetch;
-
-  const startVid = currentVideoId();
-  activeTranscriptFetch = (async () => {
-    const { openedByUs, expandedByUs } = await openTranscriptPanel();
-    // Leave the page as we found it: collapse the panel AND the description if
-    // *we* opened/expanded them. A panel/description the user already had open
-    // is left untouched. Skip the restore entirely if the user navigated away
-    // mid-fetch — otherwise we'd click the NEW video's transcript/description
-    // controls, toggling panels the user didn't touch.
-    const restore = () => {
-      if (currentVideoId() !== startVid) return;
-      if (openedByUs) closeTranscriptPanel();
-      if (expandedByUs) collapseDescription();
-    };
-    const deadline = Date.now() + 10000;
-    while (Date.now() < deadline) {
-      await sleep(300);
-      const hit = available();
-      if (hit) {
-        restore();
-        log("transcript captured:", hit.length, "chars");
-        return hit;
-      }
-    }
-    restore();
-    log("no transcript captured");
-    return null;
-  })();
-
-  try {
-    return await activeTranscriptFetch;
-  } finally {
-    activeTranscriptFetch = null;
-  }
+  return transcriptFlight.run(vid, () => fetchTranscript(vid));
 }
 
 /** Parse "12:34" / "1:02:03" into seconds. */
@@ -302,32 +436,40 @@ function hmsToSeconds(text: string | null | undefined): number {
 
 /**
  * Whether the broadcast is happening RIGHT NOW (as opposed to a finished live
- * stream, which becomes an ordinary VOD with a transcript). The player's red
- * "LIVE" badge is only shown while the stream is ongoing and disappears once it
- * ends; non-DVR live also reports an infinite media duration.
+ * stream, which becomes an ordinary VOD with a transcript). The player response
+ * says so directly, even while a pre-roll ad plays. Without it, fall back to the
+ * player's red "LIVE" badge (shown only while the stream is ongoing) and the
+ * infinite media duration of non-DVR live, neither of which is readable during
+ * an ad; the onNavigate poll re-checks once the ad is over.
  */
 function isActivelyLive(): boolean {
+  const info = playerInfoForCurrentVideo();
+  if (info) return info.isLive;
+  if (adShowing()) return false;
   const badge = document.querySelector<HTMLElement>(".ytp-live-badge");
-  if (badge && badge.offsetParent !== null) return true;
+  if (badge && badge.offsetParent !== null && !badge.closest("[hidden]")) return true;
   const video = document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
   if (video && video.duration === Infinity) return true;
   return false;
 }
 
 /**
- * Cheap, synchronous check for whether a transcript exists for this video —
- * either our fetch-interceptor already captured one, or YouTube is offering its
- * "Show transcript" affordance. Recorded live streams have transcripts; an
- * in-progress broadcast does not. We never pull the full transcript just to
- * answer this.
+ * Cheap, synchronous check for whether a transcript exists for this video:
+ * our fetch-interceptor already captured one, the player lists caption tracks,
+ * or YouTube offers its "Show transcript" affordance for this video. Recorded
+ * live streams have transcripts; an in-progress broadcast does not. We never
+ * pull the full transcript just to answer this.
  */
 function transcriptLikelyAvailable(): boolean {
-  return !!(cachedForCurrentVideo() || findShowTranscriptButton());
+  if (cachedForCurrentVideo()) return true;
+  const info = playerInfoForCurrentVideo();
+  if (info) return info.hasCaptions;
+  return !!transcriptButtonForCurrentVideo();
 }
 
 /**
  * Suppress the summary UI only when the stream is live AND we can't find a
- * transcript — so a finished/recorded live stream (transcript present) is still
+ * transcript, so a finished/recorded live stream (transcript present) is still
  * summarizable, while a genuinely in-progress broadcast is not.
  */
 function isUnsummarizableLive(): boolean {
@@ -346,24 +488,33 @@ function cleanDocumentTitle(raw: string): string {
  */
 function getCurrentVideoMeta(): VideoMeta {
   const videoId = currentVideoId();
-  if (!videoId || !pageShowsCurrentVideo()) {
+  // The heading and channel row live in ytd-watch-metadata, which can lag.
+  if (!videoId || !descriptionShowsCurrentVideo()) {
     return { videoId, current: false, durationSeconds: 0, channel: "" };
   }
   const heading = document.querySelector("ytd-watch-metadata h1")?.textContent?.trim();
   const title = heading || cleanDocumentTitle(document.title) || undefined;
-  return { videoId, current: true, title, ...getVideoMeta() };
+  return { videoId, current: true, title, live: isUnsummarizableLive(), ...getVideoMeta() };
+}
+
+/**
+ * The content video's length in seconds, or 0 while it can't be known. The
+ * player response has the real length even during a pre-roll ad; without it, the
+ * <video> element and the player clock are trusted only when no ad is showing
+ * (during an ad they report the ad's length).
+ */
+function contentDurationSeconds(): number {
+  const info = playerInfoForCurrentVideo();
+  if (info?.lengthSeconds) return info.lengthSeconds;
+  if (adShowing()) return 0;
+  const video = document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
+  const fromVideo = video && Number.isFinite(video.duration) ? video.duration : 0;
+  return fromVideo || hmsToSeconds(document.querySelector(".ytp-time-duration")?.textContent);
 }
 
 /** Read the current video's duration (seconds), channel name, and channel avatar URL. */
 function getVideoMeta(): { durationSeconds: number; channel: string; channelId?: string; avatarUrl?: string } {
-  const video = document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
-  let durationSeconds =
-    video && Number.isFinite(video.duration) ? video.duration : 0;
-  if (!durationSeconds) {
-    durationSeconds = hmsToSeconds(
-      document.querySelector(".ytp-time-duration")?.textContent,
-    );
-  }
+  const durationSeconds = contentDurationSeconds();
   // Channel name, id/href (the key the tag row writes under, so the background
   // can resolve channel tags by id) and avatar. getChannelInfo skips the empty
   // avatar link that precedes the name link in the owner row.
@@ -564,7 +715,7 @@ function promoteVideoTags(vid: string, channelKey: string, tagIds: string[]): Pr
 
 // --- TL;DW summary panel -------------------------------------------------
 
-type TldwSummary = { summary: string; details?: string; source?: string };
+type TldwSummary = { summary: string; details?: string; source?: string; sourceKind?: SummarySourceKind };
 
 /** A panel that may carry a teardown fn (e.g. removing a document listener),
  *  invoked by removeSummaryPanel so we don't leak listeners across rebuilds. */
@@ -753,6 +904,7 @@ function ensureWatchButton(): void {
   btn.addEventListener("mouseleave", () => { btn.style.background = "#1a73e8"; });
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
+    if (!extensionContextAlive()) { tearDownOrphanedScript(); return; }
     // A panel already up (cached / summary): jump to it, don't re-run.
     if (summaryPanel) { summaryPanel.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
     // Already analyzing (loading lives in the button now): a second click must
@@ -1736,25 +1888,20 @@ function buildSummaryPanel(
     onClick: () => { void regenerateSummary(vid, {}); },
   });
 
-  // Source / Cached badge as a menu row — honest about origin, pointing where it
-  // makes sense. When Direct API isn't set up, offer the "Get instant results"
-  // setup nudge instead (the free headless path: no tab, no wait).
-  if (tldw.source === "cached") {
+  // Source / Cached badge as a menu row, honest about origin and pointing where
+  // it makes sense. When Direct API isn't set up and there's no origin to show,
+  // offer the "Get instant results" setup nudge (the free headless path).
+  const origin = describeSummarySource(tldw.source, tldw.sourceKind);
+  if (origin) {
     menuItems.push({
-      label: "💾 Cached — manage",
-      title: "Served from your saved cache (a stored earlier result — not a fresh call). Click to manage cached summaries.",
-      onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "settings" }),
-    });
-  } else if (tldw.source) {
-    menuItems.push({
-      label: `⚡ ${tldw.source}`,
-      title: "This summary came straight from the Gemini API — instant, no tab. Click for Direct API settings.",
-      onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" }),
+      label: origin.label,
+      title: origin.title,
+      onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: origin.section }),
     });
   } else if (!currentDirectApiEnabled) {
     menuItems.push({
       label: "⚡ Get instant results",
-      title: "Get summaries instantly from the free Gemini API — no tab opens, no waiting. Click to set it up.",
+      title: "Get summaries instantly from the free Gemini API: no tab opens, no waiting. Click to set it up.",
       onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" }),
     });
   }
@@ -1845,13 +1992,22 @@ function showSummaryPanel(
   refreshSponsorPanel();
 }
 
+type ClosableOverlay = HTMLElement & { __tldwClose?: (confirmed: boolean) => void };
+
+/** Close an open auto-run confirmation (as a cancel), listeners included. */
+function closeAutoRunOverlay(): void {
+  const open = document.getElementById("tldw-autorun-overlay") as ClosableOverlay | null;
+  if (open?.__tldwClose) open.__tldwClose(false);
+  else open?.remove();
+}
+
 /** Confirmation overlay shown before enabling auto-run for a channel. */
 function showAutoRunConfirmOverlay(
   info: ChannelInfo,
   onConfirm: () => void,
   onCancel: () => void,
 ): void {
-  document.getElementById("tldw-autorun-overlay")?.remove();
+  closeAutoRunOverlay();
   const t = theme();
 
   const overlay = document.createElement("div");
@@ -1934,7 +2090,20 @@ function showAutoRunConfirmOverlay(
     border: `1px solid ${t.border}`, background: "transparent",
     color: t.text, cursor: "pointer", fontSize: "15px", fontWeight: "600",
   });
-  cancelBtn.addEventListener("click", () => { overlay.remove(); onCancel(); });
+  // Every way out (Cancel, Enable, a backdrop click, Escape) goes through
+  // close(), which also drops the document-level Escape listener.
+  let closed = false;
+  const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(false); };
+  const close = (confirmed: boolean) => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener("keydown", onKey);
+    overlay.remove();
+    if (confirmed) onConfirm();
+    else onCancel();
+  };
+  (overlay as ClosableOverlay).__tldwClose = close;
+  cancelBtn.addEventListener("click", () => close(false));
 
   const confirmBtn = document.createElement("button");
   confirmBtn.textContent = "Enable auto-run";
@@ -1943,15 +2112,13 @@ function showAutoRunConfirmOverlay(
     border: "none", background: "#1a73e8",
     color: "#fff", cursor: "pointer", fontSize: "15px", fontWeight: "600",
   });
-  confirmBtn.addEventListener("click", () => { overlay.remove(); onConfirm(); });
+  confirmBtn.addEventListener("click", () => close(true));
 
   row.append(cancelBtn, confirmBtn);
   modal.append(hd, body, row);
   overlay.append(modal);
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) { overlay.remove(); onCancel(); } });
-  document.addEventListener("keydown", function esc(e) {
-    if (e.key === "Escape") { overlay.remove(); onCancel(); document.removeEventListener("keydown", esc); }
-  });
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(false); });
+  document.addEventListener("keydown", onKey);
   document.body.appendChild(overlay);
 }
 
@@ -1971,8 +2138,23 @@ let autoAskedVid: string | null = null;
 function sendAutoAsk(vid: string): boolean {
   if (autoAskedVid === vid) return false;
   autoAskedVid = vid;
-  void chrome.runtime.sendMessage({ type: "ASK" }).catch(() => { /* best effort */ });
+  void chrome.runtime.sendMessage({ type: "ASK" }).then(
+    (reply: unknown) => handleAskReply(vid, reply),
+    () => { /* best effort */ },
+  );
   return true;
+}
+
+/**
+ * The worker's reply to an ASK. A refused or failed send ({ ok: false }: no
+ * profile, a live stream, a failed API call...) ends the run right away with
+ * the reason, instead of leaving the button on "Analyzing..." until the timeout.
+ */
+function handleAskReply(vid: string, reply: unknown): void {
+  const res = reply as { ok?: boolean; error?: string } | undefined;
+  if (res?.ok !== false || currentVideoId() !== vid || !runInFlight) return;
+  endRunInFlight();
+  showSummaryErrorPanel(res.error);
 }
 
 /**
@@ -2032,8 +2214,8 @@ async function maybeStartDirectApiRun(
   }
 
   // Make sure the inline TL;DW button is mounted (the manual entry point on a
-  // cold video; a status cue during auto/cached runs).
-  watchButtonAllowed = true;
+  // cold video; a status cue during auto/cached runs). onNavigate re-allowed it
+  // for this video; refreshLiveGate may have hidden it again since, so respect that.
   ensureWatchButton();
 
   const autoRunChannels = await readAutoRunChannels();
@@ -2047,7 +2229,7 @@ async function maybeStartDirectApiRun(
   // Serve the newest variant on passive navigation. The worker owns the read
   // and records the hit exactly when it delivers a result.
   const serveCached = (entry: CachedSummary) => {
-    showSummaryPanel({ ...entry.tldw, source: `cached · ${entry.profileName}` }, vid);
+    showSummaryPanel({ ...entry.tldw, source: cachedSourceLabel(entry.profileName), sourceKind: "cache" }, vid);
     log("served from cache");
   };
 
@@ -2073,11 +2255,12 @@ async function maybeStartDirectApiRun(
       return;
     }
     try {
-      await chrome.runtime.sendMessage({
+      const reply: unknown = await chrome.runtime.sendMessage({
         type: "ASK",
         source: "page",
         bypassCache: opts.bypassCache ?? false,
       });
+      handleAskReply(vid, reply);
     } catch { /* best effort */ }
   };
   // Expose for the loading-timeout retry panel.
@@ -2123,16 +2306,21 @@ async function maybeStartDirectApiRun(
   setWatchButtonState("idle");
 }
 
+/** How long the threshold path keeps waiting for the content video's length. */
+const DURATION_WAIT_MS = 120_000;
+
 /**
- * Threshold path: waits 2500ms so the video element has its duration, then
- * runs for videos over the configured length. Sends an ASK message with
- * source "auto": headless via Direct API when a key is configured, otherwise
- * opens a destination tab.
+ * Threshold path: runs for videos over the configured length. The length isn't
+ * known at once (and during a pre-roll ad the player reports the ad's), so it
+ * re-checks every second until the content video's length is known. Sends an
+ * ASK with source "auto": headless via Direct API when a key is configured,
+ * otherwise it opens a destination tab.
  */
 async function autoRunIfLong(): Promise<void> {
   const vid = currentVideoId();
+  const myEpoch = navEpoch;
   // sendAutoAsk is the shared per-visit dedup with the channel auto-run path:
-  // whichever fires first marks the video, so the two can't double-fire — but the
+  // whichever fires first marks the video, so the two can't double-fire, but the
   // mark resets on navigation, so this threshold run isn't permanently blocked.
   if (!vid || summaryPanel || autoAskedVid === vid) return;
 
@@ -2141,11 +2329,19 @@ async function autoRunIfLong(): Promise<void> {
   const threshold = (s?.autoTldwMinutes as number) ?? 0;
   if (!threshold) return;
 
-  const { durationSeconds } = getVideoMeta();
+  const stale = () => navEpoch !== myEpoch || currentVideoId() !== vid || !extensionContextAlive();
+  const deadline = Date.now() + DURATION_WAIT_MS;
+  let durationSeconds = 0;
+  for (;;) {
+    if (stale()) return;
+    durationSeconds = pageShowsCurrentVideo() ? contentDurationSeconds() : 0;
+    if (durationSeconds || Date.now() >= deadline) break;
+    await sleep(1000);
+  }
   if (!durationSeconds || durationSeconds / 60 < threshold) return;
 
-  // Re-check after the await: a panel may have mounted, or we may have navigated.
-  if (currentVideoId() !== vid || summaryPanel || autoAskedVid === vid) return;
+  // Re-check after the waits: a panel may have mounted, or we may have navigated.
+  if (stale() || summaryPanel || autoAskedVid === vid || !watchButtonAllowed) return;
   log("auto-running TL;DW for", Math.round(durationSeconds / 60), "min video");
   sendAutoAsk(vid);
 }
@@ -2155,10 +2351,66 @@ async function autoRunIfLong(): Promise<void> {
 // YouTube fires its own event), and 500ms polling (everything else).
 let lastHandledUrl = "";
 
+/**
+ * Whether this content script still belongs to a live extension. After the
+ * extension is updated or reloaded, scripts already in open tabs are orphaned:
+ * every chrome.* call throws "Extension context invalidated".
+ */
+function extensionContextAlive(): boolean {
+  try {
+    return !!chrome.runtime?.id;
+  } catch {
+    return false;
+  }
+}
+
+let navPollTimer: number | undefined;
+
+/**
+ * The extension was updated or reloaded under this tab: remove everything this
+ * orphaned script put on the page and stop polling, so no dead button sits on
+ * "Analyzing..." forever. Reloading the page loads the new version.
+ */
+function tearDownOrphanedScript(): void {
+  if (navPollTimer !== undefined) window.clearInterval(navPollTimer);
+  navPollTimer = undefined;
+  window.removeEventListener("yt-navigate-finish", onNavigate);
+  navEpoch++;
+  runInFlight = false;
+  clearLoadingTimeout();
+  closeAutoRunOverlay();
+  (summaryPanel as CleanablePanel | null)?.__tldwCleanup?.();
+  summaryPanel?.remove();
+  summaryPanel = null;
+  summaryPanelKind = null;
+  document.getElementById("tldw-summary")?.remove();
+  removeWatchButton();
+  console.log("[TL;DW] the extension was updated or reloaded; reload this page to use it");
+}
+
+/**
+ * Re-check, on every poll tick, that the video isn't a live broadcast with
+ * nothing to summarize. Live state can't always be read at navigation time
+ * (a pre-roll ad hides it), so the first check alone isn't enough.
+ */
+function refreshLiveGate(): void {
+  if (!watchButtonAllowed || !pageShowsCurrentVideo() || !isUnsummarizableLive()) return;
+  log("live stream with no transcript: hiding TL;DW");
+  watchButtonAllowed = false;
+  removeWatchButton();
+  removeSummaryPanel();
+  endRunInFlight();
+}
+
 function onNavigate(): void {
+  if (!extensionContextAlive()) {
+    tearDownOrphanedScript();
+    return;
+  }
   // Normalize to video ID so URL decorations added by YouTube (?t=123, &pp=…)
   // don't trigger a spurious re-run that wipes the panels.
   const vid = currentVideoId();
+  if (vid && lastHandledUrl === `v=${vid}`) refreshLiveGate();
   // Keep the inline button alive on EVERY tick (YouTube re-renders the owner row
   // on its own), independent of the URL-change guard below. ensureWatchButton is
   // idempotent and respects watchButtonAllowed; off a watch page, drop it.
@@ -2179,7 +2431,7 @@ function onNavigate(): void {
   // flag + timeout so the inline button doesn't carry "Analyzing…" onto the new
   // video (loading lives in the button now, not a panel).
   endRunInFlight();
-  activeTranscriptFetch = null;
+  transcriptFlight.reset();
   currentChannelInfo = null;
   currentAutoRunSummary = false;
   // Re-allow the inline button for the new video; maybeStartDirectApiRun flips it
@@ -2198,13 +2450,18 @@ function onNavigate(): void {
 // subsequent SPA navigations without any delay.
 setTimeout(onNavigate, 1000);
 window.addEventListener("yt-navigate-finish", onNavigate);
-setInterval(onNavigate, 500);
+navPollTimer = window.setInterval(onNavigate, 500);
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const type = (message as { type?: string })?.type;
   if (type === "GET_TRANSCRIPT") {
     log("transcript requested");
-    void getTranscript().then((transcript) => sendResponse({ transcript }));
+    // Name the video the transcript is for, so the worker can refuse one that
+    // doesn't match the video it is summarizing.
+    const videoId = currentVideoId();
+    void getTranscript().then((transcript) =>
+      sendResponse({ transcript: currentVideoId() === videoId ? transcript : null, videoId }),
+    );
     return true;
   }
   if (type === "PAUSE_VIDEO") {
@@ -2221,7 +2478,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   if (type === "SET_SUMMARY") {
-    const msg = message as { tldw?: TldwSummary; source?: string; videoId?: string };
+    const msg = message as { tldw?: TldwSummary; source?: string; sourceKind?: SummarySourceKind; videoId?: string };
     const tldw = msg?.tldw;
     if (tldw?.summary) {
       const cur = currentVideoId();
@@ -2242,7 +2499,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       // run IS done and the summary is cached below; leaving runInFlight set would
       // strand the button on "Analyzing…" and fire a bogus 90s timeout error.
       endRunInFlight();
-      showSummaryPanel({ ...tldw, source: msg.source }, vid);
+      showSummaryPanel({ ...tldw, source: msg.source, sourceKind: msg.sourceKind }, vid);
     }
     sendResponse({ ok: true });
     return false;

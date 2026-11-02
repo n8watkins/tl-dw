@@ -23,3 +23,21 @@ export function findOpenSearchForVideo(
       : undefined) ?? forVideo[0]
   );
 }
+
+/**
+ * The cache entry context for a summary scraped from `search`'s destination
+ * tab, or undefined when it must not be cached: no context was recorded, or the
+ * prompt carried a transcript for a different video than the one it is cached
+ * under (a summary of the wrong video would be served on every later visit).
+ */
+export function cacheContextForScrape(
+  search: OpenSearch | undefined,
+): OpenSearch["cacheContext"] | undefined {
+  const context = search?.cacheContext;
+  if (!context) return undefined;
+  if (search.transcriptVideoId !== undefined && search.transcriptVideoId !== context.videoId) {
+    return undefined;
+  }
+  if (search.videoUrl && extractVideoId(search.videoUrl) !== context.videoId) return undefined;
+  return context;
+}
