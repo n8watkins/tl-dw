@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1 - 2026-11-02
+
+### Fixed
+
+- TL;DW stays off YouTube Shorts and sends clean transcripts and the right video ([#12](https://github.com/n8watkins/tl-dw/pull/12))
+
 Notable changes to TL;DW. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/).
 
