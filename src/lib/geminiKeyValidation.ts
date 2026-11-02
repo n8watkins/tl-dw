@@ -19,7 +19,8 @@ export function keyValidationMessage(
   if (validation.status === "unverified") return "Saved locally, but not verified yet.";
   switch (validation.failureCategory) {
     case "unauthorized":
-      return geminiErrorMessage("unauthorized");
+      // Shown in TL;DW's own settings, next to the key: say what to do here.
+      return "Google rejected this API key. Delete it and paste a working key, or check its restrictions in AI Studio.";
     case "model_unavailable":
       return geminiErrorMessage("model_unavailable");
     case "quota_limited":

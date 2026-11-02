@@ -16,7 +16,7 @@ describe("Gemini key validation", () => {
 
   it("provides an actionable invalid-key message", () => {
     expect(keyValidationMessage({ status: "invalid", failureCategory: "unauthorized" }))
-      .toContain("Replace it in TL;DW settings");
+      .toContain("Delete it and paste a working key");
   });
 
   it("verifies against model metadata with the key in a header", async () => {
