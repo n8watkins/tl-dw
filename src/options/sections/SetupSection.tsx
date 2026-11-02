@@ -35,7 +35,7 @@ export function SetupSection() {
           <div className="step-num">Step 1</div>
           <div className="step-title">Open YouTube</div>
           <div className="step-body">
-            Navigate to any video or Short. TL;DW detects it automatically — no extra clicking.
+            Navigate to any video (Shorts aren't supported) and TL;DW detects it automatically, no extra clicking.
           </div>
         </div>
         <div className="step">
@@ -133,7 +133,7 @@ export function SetupSection() {
         <div className="shortcut-info">
           <div className="shortcut-label">Right-click a YouTube video</div>
           <div className="shortcut-sub">
-            Right-click any YouTube watch page or Short to pick a specific
+            Right-click any YouTube watch page to pick a specific
             profile without opening the popup.
           </div>
         </div>

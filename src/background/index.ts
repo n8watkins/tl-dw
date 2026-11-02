@@ -4,7 +4,17 @@ import { selectSummaryProfile } from "../lib/summaryProfile";
 import { fingerprintPrompt } from "../lib/summaryCache";
 import { verifyGeminiKey } from "../lib/geminiKeyValidation";
 import { callGeminiApi, GeminiApiError, normalizeGeminiError } from "../lib/geminiApi";
-import { GEMINI_MODEL_ID, GEMINI_URL, getDestination, isYouTubeVideoUrl, localDateKey, STORAGE_KEYS } from "../lib/constants";
+import {
+  GEMINI_MODEL_ID,
+  GEMINI_URL,
+  extractVideoId,
+  getDestination,
+  isYouTubeShortUrl,
+  isYouTubeVideoUrl,
+  localDateKey,
+  STORAGE_KEYS,
+} from "../lib/constants";
+import { findOpenSearchForVideo } from "../lib/openSearchMatch";
 import { addHistoryEntry, expireOldEntries, trimToLimit } from "../lib/history";
 import {
   addOpenSearch,
@@ -31,7 +41,6 @@ import {
   setPendingPrompt,
   setSettings,
 } from "../lib/storage";
-import { extractVideoId } from "../lib/constants";
 import type { OpenSearch, RuntimeMessage, Settings, SummarySource, VideoContext, VideoMeta } from "../types";
 
 const MENU_ROOT = "tldw-root";
@@ -48,6 +57,10 @@ const MENU_CONTEXTS: chrome.contextMenus.ContextType[] = [
   "link",
 ];
 const YOUTUBE_DOC_PATTERNS = ["*://*.youtube.com/*"];
+// A right-clicked link only offers the menu when it points at a watch page, so
+// Shorts thumbnails (and every other YouTube link) don't. Page and toolbar
+// right-clicks ignore this; runSummary refuses a Short quietly instead.
+const VIDEO_LINK_PATTERNS = ["*://*.youtube.com/watch*"];
 
 /** Rebuild the right-click menu to reflect the current profiles + destination. */
 async function rebuildContextMenu(): Promise<void> {
@@ -63,6 +76,7 @@ async function rebuildContextMenu(): Promise<void> {
     title: `Send to ${destination.label} with...`,
     contexts: MENU_CONTEXTS,
     documentUrlPatterns: YOUTUBE_DOC_PATTERNS,
+    targetUrlPatterns: VIDEO_LINK_PATTERNS,
   });
 
   for (const profile of profiles) {
@@ -72,6 +86,7 @@ async function rebuildContextMenu(): Promise<void> {
       title: profile.name,
       contexts: MENU_CONTEXTS,
       documentUrlPatterns: YOUTUBE_DOC_PATTERNS,
+      targetUrlPatterns: VIDEO_LINK_PATTERNS,
     });
   }
 }
@@ -145,9 +160,18 @@ async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
   return tab;
 }
 
-/** Briefly flash the toolbar badge: red for problems, green for success. */
-async function flashBadge(text: string, ok = false): Promise<void> {
-  await chrome.action.setBadgeBackgroundColor({ color: ok ? "#16a34a" : "#dc2626" });
+const BADGE_COLORS = { error: "#dc2626", ok: "#16a34a", muted: "#6b7280" } as const;
+
+/**
+ * Briefly flash the toolbar badge: red for problems, green for success, grey
+ * for a quiet "not here" (a keystroke or menu click on a YouTube Short).
+ */
+async function flashBadge(
+  text: string,
+  tone: boolean | keyof typeof BADGE_COLORS = false,
+): Promise<void> {
+  const key = tone === true ? "ok" : tone === false ? "error" : tone;
+  await chrome.action.setBadgeBackgroundColor({ color: BADGE_COLORS[key] });
   await chrome.action.setBadgeText({ text });
   setTimeout(() => void chrome.action.setBadgeText({ text: "" }), 2500);
 }
@@ -164,7 +188,7 @@ async function getTranscriptFromTab(tabId: number): Promise<string | null> {
   }
 }
 
-/** Ask the YouTube content script for the video's duration + channel. */
+/** Ask the YouTube content script for the video's title, duration + channel. */
 async function getVideoMeta(tabId: number): Promise<VideoMeta | null> {
   try {
     const res = (await chrome.tabs.sendMessage(tabId, {
@@ -173,6 +197,32 @@ async function getVideoMeta(tabId: number): Promise<VideoMeta | null> {
     return res ?? null;
   } catch {
     return null;
+  }
+}
+
+/** How long to wait for the page to catch up with the URL after an in-page navigation. */
+const META_CATCH_UP_MS = 3000;
+
+/**
+ * Page metadata for `videoId`, the video in the tab's URL. Right after an
+ * in-page navigation the URL already names the new video while the tab title,
+ * heading and channel still show the previous one for up to a second, so poll
+ * until the content script reports metadata for this video. Returns null when
+ * it never catches up or no content script answers (a tab opened before the
+ * extension loaded).
+ */
+async function readCurrentVideoMeta(
+  tabId: number,
+  videoId: string | null,
+): Promise<VideoMeta | null> {
+  if (!videoId) return null;
+  const deadline = Date.now() + META_CATCH_UP_MS;
+  for (;;) {
+    const meta = await getVideoMeta(tabId);
+    if (!meta) return null;
+    if (meta.current && meta.videoId === videoId) return meta;
+    if (Date.now() >= deadline) return null;
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
 }
 
@@ -232,18 +282,33 @@ async function runSummary(
   if (!activeTab) activeTab = await getActiveTab();
   const isThumbnail = !!(linkUrl && isYouTubeVideoUrl(linkUrl));
 
-  let url: string | undefined;
-  let title: string | undefined;
-  if (isThumbnail) {
-    url = linkUrl;
-  } else {
-    url = activeTab?.url;
-    title = cleanTitle(activeTab?.title);
+  const url = isThumbnail ? linkUrl : activeTab?.url;
+
+  // TL;DW does not run on Shorts: no transcript read, no tab, no panel. A quiet
+  // grey badge acknowledges the keystroke or menu click instead of an error.
+  if (!isThumbnail && isYouTubeShortUrl(url)) {
+    await flashBadge("N/A", "muted");
+    return;
   }
 
   if (!url || !isYouTubeVideoUrl(url)) {
     await flashBadge("!");
     return;
+  }
+
+  // Title and channel come from the page, read once it shows the video in the
+  // URL (the tab title lags an in-page navigation). A thumbnail has neither.
+  let title: string | undefined;
+  let meta: VideoMeta | null = null;
+  if (!isThumbnail && activeTab?.id !== undefined) {
+    meta = await readCurrentVideoMeta(activeTab.id, extractVideoId(url));
+    if (meta?.title) {
+      title = meta.title;
+    } else {
+      // No answer from the page: by now the tab title has caught up, so re-read it.
+      const fresh = await chrome.tabs.get(activeTab.id).catch(() => activeTab);
+      title = cleanTitle(fresh?.title);
+    }
   }
 
   const [settings, profiles] = await Promise.all([getSettings(), getProfiles()]);
@@ -282,14 +347,11 @@ async function runSummary(
     transcript = await getTranscriptFromTab(activeTab.id);
   }
 
-  // Fetch video metadata ONCE for any non-thumbnail prompt destination — used for
-  // channel-tracking stats, the duration-summarized stat, AND tag resolution. It
-  // must run on EVERY prompt path (not just Direct-API) so channel tags resolve
-  // even on the plain tab-flow. Consolidated from the two separate fetches this
-  // had before.
+  // Video metadata (read once above) feeds channel-tracking stats, the
+  // duration-summarized stat, AND tag resolution on EVERY prompt path (not just
+  // Direct-API), so channel tags resolve even on the plain tab-flow.
   let videoDurationSeconds = 0;
-  if (isPromptDest && !isThumbnail && activeTab?.id !== undefined) {
-    const meta = await getVideoMeta(activeTab.id);
+  if (isPromptDest && meta) {
     if (meta?.channel) video.channel = meta.channel;
     if (meta?.channelId) video.channelId = meta.channelId;
     if (meta?.avatarUrl) video.avatarUrl = meta.avatarUrl;
@@ -668,15 +730,13 @@ chrome.runtime.onMessage.addListener(
       const ytTabId = sender.tab?.id;
       const ytUrl = sender.tab?.url;
       void (async () => {
-        // Reuse the destination tab we already scraped for this video if it's
-        // still open — focus it instead of spawning a duplicate.
+        // Reuse the destination tab we already scraped for THIS video if it's
+        // still open: focus it instead of spawning a duplicate. Match on the
+        // video id, never on the YouTube tab alone, which may have sent other
+        // videos before an in-page navigation.
         const searches = await getOpenSearches(); // prunes closed tabs
-        const ytVideoId = ytUrl ? extractVideoId(ytUrl) : null;
-        const match =
-          searches.find((s) => ytTabId !== undefined && s.sourceTabId === ytTabId) ??
-          (ytVideoId
-            ? searches.find((s) => s.videoUrl && extractVideoId(s.videoUrl) === ytVideoId)
-            : undefined);
+        const ytVideoId = message.videoId ?? (ytUrl ? extractVideoId(ytUrl) : null);
+        const match = findOpenSearchForVideo(searches, ytVideoId, ytTabId);
         if (match) {
           try {
             const t = await chrome.tabs.get(match.tabId);

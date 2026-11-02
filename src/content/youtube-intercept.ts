@@ -1,9 +1,10 @@
 /**
  * Runs in the page's MAIN world at document_start so it can wrap the page's own
- * window.fetch before YouTube uses it. When YouTube fetches a transcript — the
- * panel's `get_transcript` InnerTube call, or the player's `timedtext` caption
- * request — we clone the response and relay it to the isolated content script
- * via postMessage.
+ * window.fetch before YouTube uses it. When YouTube fetches a transcript, we
+ * clone the response and relay it to the isolated content script via
+ * postMessage. Current YouTube (2026) loads the transcript panel through the
+ * InnerTube `get_panel` call; older layouts used `get_transcript`, and a
+ * `timedtext` caption request issued through fetch is read too.
  *
  * This reads YouTube's transcript *data source*, so it is independent of the
  * panel's markup (classic vs modern), shadow DOM, list virtualization, and any
@@ -11,13 +12,16 @@
  * have no chrome.* APIs, hence the postMessage hand-off.
  */
 
+const PANEL_PATH = "/youtubei/v1/get_panel";
 const TRANSCRIPT_PATH = "/youtubei/v1/get_transcript";
 const TIMEDTEXT_PATH = "/api/timedtext";
+// get_panel serves every engagement panel; only relay the transcript one.
+const PANEL_TRANSCRIPT_MARKER = '"transcriptSegmentViewModel"';
 
 console.log("[TL;DW] fetch interceptor installed");
 
 function relay(
-  kind: "get_transcript" | "timedtext",
+  kind: "get_panel" | "get_transcript" | "timedtext",
   body: unknown,
   videoId: string | undefined,
 ): void {
@@ -27,10 +31,12 @@ function relay(
 }
 
 /** The watch video id from the current URL (the page being viewed when the
- *  request is *issued* — captured synchronously, before any nav resolves). */
+ *  request is *issued*, captured synchronously, before any nav resolves).
+ *  Undefined off a watch page, Shorts included: TL;DW reads nothing there. */
 function currentUrlVideoId(): string | undefined {
   try {
-    return new URLSearchParams(location.search).get("v") ?? undefined;
+    if (location.pathname !== "/watch") return undefined;
+    return new URLSearchParams(location.search).get("v") || undefined;
   } catch {
     return undefined;
   }
@@ -56,7 +62,19 @@ window.fetch = function patchedFetch(
     // video. timedtext carries the id in its URL; get_transcript does not, so it
     // falls back to the current-URL id at request time.
     const reqVideoId = currentUrlVideoId();
-    if (url.includes(TRANSCRIPT_PATH)) {
+    if (!reqVideoId) return promise;
+    if (url.includes(PANEL_PATH)) {
+      void promise.then((res) =>
+        res
+          .clone()
+          .text()
+          .then((text) => {
+            if (!text.includes(PANEL_TRANSCRIPT_MARKER)) return;
+            relay("get_panel", JSON.parse(text) as unknown, reqVideoId);
+          })
+          .catch(() => {}),
+      );
+    } else if (url.includes(TRANSCRIPT_PATH)) {
       void promise.then((res) =>
         res
           .clone()

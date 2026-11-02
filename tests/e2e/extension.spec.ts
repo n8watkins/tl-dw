@@ -4,9 +4,38 @@ import os from "os";
 import path from "path";
 
 const extensionPath = path.resolve("dist");
+// The modern transcript panel's segment markup as YouTube rendered it on
+// 2026-11-02: a visible clock, a screen-reader time label, then the text.
+function modernSegment(clock: string, label: string, text: string): string {
+  return `<transcript-segment-view-model class="ytwTranscriptSegmentViewModelHost">` +
+    `<div aria-hidden="true" class="ytwTranscriptSegmentViewModelTimestamp">${clock}</div>` +
+    `<div class="ytwTranscriptSegmentViewModelTimestampA11yLabel">${label}</div>` +
+    `<span class="ytAttributedStringHost" role="text">${text}</span>` +
+    `</transcript-segment-view-model>`;
+}
+
 const youtubeFixture = `<!doctype html>
 <html>
   <head><title>Fixture Video - YouTube</title></head>
+  <body>
+    <ytd-watch-metadata>
+      <div id="owner">
+        <ytd-video-owner-renderer><a class="yt-simple-endpoint" href="/@FixtureChannel"><img alt=""></a></ytd-video-owner-renderer>
+        <div id="channel-name"><a href="/@FixtureChannel">Fixture Channel</a></div>
+        <div id="subscribe-button"></div>
+      </div>
+    </ytd-watch-metadata>
+    <div id="below"></div>
+    ${modernSegment("0:01", "1 second", "The fixture transcript explains reliable extension testing.")}
+    ${modernSegment("0:05", "5 seconds", "It recommends prompt-aware caching and correct profile selection.")}
+  </body>
+</html>`;
+
+// A watch page with no rendered transcript: its "Show transcript" button loads
+// the panel through get_panel, as current YouTube does.
+const getPanelFixture = `<!doctype html>
+<html>
+  <head><title>Panel Video - YouTube</title></head>
   <body>
     <ytd-watch-metadata>
       <div id="owner">
@@ -15,8 +44,63 @@ const youtubeFixture = `<!doctype html>
       </div>
     </ytd-watch-metadata>
     <div id="below"></div>
-    <transcript-segment-view-model>00:01 The fixture transcript explains reliable extension testing.</transcript-segment-view-model>
-    <transcript-segment-view-model>00:05 It recommends prompt-aware caching and correct profile selection.</transcript-segment-view-model>
+    <ytd-video-description-transcript-section-renderer>
+      <button onclick="fetch('/youtubei/v1/get_panel?prettyPrint=false', { method: 'POST', body: '{}' })">Show transcript</button>
+    </ytd-video-description-transcript-section-renderer>
+  </body>
+</html>`;
+
+function getPanelBody(videoId: string): string {
+  const segment = (seconds: number, text: string) => ({
+    macroMarkersPanelItemViewModel: {
+      item: {
+        timelineItemViewModel: {
+          timestamp: `0:${String(seconds).padStart(2, "0")}`,
+          contentItems: [{
+            transcriptSegmentViewModel: {
+              simpleText: text,
+              timestamp: `0:${String(seconds).padStart(2, "0")}`,
+              timestampA11yLabel: `${seconds} seconds`,
+            },
+          }],
+        },
+      },
+      onTap: { innertubeCommand: { watchEndpoint: { videoId, startTimeSeconds: seconds } } },
+    },
+  });
+  return JSON.stringify({
+    content: {
+      engagementPanelSectionListRenderer: {
+        content: {
+          sectionListRenderer: {
+            contents: [{
+              itemSectionRenderer: {
+                contents: [
+                  segment(2, "Intercepted panel text arrives from the network."),
+                  segment(9, "Nothing here is scraped from the page."),
+                ],
+              },
+            }],
+          },
+        },
+      },
+    },
+  });
+}
+
+// A Short, with the description and transcript controls a watch page has, so a
+// stray click from the extension would be counted.
+const shortsFixture = `<!doctype html>
+<html>
+  <head><title>Fixture Short - YouTube</title></head>
+  <body>
+    <script>window.__clicks = 0;</script>
+    <button id="expand" onclick="window.__clicks++">...more</button>
+    <ytd-video-description-transcript-section-renderer>
+      <button onclick="window.__clicks++">Show transcript</button>
+    </ytd-video-description-transcript-section-renderer>
+    <button aria-label="Transcript" onclick="window.__clicks++">T</button>
+    <video></video>
   </body>
 </html>`;
 
@@ -35,6 +119,7 @@ async function launchExtension(existingUserDataDir?: string): Promise<ExtensionS
     args: [
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,
+      "--mute-audio",
     ],
   });
   let worker = context.serviceWorkers()[0];
@@ -74,10 +159,17 @@ async function getStorage<T>(session: ExtensionSession, key: string): Promise<T 
   }, key);
 }
 
-async function routeYouTube(context: BrowserContext): Promise<void> {
+async function routeYouTube(context: BrowserContext, body = youtubeFixture): Promise<void> {
   await context.route("https://www.youtube.com/**", async (route) => {
-    await route.fulfill({ status: 200, contentType: "text/html", body: youtubeFixture });
+    await route.fulfill({ status: 200, contentType: "text/html", body });
   });
+}
+
+async function tabIdFor(session: ExtensionSession, url: string): Promise<number | undefined> {
+  return session.worker.evaluate(async (pageUrl) => {
+    const tabs = await chrome.tabs.query({});
+    return tabs.find((tab) => tab.url === pageUrl)?.id;
+  }, url);
 }
 
 function profiles() {
@@ -400,6 +492,157 @@ test("quota errors end loading and count a failed attempt", async () => {
     const usage = await getStorage<{ attemptsToday?: number; failuresToday?: number }>(session, "geminiUsage");
     expect(usage?.attemptsToday).toBe(1);
     expect(usage?.failuresToday).toBe(1);
+  } finally {
+    await session.close();
+  }
+});
+
+test("transcripts reach the prompt as spoken text only", async () => {
+  const session = await launchExtension();
+  try {
+    const prompts: string[] = [];
+    await routeYouTube(session.context);
+    await mockGemini(session.context, prompts);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-clean");
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+    expect(prompts[0]).toContain(
+      "The fixture transcript explains reliable extension testing. It recommends prompt-aware caching",
+    );
+    expect(prompts[0]).not.toMatch(/\d+ seconds?|0:0[15]/);
+  } finally {
+    await session.close();
+  }
+});
+
+test("the transcript is read from YouTube's get_panel response", async () => {
+  const session = await launchExtension();
+  try {
+    const prompts: string[] = [];
+    await routeYouTube(session.context, getPanelFixture);
+    await session.context.route("https://www.youtube.com/youtubei/v1/get_panel**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: getPanelBody("fixture-panel") });
+    });
+    await mockGemini(session.context, prompts);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-panel");
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+    expect(prompts[0]).toContain(
+      "Intercepted panel text arrives from the network. Nothing here is scraped from the page.",
+    );
+  } finally {
+    await session.close();
+  }
+});
+
+test("the prompt names the video in the URL, not the title of the one before", async () => {
+  const session = await launchExtension();
+  try {
+    const prompts: string[] = [];
+    await routeYouTube(session.context);
+    await mockGemini(session.context, prompts);
+    const titled = profiles().map((p) => ({ ...p, promptTemplate: `${p.promptTemplate} TITLE={{title}}` }));
+    await setStorage(session, { profiles: titled, settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-a");
+    await page.evaluate(() => {
+      document.title = "Video A - YouTube";
+      const flexy = document.createElement("ytd-watch-flexy");
+      flexy.setAttribute("video-id", "fixture-a");
+      document.body.appendChild(flexy);
+      const h1 = document.createElement("h1");
+      h1.textContent = "Video A";
+      document.querySelector("ytd-watch-metadata")!.prepend(h1);
+    });
+    // In-page navigation: the URL changes first; YouTube re-renders the title,
+    // heading and video-id about a second later.
+    await page.evaluate(() => {
+      history.pushState({}, "", "/watch?v=fixture-b");
+      setTimeout(() => {
+        document.title = "Video B - YouTube";
+        document.querySelector("ytd-watch-flexy")!.setAttribute("video-id", "fixture-b");
+        document.querySelector("ytd-watch-metadata h1")!.textContent = "Video B";
+      }, 1000);
+    });
+    const tabId = await tabIdFor(session, page.url());
+    const popup = await session.context.newPage();
+    await popup.goto(`chrome-extension://${session.extensionId}/src/popup/index.html`);
+    await popup.evaluate(async (sourceTabId) => {
+      await chrome.runtime.sendMessage({ type: "ASK", source: "popup-inline", sourceTabId });
+    }, tabId);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("TITLE=Video B");
+    expect(prompts[0]).not.toContain("Video A");
+    const history = await getStorage<Array<{ videoTitle?: string; channel?: string }>>(session, "history");
+    expect(history?.[0]?.videoTitle).toBe("Video B");
+    // The empty avatar link ahead of the channel name must not blank the channel.
+    expect(history?.[0]?.channel).toBe("Fixture Channel");
+  } finally {
+    await session.close();
+  }
+});
+
+test("TL;DW does nothing on a YouTube Short", async () => {
+  const session = await launchExtension();
+  try {
+    const prompts: string[] = [];
+    await routeYouTube(session.context, shortsFixture);
+    await mockGemini(session.context, prompts);
+    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), useDirectApi: false } });
+    const page = await session.context.newPage();
+    await page.goto("https://www.youtube.com/shorts/fixture-short");
+    await page.waitForTimeout(1500);
+    await expect(page.locator("#tldw-watch-btn")).toHaveCount(0);
+
+    // The transcript request answers at once and touches nothing on the page.
+    const tabId = await tabIdFor(session, page.url());
+    const started = Date.now();
+    const transcript = await session.worker.evaluate(async (id) => {
+      const res = await chrome.tabs.sendMessage(id!, { type: "GET_TRANSCRIPT" });
+      return (res as { transcript: string | null }).transcript;
+    }, tabId);
+    expect(transcript).toBeNull();
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(await page.evaluate(() => (window as unknown as { __clicks: number }).__clicks)).toBe(0);
+
+    // A send aimed at the Short (popup, keystroke or menu all take this path)
+    // opens no destination tab and shows a quiet grey badge.
+    const tabsBefore = session.context.pages().length;
+    const popup = await session.context.newPage();
+    await popup.goto(`chrome-extension://${session.extensionId}/src/popup/index.html`);
+    await popup.evaluate(async (sourceTabId) => {
+      await chrome.runtime.sendMessage({ type: "ASK", source: "command", sourceTabId });
+    }, tabId);
+    expect(await session.worker.evaluate(() => chrome.action.getBadgeText({}))).toBe("N/A");
+    await page.waitForTimeout(500);
+    expect(session.context.pages().length).toBe(tabsBefore + 1); // just the popup
+    expect(prompts).toHaveLength(0);
+    expect(await page.evaluate(() => (window as unknown as { __clicks: number }).__clicks)).toBe(0);
+  } finally {
+    await session.close();
+  }
+});
+
+test("the popup says TL;DW isn't available on Shorts", async () => {
+  const session = await launchExtension();
+  try {
+    // The popup reads the active tab; stand in a Short for it.
+    await session.context.addInitScript(() => {
+      if (location.protocol !== "chrome-extension:") return;
+      const query = chrome.tabs.query.bind(chrome.tabs);
+      chrome.tabs.query = (async (info: chrome.tabs.QueryInfo) => {
+        if (info.active && info.currentWindow) {
+          return [{ id: 999, url: "https://www.youtube.com/shorts/fixture-short", title: "Fixture Short - YouTube" }];
+        }
+        return query(info);
+      }) as typeof chrome.tabs.query;
+    });
+    const popup = await session.context.newPage();
+    await popup.goto(`chrome-extension://${session.extensionId}/src/popup/index.html`);
+    await expect(popup.getByRole("status")).toHaveText("TL;DW isn't available on YouTube Shorts.");
+    await expect(popup.locator(".ask-btn")).toHaveCount(0);
+    await expect(popup.locator(".dest-grid")).toHaveCount(0);
   } finally {
     await session.close();
   }

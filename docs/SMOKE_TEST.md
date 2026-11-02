@@ -87,7 +87,7 @@ External destination DOM structures are volatile, so these remain manual.
 
 - [ ] Inspect popup, options, on-page button, summary panel, error panel, tags, channels, stats, and SponsorBlock controls in light and dark themes.
 - [ ] Fix clipped text, inconsistent spacing, broken icons, poor contrast, stale loading states, and visible layout shifts before release.
-- [ ] Confirm Shorts behavior remains intentional and clear.
+- [ ] Confirm TL;DW stays off YouTube Shorts: the popup says it isn't available, Alt+Shift+G and the right-click menu only flash a grey "N/A" badge, and no button or panel appears on the Short.
 - [ ] Confirm no watch-time, engagement, rating, or WATCH/SKIM/SKIP UI appears.
 
 ## Store assets

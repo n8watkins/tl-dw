@@ -280,6 +280,16 @@ export type VideoContext = {
 /** Metadata read from the YouTube page — channel info, duration (for the
  *  duration-summarized stat and auto-summarize threshold), and avatar. */
 export type VideoMeta = {
+  /** The watch video id in the page's URL when this was read (null off a watch page). */
+  videoId?: string | null;
+  /**
+   * The video's title as the page shows it, or undefined while the page still
+   * shows the previous video right after an in-page navigation (the URL changes
+   * first; the title, channel and metadata follow up to a second later).
+   */
+  title?: string;
+  /** Whether the metadata below is for `videoId` yet (false during that lag). */
+  current?: boolean;
   durationSeconds: number;
   channel: string;
   /** Channel id/href (getChannelInfo().id) — for channel-tag resolution. */
@@ -369,7 +379,11 @@ export type OpenOptionsMessage = { type: "OPEN_OPTIONS"; section?: string };
  * scraped for this video if it's still open, otherwise open (and focus) a fresh
  * one. Lets the user jump to the AI tab without spawning duplicates.
  */
-export type OpenOrFocusDestinationMessage = { type: "OPEN_OR_FOCUS_DESTINATION" };
+export type OpenOrFocusDestinationMessage = {
+  type: "OPEN_OR_FOCUS_DESTINATION";
+  /** The video whose summary panel sent this (its "Open tab" action). */
+  videoId?: string;
+};
 
 /** One sponsor segment from SponsorBlock: a [start, end] time range in seconds. */
 export type SponsorSegment = { start: number; end: number; category: string };

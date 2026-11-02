@@ -1,33 +1,56 @@
 /**
- * Runs on youtube.com watch pages (isolated world). It obtains the current
- * video's transcript and hands it to the background worker on request.
+ * Runs on youtube.com (isolated world) and acts only on watch pages. It obtains
+ * the current video's transcript and hands it to the background worker on
+ * request. YouTube Shorts are out of scope: on a Short this script reads
+ * nothing, clicks nothing and mounts nothing.
  *
  * Primary path: the MAIN-world interceptor (youtube-intercept.ts) wraps the
  * page's fetch and relays YouTube's own transcript responses here via
  * postMessage. We cache that. To make YouTube actually issue the request we
- * open its "Show transcript" panel — but we read the intercepted *data*, not
+ * open its "Show transcript" panel, but we read the intercepted *data*, not
  * the rendered panel, so it survives UI redesigns, shadow DOM, virtualization,
  * and other extensions mutating the panel.
  *
  * Fallback path: if nothing is intercepted, we scrape whatever the panel
- * rendered (classic or modern markup).
+ * rendered (classic or modern markup), reading only each segment's text.
  *
  * Only the currently-loaded video is visible here, so a right-clicked thumbnail
- * gets no transcript — the background worker handles that.
+ * gets no transcript; the background worker handles that.
  */
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const log = (...args: unknown[]) => console.log("[TL;DW]", ...args);
-
-const currentVideoId = (): string | null =>
-  new URLSearchParams(location.search).get("v");
 
 import {
   CHANNEL_TAGS_KEY,
   TAGS_KEY,
   VIDEO_TAGS_KEY,
 } from "../lib/constants";
-import type { CachedSummary, SponsorWindowApi, Tag } from "../types";
+import {
+  extractFromGetPanel,
+  extractFromGetTranscript,
+  extractFromTimedText,
+  joinSegments,
+  stripSegmentTimeLabels,
+} from "../lib/youtubeTranscript";
+import type { CachedSummary, SponsorWindowApi, Tag, VideoMeta } from "../types";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const log = (...args: unknown[]) => console.log("[TL;DW]", ...args);
+
+/** The watch-page video id, or null anywhere else (Shorts, home, search...). */
+const currentVideoId = (): string | null =>
+  location.pathname === "/watch" ? new URLSearchParams(location.search).get("v") || null : null;
+
+/**
+ * Whether the page has caught up with the URL. On an in-page navigation the
+ * URL names the new video at once, but YouTube re-renders the heading, channel
+ * row and transcript panel up to a second later; until `ytd-watch-flexy`
+ * carries the new id, what's on screen still belongs to the previous video.
+ */
+function pageShowsCurrentVideo(): boolean {
+  const vid = currentVideoId();
+  if (!vid) return false;
+  const shown = document.querySelector("ytd-watch-flexy")?.getAttribute("video-id");
+  return !shown || shown === vid;
+}
 
 // --- intercepted transcript cache ----------------------------------------
 
@@ -41,104 +64,31 @@ window.addEventListener("message", (event) => {
     | undefined;
   if (!data || data.__tldw !== true) return;
 
-  const text =
-    data.kind === "get_transcript"
-      ? extractFromGetTranscript(data.body)
-      : data.kind === "timedtext"
-        ? extractFromTimedText(data.body)
-        : null;
+  // Tag with the id the interceptor captured when the request was ISSUED (or,
+  // for get_panel, the id inside the response), not the current URL: a late
+  // response for the previous video must not be served as the current one's
+  // transcript after an SPA navigation.
+  let text: string | null = null;
+  let videoId = typeof data.videoId === "string" && data.videoId ? data.videoId : null;
+  if (data.kind === "get_panel") {
+    const panel = extractFromGetPanel(data.body);
+    text = panel?.text ?? null;
+    if (panel?.videoId) videoId = panel.videoId;
+  } else if (data.kind === "get_transcript") {
+    text = extractFromGetTranscript(data.body);
+  } else if (data.kind === "timedtext") {
+    text = extractFromTimedText(data.body);
+  }
 
-  if (text) {
+  if (text && videoId) {
     captured = text;
-    // Tag with the id the interceptor captured when the request was ISSUED, not
-    // the current URL: a late response for the previous video must not be served
-    // as the current one's transcript after an SPA navigation.
-    capturedVideoId =
-      typeof data.videoId === "string" && data.videoId ? data.videoId : currentVideoId();
+    capturedVideoId = videoId;
     log("intercepted transcript:", text.length, "chars");
   }
 });
 
 function cachedForCurrentVideo(): string | null {
   return captured && capturedVideoId === currentVideoId() ? captured : null;
-}
-
-// --- parsing YouTube's transcript payloads -------------------------------
-
-type SnippetLike = { simpleText?: string; runs?: { text?: string }[] };
-
-function snippetText(snippet: SnippetLike | undefined): string {
-  if (typeof snippet?.simpleText === "string") return snippet.simpleText;
-  if (Array.isArray(snippet?.runs)) {
-    return snippet.runs.map((r) => r?.text ?? "").join("");
-  }
-  return "";
-}
-
-/** Walk the get_transcript InnerTube JSON, collecting every segment's text. */
-function extractFromGetTranscript(root: unknown): string | null {
-  const parts: string[] = [];
-  const visit = (node: unknown): void => {
-    if (!node || typeof node !== "object") return;
-    if (Array.isArray(node)) {
-      node.forEach(visit);
-      return;
-    }
-    const record = node as Record<string, unknown>;
-    const seg = record.transcriptSegmentRenderer as
-      | { snippet?: SnippetLike }
-      | undefined;
-    if (seg?.snippet) {
-      const text = snippetText(seg.snippet);
-      if (text) parts.push(text);
-    }
-    for (const key in record) visit(record[key]);
-  };
-  visit(root);
-  const text = parts.join(" ").replace(/\s+/g, " ").trim();
-  return text.length > 20 ? text : null;
-}
-
-/** Parse a timedtext response — either json3 or the legacy XML. */
-function extractFromTimedText(body: unknown): string | null {
-  if (typeof body !== "string" || !body) return null;
-
-  if (body.trimStart().startsWith("{")) {
-    try {
-      const json = JSON.parse(body) as {
-        events?: { segs?: { utf8?: string }[] }[];
-      };
-      const text = (json.events ?? [])
-        .flatMap((e) => e.segs ?? [])
-        .map((s) => s.utf8 ?? "")
-        .join("")
-        .replace(/\s+/g, " ")
-        .trim();
-      return text.length > 20 ? text : null;
-    } catch {
-      return null;
-    }
-  }
-
-  const parts: string[] = [];
-  for (const m of body.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)) {
-    parts.push(decodeEntities(m[1]));
-  }
-  const text = parts.join(" ").replace(/\s+/g, " ").trim();
-  return text.length > 20 ? text : null;
-}
-
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&amp;/g, "&")
-    .replace(/&#(\d+);/g, (_, d: string) => String.fromCharCode(Number(d)))
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h: string) =>
-      String.fromCharCode(parseInt(h, 16)),
-    )
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
 }
 
 // --- opening the panel (to trigger YouTube's fetch) ----------------------
@@ -188,47 +138,42 @@ function findShowTranscriptButton(): HTMLElement | null {
 
 // --- DOM scrape fallback --------------------------------------------------
 
-function joinLines(lines: string[]): string | null {
-  if (lines.length === 0) return null;
-  return lines.join(" ").replace(/\s+/g, " ").trim();
-}
+// A segment's spoken-text element: the modern panel's attributed string, or the
+// classic panel's .segment-text.
+const SEGMENT_TEXT_SELECTOR =
+  ".segment-text, .ytAttributedStringHost, [role='text']";
+// Time labels inside a segment: the visible clock and its screen-reader label
+// ("18 seconds"), modern and classic.
+const SEGMENT_TIME_SELECTOR =
+  "[class*='Timestamp'], [class*='timestamp'], .segment-timestamp";
 
-/** Strip a leading "1:23" / "1:02:03" timestamp from a segment's text. */
-function stripTimestamp(raw: string): string {
-  return raw.replace(/\s+/g, " ").replace(/^\d{1,2}:\d{2}(?::\d{2})?\s*/, "").trim();
+/**
+ * The spoken text of one rendered segment, without its time labels. Reads the
+ * segment's own text element; failing that, drops the time-label elements from
+ * a copy and strips any leading time labels left in the text.
+ */
+function segmentText(segment: Element): string {
+  const own = segment.querySelector(SEGMENT_TEXT_SELECTOR);
+  if (own) return (own.textContent ?? "").replace(/\s+/g, " ").trim();
+  const copy = segment.cloneNode(true) as Element;
+  copy.querySelectorAll(SEGMENT_TIME_SELECTOR).forEach((el) => el.remove());
+  return stripSegmentTimeLabels(copy.textContent ?? "");
 }
 
 function scrapeRenderedTranscript(): string | null {
-  // Modern view-model panel (transcript-segment-view-model). The whole
-  // transcript renders at once, so one query gets every line.
-  const modern = document.querySelectorAll(
-    "transcript-segment-view-model, .ytwTranscriptSegmentViewModelHost",
-  );
-  if (modern.length > 0) {
-    const lines: string[] = [];
-    modern.forEach((seg) => {
-      const text = stripTimestamp(seg.textContent ?? "");
-      if (text) lines.push(text);
-    });
-    const joined = joinLines(lines);
-    if (joined) return joined;
-  }
-
-  // Classic discrete segment elements.
+  // Right after an in-page navigation the panel may still hold the previous
+  // video's segments; never read it until the page shows the current video.
+  if (!pageShowsCurrentVideo()) return null;
   for (const selector of [
+    // Modern view-model panel: the whole transcript renders at once.
+    "transcript-segment-view-model, .ytwTranscriptSegmentViewModelHost",
+    // Classic discrete segment elements.
     "ytd-transcript-segment-renderer",
     "ytd-transcript-segment-list-renderer .segment",
   ]) {
     const segments = document.querySelectorAll(selector);
     if (segments.length === 0) continue;
-    const lines: string[] = [];
-    segments.forEach((segment) => {
-      const text =
-        segment.querySelector(".segment-text")?.textContent?.trim() ??
-        stripTimestamp(segment.textContent ?? "");
-      if (text) lines.push(text);
-    });
-    const joined = joinLines(lines);
+    const joined = joinSegments([...segments].map(segmentText));
     if (joined) return joined;
   }
   return null;
@@ -301,6 +246,9 @@ async function openTranscriptPanel(): Promise<{ openedByUs: boolean; expandedByU
 let activeTranscriptFetch: Promise<string | null> | null = null;
 
 async function getTranscript(): Promise<string | null> {
+  // Watch pages only: on a Short (or any other page) there is nothing to read,
+  // and we must not click anything on it.
+  if (!currentVideoId()) return null;
   const immediate = available();
   if (immediate) {
     log("transcript ready:", immediate.length, "chars");
@@ -386,6 +334,26 @@ function isUnsummarizableLive(): boolean {
   return isActivelyLive() && !transcriptLikelyAvailable();
 }
 
+/** Clean YouTube's tab title: drop an unread "(3) " prefix and " - YouTube". */
+function cleanDocumentTitle(raw: string): string {
+  return raw.replace(/^\(\d+\)\s*/, "").replace(/\s*-\s*YouTube\s*$/, "").trim();
+}
+
+/**
+ * Metadata for the video in the URL, for the background worker. `current` is
+ * false while the page still shows the previous video after an in-page
+ * navigation; the worker polls until it turns true.
+ */
+function getCurrentVideoMeta(): VideoMeta {
+  const videoId = currentVideoId();
+  if (!videoId || !pageShowsCurrentVideo()) {
+    return { videoId, current: false, durationSeconds: 0, channel: "" };
+  }
+  const heading = document.querySelector("ytd-watch-metadata h1")?.textContent?.trim();
+  const title = heading || cleanDocumentTitle(document.title) || undefined;
+  return { videoId, current: true, title, ...getVideoMeta() };
+}
+
 /** Read the current video's duration (seconds), channel name, and channel avatar URL. */
 function getVideoMeta(): { durationSeconds: number; channel: string; channelId?: string; avatarUrl?: string } {
   const video = document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
@@ -396,20 +364,16 @@ function getVideoMeta(): { durationSeconds: number; channel: string; channelId?:
       document.querySelector(".ytp-time-duration")?.textContent,
     );
   }
-  const channel =
-    document
-      .querySelector(
-        "ytd-channel-name a, #owner #channel-name a, ytd-video-owner-renderer a.yt-simple-endpoint",
-      )
-      ?.textContent?.trim() ?? "";
-  const avatarUrl =
-    document.querySelector<HTMLImageElement>(
-      "ytd-video-owner-renderer #avatar img, #owner yt-img-shadow img, ytd-video-owner-renderer yt-img-shadow img",
-    )?.src ?? undefined;
-  // The channel id/href so the background can resolve channel tags by id (the key
-  // the tag row writes under), not just the display name.
-  const channelId = getChannelInfo()?.id;
-  return { durationSeconds, channel, channelId, avatarUrl };
+  // Channel name, id/href (the key the tag row writes under, so the background
+  // can resolve channel tags by id) and avatar. getChannelInfo skips the empty
+  // avatar link that precedes the name link in the owner row.
+  const info = getChannelInfo();
+  return {
+    durationSeconds,
+    channel: info?.name ?? "",
+    channelId: info?.id,
+    avatarUrl: info?.avatarUrl || undefined,
+  };
 }
 
 // --- auto-run channel helpers (direct storage; no lib imports in content script) --
@@ -1758,7 +1722,10 @@ function buildSummaryPanel(
   menuItems.push({
     label: "↗ Open tab",
     title: "Go to the AI destination tab (reuses the one we scraped if it's still open)",
-    onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OR_FOCUS_DESTINATION" }),
+    onClick: () => void chrome.runtime.sendMessage({
+      type: "OPEN_OR_FOCUS_DESTINATION",
+      videoId: vid ?? undefined,
+    }),
   });
 
   // 🧹 Clear cache — drop THIS video's cached summary and start fresh.
@@ -2218,6 +2185,8 @@ function onNavigate(): void {
   // Re-allow the inline button for the new video; maybeStartDirectApiRun flips it
   // back off if this video turns out to be a non-summarizable live stream.
   watchButtonAllowed = true;
+  // Off a watch page (Shorts, home, search...) there is nothing to start.
+  if (!vid) return;
   void maybeStartDirectApiRun();
   setTimeout(() => { void autoRunIfLong(); }, 2500);
 }
@@ -2239,15 +2208,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (type === "PAUSE_VIDEO") {
-    const video = document.querySelector<HTMLVideoElement>(
-      "video.html5-main-video, video",
-    );
+    // Only the watch page's player; never a Short's.
+    const video = currentVideoId()
+      ? document.querySelector<HTMLVideoElement>("video.html5-main-video, video")
+      : null;
     video?.pause();
     sendResponse({ paused: !!video });
     return false;
   }
   if (type === "GET_VIDEO_META") {
-    sendResponse(getVideoMeta());
+    sendResponse(getCurrentVideoMeta());
     return false;
   }
   if (type === "SET_SUMMARY") {

@@ -167,20 +167,16 @@ export function App() {
     setStatuses([]);
   }
 
+  // Watch pages only. TL;DW is deliberately unavailable on Shorts: the popup
+  // says so and offers no send controls.
   const onVideo = isYouTubeVideoUrl(tab?.url);
-  const isShort = isYouTubeShortUrl(tab?.url);
-  // Shorts have no transcript — only Gemini (which watches the URL) is useful.
-  const availableDestinations = isShort ? DESTINATIONS.filter((d) => d.canWatch) : DESTINATIONS;
-  const effectiveDestinationId = isShort ? "gemini" : destinationId;
+  const onShort = isYouTubeShortUrl(tab?.url);
   // When Direct API is configured + enabled and Gemini is the destination, the
   // popup can summarize inline on the page (no tab), matching the on-page button.
-  // Shorts are excluded — they have no transcript, so the headless Gemini call
-  // would get no content; they still open a Gemini tab that watches the URL.
   const canInline = !!(
     settings?.geminiApiKey?.trim() &&
     settings?.useDirectApi &&
-    !isShort &&
-    effectiveDestinationId === "gemini"
+    destinationId === "gemini"
   );
   // If the current tab is a destination tab TL;DW opened, link it back to source.
   const linkedSearch = openSearches.find((s) => s.tabId === tab?.id);
@@ -194,7 +190,7 @@ export function App() {
   }
 
   function send() {
-    const dest = getDestination(effectiveDestinationId);
+    const dest = getDestination(destinationId);
     // Hand off to the background worker's auto-fill flow, passing the session
     // destination so it routes here even if the saved default differs. Fire
     // and forget, then close: the worker runs independently of the popup, so
@@ -347,13 +343,17 @@ export function App() {
           <YouTubeIcon />
           <span className="video-btn-title">{cleanTitle(tab?.title)}</span>
         </button>
+      ) : onShort ? (
+        <p className="empty shorts-note" role="status">
+          TL;DW isn't available on YouTube Shorts.
+        </p>
       ) : linkedSearch ? (
         <button className="video-btn" onClick={() => void goToVideoTab()} title={linkedSearch.videoUrl}>
           <YouTubeIcon />
           <span className="video-btn-title">{linkedSearch.videoTitle ?? "YouTube video"}</span>
         </button>
       ) : (
-        <p className="empty">Open a YouTube video or Short to use TL;DW.</p>
+        <p className="empty">Open a YouTube video to use TL;DW.</p>
       )}
 
       {failures.length > 0 && (
@@ -376,18 +376,13 @@ export function App() {
 
       {onVideo && (
         <>
-          {isShort && (
-            <p className="shorts-note">
-              Shorts don't have transcripts — Gemini only (it watches the video directly).
-            </p>
-          )}
           <div className="dest-grid">
-            {availableDestinations.map((d) => (
+            {DESTINATIONS.map((d) => (
               <button
                 key={d.id}
-                className={`dest-btn${effectiveDestinationId === d.id ? " dest-btn-active" : ""}`}
+                className={`dest-btn${destinationId === d.id ? " dest-btn-active" : ""}`}
                 onClick={() => changeDestination(d.id)}
-                aria-pressed={effectiveDestinationId === d.id}
+                aria-pressed={destinationId === d.id}
                 title={d.label}
               >
                 <DestinationIcon id={d.id} size={26} />
@@ -423,7 +418,7 @@ export function App() {
                     </>
                   ) : (
                     <>
-                      <span>{destinationVerb(getDestination(effectiveDestinationId))} {getDestination(effectiveDestinationId).label}</span>
+                      <span>{destinationVerb(getDestination(destinationId))} {getDestination(destinationId).label}</span>
                       <span className="ask-btn-shortcut">Alt+Shift+G</span>
                     </>
                   )}
@@ -465,8 +460,8 @@ export function App() {
             </div>
           )}
 
-          {getDestination(effectiveDestinationId).payload !== "link" &&
-            getDestination(effectiveDestinationId).payload !== "source" &&
+          {getDestination(destinationId).payload !== "link" &&
+            getDestination(destinationId).payload !== "source" &&
             (showCuriosity || curiosity ? (
               <label className="field">
                 <span>Ask something specific (optional)</span>
