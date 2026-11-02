@@ -7,6 +7,15 @@ import type { TldwSummary } from "../types";
  *  values), but TL;DW no longer requests or surfaces them. */
 const TLDW_FIELDS = new Set(["VERDICT", "RATING", "SUMMARY", "DETAILS"]);
 
+/** "- point", "* point", "• point" -> "• point"; "2. point" / "2) point" -> "2. point"; else null. */
+function listItem(line: string): string | null {
+  const bullet = line.match(/^\s*[-*•]\s+(.+)$/);
+  if (bullet) return `• ${bullet[1].trim()}`;
+  const numbered = line.match(/^\s*(\d{1,2})[.)]\s+(.+)$/);
+  if (numbered) return `${numbered[1]}. ${numbered[2].trim()}`;
+  return null;
+}
+
 /**
  * Parse the SUMMARY/DETAILS lines from the inside of a TL;DW block. Returns null
  * if there's no SUMMARY. Tolerates Markdown the model adds around the LABELS
@@ -33,8 +42,12 @@ function parseFields(inner: string): TldwSummary | null {
       fields[key] = value.trim();
     } else if (key && rawLine.trim() && !/^[\s*_`>+•-]+$/.test(rawLine)) {
       // Continuation line (not a new field, and not a bare markup/divider line
-      // like "**" or "---" left over from a rendered block).
-      fields[key] = (fields[key] ? fields[key] + " " : "") + rawLine.trim();
+      // like "**" or "---" left over from a rendered block). A list item keeps
+      // its own line ("- point" becomes "• point"; "1. point" stays numbered),
+      // so the panel can show the list as a list; prose lines join with a space.
+      const item = listItem(rawLine);
+      if (item) fields[key] = (fields[key] ? fields[key] + "\n" : "") + item;
+      else fields[key] = (fields[key] ? fields[key] + (fields[key].includes("\n") ? "\n" : " ") : "") + rawLine.trim();
     }
   }
   if (!fields.SUMMARY) return null;

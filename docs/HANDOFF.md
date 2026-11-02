@@ -1,21 +1,25 @@
-# TL;DW 1.0 Handoff
+# TL;DW Handoff
 
-## Current state and open work (2026-10-27): start here
+## Current state and open work (2026-11-02): start here
 
 ### What this is
 
 TL;DW (Too Long; Didn't Watch) is a Manifest V3 Chrome extension for YouTube.
-It sends the current video to Gemini, ChatGPT, Claude or NotebookLM in one keystroke, and with a saved Gemini key it summarizes the video on the page through the Gemini API (bring your own key).
+The TL;DW button under a video puts an AI summary on the page: with no key it opens Gemini in a background tab and reads the answer back; with the user's own free Gemini API key (Direct API) the summary comes straight from the API with no tab.
+It can also send a video to ChatGPT, Claude or NotebookLM.
 Repo: `n8watkins/tl-dw`, default branch `master`.
-It is not live anywhere yet: the 1.0.0 Unlisted Chrome Web Store submission is prepared but has not been uploaded (no tags or GitHub Releases exist).
+It is not live in the Chrome Web Store yet: the Unlisted submission still needs the owner's publisher account.
 
 ### Status as of today
 
-- Version 1.0.0; the validated store ZIP and assets are described under "Completed changes" below and in [PUBLISH_CHECKLIST.md](PUBLISH_CHECKLIST.md).
-- CI is green on master: the Quality gate (typecheck, lint, unit tests, e2e, build, package validation, `npm audit`) and the Commit messages check both pass on `dec995f`.
-- The gate had failed on master from 2026-07-20 until PR #3 (`20b1938`, 2026-10-27) fixed it; the diagnosis is in [CI_QUALITY_GATE_FAILURE.md](CI_QUALITY_GATE_FAILURE.md).
-- release-kit 2.0.0 was adopted as a dev dependency in PR #4 (`dec995f`); see [../RELEASING.md](../RELEASING.md).
-- Nothing is merged but unreleased in a user-facing sense, because nothing has shipped yet.
+- Version 1.1.0 (PRs #15 to #18) implements the owner's 2026-11-02 decisions and the UX audit:
+  - first install opens `options#welcome` (two modes, free-key steps, "Skip, use without a key"); a verified key turns Direct API on;
+  - sends are planned up front (`src/lib/sendPlan.ts`): the API gets the whole transcript or, with none, watches the YouTube link as video input (`fileData.fileUri`, `MEDIA_RESOLUTION_LOW`); without a key, a transcript too long for the Gemini tab goes as the link, and ChatGPT or Claude get an on-page choice;
+  - Direct API defaults to `gemini-3.5-flash-lite` and retries once on `gemini-3.1-flash-lite` after a 429 (a per-day quota violation sticks to the fallback for the Pacific quota day), with a model picker;
+  - the base install asks only for YouTube, Gemini and the Gemini API; ChatGPT, Claude, NotebookLM and SponsorBlock are `optional_host_permissions`, and the injector for those sites is registered at runtime with `chrome.scripting`; the `tabs` permission is gone;
+  - SponsorBlock is opt-in; PRIVACY.md is dated 2026-11-02.
+- No Gemini key was available on 2026-11-02 (`pass-env check` found no password store), so the 3.5 Flash-Lite model, the fallback and YouTube video input were verified only against mocked API responses, plus Google's model list (aistudio.google.com/docs/models).
+  Run `pass-env run -- npm run smoke:gemini` with a real key to check both models and video input live.
 
 ### Open problems
 
@@ -25,13 +29,12 @@ It is not live anywhere yet: the 1.0.0 Unlisted Chrome Web Store submission is p
    On 2026-11-02, with TL;DW loaded alone in Playwright Chromium against live YouTube, the comments panel followed each Short across three scrolls, both before and after that change.
    In TubeVault the main suspect is its Shorts button, which inserts a React root into YouTube's recycled `reel-action-bar-view-model` (see TubeVault's `docs/HANDOFF.md`).
    Next: reproduce with TubeVault alone, fix it there, and add a Playwright regression test that scrolls between Shorts and asserts the comments panel follows the active Short.
-2. **Some captioned videos give TL;DW no transcript (HIGH, partly outside TL;DW).**
+2. **Some captioned videos give TL;DW no transcript (HIGH, partly outside TL;DW; see also problem 6).**
    On 2026-11-02, in Playwright Chromium (headless and headed, signed out), 3Blue1Brown's `aircAruvnKk` and `IHZwWFHWa-w` (both with chapters) opened YouTube's legacy transcript panel, whose `get_transcript` request YouTube answered with 400 FAILED_PRECONDITION; YouTube's own panel stayed empty.
    Videos without chapters (e.g. `dQw4w9WgXcQ`) use the modern `get_panel` path, which works.
    The caption track URLs carry `exp=xpe` and return empty bodies without a PO token, so they are no fallback either.
-   Since v1.0.3, TL;DW stops waiting as soon as that request fails and shows "No transcript available for this video" instead of summarizing the title (the Gemini web app still gets the link, since it watches the video).
+   TL;DW stops waiting as soon as that request fails; since v1.1.0 Gemini then watches the video from its link (API video input with a key, the Gemini tab without one), and ChatGPT or Claude offer "Send to Gemini instead".
    Next: check the same videos in the owner's signed-in Chrome; if they work there, the failure is specific to signed-out automation.
-   A possible follow-up is sending the YouTube URL to the Gemini API as a fallback.
 3. **Local `npm ci` fails on npm 12.**
    npm 12 defaults `allow-git` to `none`, and release-kit is a `github:` dev dependency, so `npm ci` stops with `EALLOWGIT` and leaves `node_modules` empty.
    Use `npm ci --allow-git=all` locally until the dependency source changes; CI's `npm ci` still succeeds (its runner uses an older npm).
@@ -47,25 +50,23 @@ It is not live anywhere yet: the 1.0.0 Unlisted Chrome Web Store submission is p
    The Quality gate now fails on any advisory in production dependencies (`npm audit --omit=dev`) and on high or critical ones across the whole tree (`npm audit --audit-level=high`).
    Go back to a plain `npm audit` once eslint ships on minimatch 11.
 
-6. **CI runs on Node 20 (low).**
-   `.github/workflows` pins Node 20.19.0, which has been end-of-life since April 2026 and no longer gets security fixes.
-   Move CI (and `engines`) to Node 24; this also brings an npm that may need `--allow-git` for release-kit (open problem 3).
+6. **Most videos give no transcript in signed-out automation (HIGH for testing, see problem 2).**
+   On 2026-11-02, in signed-out headless Chromium, only videos without chapters on the modern `get_panel` path (for example `dQw4w9WgXcQ`) returned a transcript; 3Blue1Brown, MIT, Stanford and TED videos all came back empty.
+   Since v1.1.0 those videos are still summarized (Gemini watches the link), but from video rather than the cheaper transcript.
+   Check in the owner's signed-in Chrome before deciding whether the transcript reader needs work.
 
 ### Blocked on the owner
 
 - Chrome Web Store: uploading the ZIP and assets and submitting with Unlisted visibility needs the publisher account (steps 2 to 4 under "Required remaining work" below).
-- Gemini model: the owner decided on 2026-10-27 to move Gemini text calls to Gemini 3.5 Flash-Lite and will provide new API keys.
-  The model code confirmed on ai.google.dev on 2026-10-27 is `gemini-3.5-flash-lite`.
-  The current model is `GEMINI_MODEL_ID = "gemini-3.1-flash-lite"` in `src/lib/constants.ts`, and the docs below, `STATUS.md`, `PRIVACY.md` and the store copy name 3.1 Flash-Lite, so the switch touches code, tests and disclosures and needs a fresh real-key smoke test ([SMOKE_TEST.md](SMOKE_TEST.md)).
-  This supersedes the "Keep Gemini 3.1 Flash-Lite fixed" constraint below.
+- Gemini key: a real-key smoke test of v1.1.0 (`npm run smoke:gemini`, then [SMOKE_TEST.md](SMOKE_TEST.md)) needs the owner's key in pass-env as `shared/GEMINI_API_KEY`.
 
 ### Next steps, in order
 
 1. Confirm the Shorts comments bug is TubeVault's (open problem 1) and fix it there, with a regression test.
-2. Switch the Direct API model to `gemini-3.5-flash-lite` and update the disclosures, then repeat the real-key smoke test with the owner's new key.
+2. Run the real-key smoke test of v1.1.0 (3.5 Flash-Lite, fallback, video input) once the owner's key is in pass-env.
 3. Restore the local commit-msg hook via release-kit (open problem 4).
 4. Rebuild and revalidate the store ZIP with `npx vite build`, `npm run package` and `npm run validate:package` (never `npm run build`, which bumps the version), then hand the upload to the owner.
-5. Move CI to Node 24 (open problem 6).
+5. Done in v1.1.0: CI runs on Node 24 (`.nvmrc`).
 
 ## Objective
 
@@ -113,7 +114,6 @@ The real-key smoke test is complete using the saved local Gemini key. Gemini 3.1
 - Do not use `npm run build` for the final fixed-version release because it increments the patch version.
 - Use `npx vite build` for a non-bumping production build.
 - Keep React 18 for 1.0.
-- Keep Gemini 3.1 Flash-Lite fixed with no model selector.
 - Keep destination-site selector verification in the manual smoke test.
 - Preserve profiles, tags, settings, history, and lifetime summary stats.
 - Discard legacy video-only cache entries.

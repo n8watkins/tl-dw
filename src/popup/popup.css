@@ -304,7 +304,7 @@ select:disabled { opacity: 0.4; cursor: default; }
 .ask-btn-shortcut {
   font-size: 11px;
   font-weight: 400;
-  opacity: 0.75;
+  color: #ffffff;
   letter-spacing: 0.02em;
 }
 
@@ -328,14 +328,14 @@ textarea:focus { outline: none; border-color: #7c3aed; }
   align-self: flex-start;
   background: transparent;
   border: none;
-  color: #7c3aed;
+  color: #c4b5fd;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   padding: 2px 0;
 }
 
-.add-curiosity:hover { color: #a78bfa; text-decoration: underline; }
+.add-curiosity:hover { color: #e9d5ff; text-decoration: underline; }
 
 .primary {
   display: inline-flex;

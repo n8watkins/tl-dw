@@ -1,13 +1,15 @@
 # TL;DW Extension Status
 
-**Version:** 1.0.0
-**Last updated:** July 21, 2026
+**Version:** 1.1.0
+**Last updated:** November 2, 2026
 
 TL;DW 1.0 is being prepared as an Unlisted Chrome Web Store soft launch centered on bring-your-own-key Gemini access.
 
 ## Implemented
 
-- Direct API summaries use the fixed Gemini 3.1 Flash-Lite model.
+- Direct API summaries default to Gemini 3.5 Flash-Lite and retry once on Gemini 3.1 Flash-Lite after a 429; a model picker offers larger models.
+- TL;DW decides how to send a video before sending it: the API gets the whole transcript, a video without a transcript is watched by Gemini (API video input, or the Gemini tab from the link), and a transcript too long for a chat site is never cut without the user choosing it.
+- A first install opens a welcome page with the free-key steps; ChatGPT, Claude, NotebookLM and SponsorBlock are optional host permissions; SponsorBlock is off by default.
 - Automatic Direct API runs use the configured Direct API profile.
 - Popup inline runs preserve the popup-selected profile.
 - Manual on-page runs use the global default profile.

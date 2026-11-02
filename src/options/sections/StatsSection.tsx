@@ -314,7 +314,7 @@ export function StatsSection() {
   if (!stats || !usage) {
     return (
       <div className="section-header">
-        <div className="section-title">Your stats</div>
+        <h1 className="section-title">Your stats</h1>
       </div>
     );
   }
@@ -335,7 +335,7 @@ export function StatsSection() {
   return (
     <div>
       <div className="section-header">
-        <div className="section-title">Your stats</div>
+        <h1 className="section-title">Your stats</h1>
         <div className="section-desc">
           Your summary activity. All counted locally — nothing leaves your browser.
         </div>

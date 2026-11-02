@@ -1,10 +1,13 @@
 import { Icon } from "../components/Icons";
 import { DestinationIcon } from "../../lib/DestinationIcon";
 import { DESTINATIONS } from "../../lib/constants";
+import { shortcutKeys, useSummarizeShortcut } from "../../lib/useShortcut";
 
 export function AboutSection() {
   const version = chrome.runtime.getManifest().version;
   const iconUrl = chrome.runtime.getURL("icons/tl-dw-128.png");
+  const shortcut = useSummarizeShortcut();
+  const keys = shortcut ? shortcutKeys(shortcut) : [];
 
   return (
     <div className="about-page">
@@ -21,14 +24,16 @@ export function AboutSection() {
         </div>
 
         <h1 className="about-headline">
-          Summarize any YouTube video in one keystroke.
+          Summarize any YouTube video in one click.
         </h1>
 
         <p className="about-pitch">
-          Press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> on any YouTube video. TL;DW pulls
-          the transcript and gets you an AI summary — rendered right on the page via the free
-          Gemini Direct API, or sent to Gemini, ChatGPT, Claude, or NotebookLM. Shape it with
-          reusable profiles and tags. Read the summary. Decide what's worth your time.
+          Press the TL;DW button under a YouTube video
+          {keys.length > 0 && <> (or {keys.map((k, i) => <span key={i}>{i > 0 && "+"}<kbd>{k}</kbd></span>)})</>}.
+          TL;DW reads the transcript and puts an AI summary right on the page: from the Gemini API
+          with your own free key, or from Gemini in a background tab with no key at all. You can also
+          send a video to ChatGPT, Claude or NotebookLM. Shape it with reusable profiles and tags,
+          then decide what's worth your time.
         </p>
       </div>
 
@@ -40,17 +45,21 @@ export function AboutSection() {
           <div className="about-card-icon" style={{background:"rgba(124,58,237,0.18)", color:"#a78bfa"}}>
             <Icon name="send" />
           </div>
-          <div className="about-card-title">One-keystroke send</div>
+          <div className="about-card-title">One click, or one keystroke</div>
           <div className="about-card-desc">
-            Works on any YouTube video or Short. Use the keyboard shortcut, the popup, or right-click to pick a specific profile.
+            Works on any YouTube video (not Shorts). Use the TL;DW button, the keyboard shortcut, the
+            popup, or right-click to pick a specific profile.
           </div>
-          <div className="about-kbd-row">
-            <kbd className="about-kbd">Alt</kbd>
-            <span className="about-kbd-plus">+</span>
-            <kbd className="about-kbd">Shift</kbd>
-            <span className="about-kbd-plus">+</span>
-            <kbd className="about-kbd">G</kbd>
-          </div>
+          {keys.length > 0 && (
+            <div className="about-kbd-row">
+              {keys.map((k, i) => (
+                <span key={i} style={{ display: "contents" }}>
+                  {i > 0 && <span className="about-kbd-plus">+</span>}
+                  <kbd className="about-kbd">{k}</kbd>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Summary-activity stats */}
@@ -82,7 +91,9 @@ export function AboutSection() {
           </div>
           <div className="about-card-title">{DESTINATIONS.length} AI destinations</div>
           <div className="about-card-desc">
-            Each destination handled the right way — Gemini watches the video directly; NotebookLM, Claude, and ChatGPT get the full extracted transcript.
+            Each destination handled the right way: Gemini, ChatGPT and Claude get the transcript when it
+            fits their message box, a longer video goes to Gemini as a link it watches, and NotebookLM
+            adds the link as a source.
           </div>
           <div className="about-dest-row">
             {DESTINATIONS.map((d) => (
@@ -123,7 +134,8 @@ export function AboutSection() {
           </div>
           <div className="about-card-title">Transcript extraction</div>
           <div className="about-card-desc">
-            For AIs that can't watch, TL;DW pulls the full transcript and attaches it automatically.
+            TL;DW reads the video's transcript and sends it with the prompt. With a Gemini key, videos
+            without captions are watched by Gemini instead.
           </div>
         </div>
 
@@ -142,8 +154,8 @@ export function AboutSection() {
 
       {/* ── Privacy footer ───────────────────────────────────── */}
       <div className="about-privacy-note">
-        No backend · no accounts · no tracking — everything stays in Chrome's local storage.
-        No AI API key required.
+        No backend · no accounts · no tracking: your data stays in Chrome on this device.
+        Works without a key (Gemini in a tab); add your own free Gemini key for summaries on the page.
       </div>
     </div>
   );

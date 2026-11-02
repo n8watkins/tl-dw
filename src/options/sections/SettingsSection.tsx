@@ -150,7 +150,9 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label" id="settings-focus">Switch to the new tab</div>
             <div className="setting-sub">
-              Bring the destination tab to the front. Off opens it in the background.
+              Bring the destination tab to the front when you send from the popup, the keyboard
+              shortcut or the right-click menu. Sends from the YouTube page always open it in the
+              background, so the video keeps playing in front.
             </div>
           </div>
           <div className="setting-control">

@@ -11,8 +11,9 @@ Version 1.0.0 will launch as Unlisted before any Public distribution.
 Direct API mode is bring-your-own-key.
 There is no shared developer key, proxy, backend, extension account, or telemetry.
 
-Gemini 3.1 Flash-Lite is the fixed model for 1.0.
-It is recommended because it currently offers the highest free-tier allowance at up to 500 requests per day as of July 2026.
+Since 1.1, Direct API defaults to Gemini 3.5 Flash-Lite and falls back to Gemini 3.1 Flash-Lite when Google reports a rate or quota limit.
+A model picker offers larger models for people who pay or want more depth.
+TL;DW works without a key: the Gemini web app in a background tab is the default.
 Users may remain on the free tier or attach billing to their own Google project.
 Paid users should configure a project budget and billing alerts.
 
@@ -20,7 +21,7 @@ Paid users should configure a project budget and billing alerts.
 
 ### Direct API
 
-1. The user creates a dedicated Google AI Studio project and key.
+1. The user creates a Google AI Studio key (a dedicated project is optional), usually from the welcome page that opens on install.
 2. TL;DW stores the key in `chrome.storage.local` and verifies model metadata.
 3. The background worker resolves the effective profile before building the prompt.
 4. TL;DW obtains the current transcript and active tags.
