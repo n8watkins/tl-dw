@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0 - 2026-11-02
+
+TL;DW works out of the box with Gemini in a tab, and a free Gemini key gets you summaries on the page in seconds; long and uncaptioned videos now get summarized too.
+
+### New
+
+- Gemini watches long or uncaptioned videos, 3.5 Flash-Lite with fallback ([#16](https://github.com/n8watkins/tl-dw/pull/16))
+- A welcome page with free-key setup, and site access asked only when needed ([#17](https://github.com/n8watkins/tl-dw/pull/17))
+
+### Fixed
+
+- Summaries show their lists, panels fit narrow windows, settings read clearly ([#18](https://github.com/n8watkins/tl-dw/pull/18))
+
 ## 1.0.3 - 2026-11-02
 
 ### Fixed
