@@ -3,14 +3,12 @@ import type { GeminiCallEntry, GeminiUsage, PromptProfile, Settings } from "../.
 import {
   AI_STUDIO_LINKS,
   DEFAULT_SETTINGS,
-  GEMINI_FREE_TIER_RPD,
   GEMINI_CALL_LOG_KEY,
-  GEMINI_MODEL_ID,
-  GEMINI_RECOMMENDATION_DATE,
+  GEMINI_MODELS,
   GEMINI_USAGE_KEY,
+  resolveGeminiModelId,
   STORAGE_KEYS,
 } from "../../lib/constants";
-import { keyValidationMessage } from "../../lib/geminiKeyValidation";
 import { emptyGeminiUsage } from "../../lib/geminiUsage";
 import { geminiErrorMessage } from "../../lib/geminiApi";
 import {
@@ -23,8 +21,8 @@ import {
   setSettings,
 } from "../../lib/storage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { GeminiKeyForm } from "../components/GeminiKeyForm";
 import { Icon } from "../components/Icons";
-import { TierBadge } from "../components/TierBadge";
 
 type DirectApiTab = "setup" | "behavior" | "usage" | "history";
 
@@ -60,15 +58,12 @@ export function DirectApiSection() {
   const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>(emptyGeminiUsage());
   const [callLog, setCallLog] = useState<GeminiCallEntry[]>([]);
   const [saved, setSaved] = useState(false);
-  const [pendingKeyName, setPendingKeyName] = useState("");
-  const [pendingKeyValue, setPendingKeyValue] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmClearStats, setConfirmClearStats] = useState(false);
   const [confirmClearLog, setConfirmClearLog] = useState(false);
   const [tab, setTab] = useState<DirectApiTab>("setup");
   const [historySearch, setHistorySearch] = useState("");
   const [historyDay, setHistoryDay] = useState(""); // yyyy-mm-dd, "" = all days
-  const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
     void Promise.all([getSettings(), getGeminiUsage(), getGeminiCallLog(), getProfiles()]).then(
@@ -100,35 +95,10 @@ export function DirectApiSection() {
     setTimeout(() => setSaved(false), 1500);
   }
 
-  async function saveApiKey() {
-    if (!settings || !pendingKeyValue.trim()) return;
-    await update({
-      geminiApiKey: pendingKeyValue.trim(),
-      geminiApiKeyName: pendingKeyName.trim() || "Gemini API key",
-      geminiKeyValidation: { status: "unverified" },
-    });
-    setPendingKeyName("");
-    setPendingKeyValue("");
-    await verifyApiKey();
-  }
-
-  async function verifyApiKey() {
-    setVerifying(true);
-    try {
-      await chrome.runtime.sendMessage({ type: "VERIFY_GEMINI_KEY" });
-    } finally {
-      setVerifying(false);
-    }
-  }
-
-  async function deleteApiKey() {
-    if (!settings) return;
-    await update({
-      geminiApiKey: "",
-      geminiApiKeyName: "",
-      geminiKeyValidation: { status: "unverified" },
-      useDirectApi: false,
-    });
+  async function changeModel(id: string) {
+    await update({ geminiModelId: id });
+    // A key verified for one model may not have access to another: check again.
+    if (settings?.geminiApiKey) await chrome.runtime.sendMessage({ type: "VERIFY_GEMINI_KEY" });
   }
 
   async function doClearStats() {
@@ -190,21 +160,13 @@ export function DirectApiSection() {
           {saved ? (
             <span className="text-success">Saved.</span>
           ) : (
-            "Call Gemini directly on every summarize — no tab opens, regardless of destination."
+            "With your own free Gemini API key, summaries appear right on the YouTube page in seconds: no tab opens."
           )}
         </p>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-          <TierBadge tier="integrated" label="Integrated" />
-          <span style={{ fontSize: 12, color: "var(--muted)" }}>
-            Everything on this page is part of the Integrated tier — it needs the Direct API
-            (Gemini) key. The on-page summary panel is rendered from the model's
-            structured output.
-          </span>
-        </div>
       </div>
 
       {/* Sub-nav: switches between separate views so nothing lives below the fold. */}
-      <div className="directapi-tabs" role="tablist">
+      <div className="directapi-tabs" role="tablist" aria-label="Direct API">
         {DIRECT_API_TABS.map((tb) => (
           <button
             key={tb.id}
@@ -222,44 +184,33 @@ export function DirectApiSection() {
       <>
       {/* Walkthrough: get a free key, step by step */}
       <div className="settings-group">
-        <div className="settings-group-title"><Icon name="sparkles" /> Set up Direct API</div>
-        <div className="setting-sub" style={{ marginBottom: 14 }}>
-          Direct API calls Google's Gemini directly, so summaries appear right on the YouTube
-          page with <strong>no tab opening</strong>. Gemini 3.1 Flash-Lite is recommended because
-          it currently offers the highest free-tier allowance at up to 500 requests per day.
-        </div>
+        <div className="settings-group-title"><Icon name="sparkles" /> Get a free Gemini API key (about 2 minutes)</div>
         <ol className="setup-walkthrough">
           <li>
-            <strong>Create a dedicated Google AI Studio project for TL;DW.</strong> Open{" "}
+            <strong>Open{" "}
             <a href={AI_STUDIO_LINKS.apiKeys} target="_blank" rel="noreferrer">
-              AI Studio API keys
-            </a>{" "}
+              Google AI Studio API keys ↗
+            </a></strong>{" "}
             and sign in with your Google account.
           </li>
           <li>
-            <strong>Create a new Gemini API key</strong> in that dedicated project.
+            <strong>Click “Create API key”.</strong> Optional: create a project just for TL;DW,
+            so you can see its usage separately and delete its key without touching anything else.
           </li>
           <li>
-            <strong>Paste and name the key below.</strong> TL;DW saves it locally first, then
-            verifies access to {GEMINI_MODEL_ID} without generating a summary.
-          </li>
-          <li>
-            <strong>Choose free or paid usage.</strong> Stay on the free tier for up to{" "}
-            {GEMINI_FREE_TIER_RPD} requests per day, or optionally{" "}
-            <a href={AI_STUDIO_LINKS.billing} target="_blank" rel="noreferrer">enable billing</a>{" "}
-            for more capacity. For paid use, configure a{" "}
-            <a href={AI_STUDIO_LINKS.budgets} target="_blank" rel="noreferrer">project budget and alerts</a>.
-          </li>
-          <li>
-            <strong>Turn on “Enabled by default”</strong> in the Behavior tab. Then
-            summaries appear inline on every video.
+            <strong>Copy the key and paste it below.</strong> TL;DW saves it on this device, checks
+            it with Google (no summary is made), and turns on Direct API.
           </li>
         </ol>
         <div className="setting-sub" style={{ marginTop: 12 }}>
-          Gemini 3.1 Flash-Lite free tier: {GEMINI_FREE_TIER_RPD} RPD as of {GEMINI_RECOMMENDATION_DATE} ·{" "}
-          <a href="https://ai.google.dev/pricing" target="_blank" rel="noreferrer">
-            Pricing details ↗
-          </a>
+          The free tier needs no billing. Its limits depend on the model and your project: see{" "}
+          <a href={AI_STUDIO_LINKS.rateLimits} target="_blank" rel="noreferrer">your rate limits in AI Studio ↗</a>.
+          On the free tier, Google may use what you send to improve its products (
+          <a href={AI_STUDIO_LINKS.terms} target="_blank" rel="noreferrer">terms ↗</a>
+          ). For more capacity or that data protection, you can{" "}
+          <a href={AI_STUDIO_LINKS.billing} target="_blank" rel="noreferrer">enable billing ↗</a>{" "}
+          and set a{" "}
+          <a href={AI_STUDIO_LINKS.budgets} target="_blank" rel="noreferrer">budget alert ↗</a>.
         </div>
       </div>
 
@@ -269,77 +220,13 @@ export function DirectApiSection() {
 
         <div className="card" style={{ marginBottom: 0 }}>
           <div className="card-desc">
-            Use a dedicated key from your TL;DW Google AI Studio project. Free-tier use is
-            available, and attaching billing to that project is optional.
+            Your key stays in this browser's extension storage (<code>chrome.storage.local</code>) and
+            is sent only to Google's Gemini API, in the <code>x-goog-api-key</code> header. If this
+            browser profile is ever compromised, delete the key in AI Studio.
           </div>
-          <div className="card-desc" style={{ marginTop: 4, fontSize: 12, color: "var(--muted)" }}>
-            Your key stays in <code>chrome.storage.local</code> and is sent only to Google's API
-            in the <code>x-goog-api-key</code> header. If this browser profile is compromised,
-            rotate or delete the dedicated key in AI Studio.
+          <div style={{ marginTop: 14 }}>
+            <GeminiKeyForm settings={settings} idPrefix="directapi-key" />
           </div>
-
-          {hasKey ? (
-            <div style={{ marginTop: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>
-                  {settings.geminiKeyValidation.status === "valid" ? "✓" : "!"}{" "}
-                  {settings.geminiApiKeyName || "Gemini API key"}
-                </span>
-                <button className="btn btn-ghost" onClick={() => void verifyApiKey()} disabled={verifying}>
-                  {verifying ? "Verifying…" : "Verify again"}
-                </button>
-                <button className="btn btn-danger" onClick={() => void deleteApiKey()}>
-                  Delete key
-                </button>
-              </div>
-              <div style={{
-                marginTop: 10,
-                padding: "10px 12px",
-                borderRadius: 8,
-                background: settings.geminiKeyValidation.status === "invalid" ? "#fef2f2" : "var(--surface)",
-                color: settings.geminiKeyValidation.status === "invalid" ? "#b91c1c" : "var(--muted)",
-                fontSize: 12,
-                fontWeight: settings.geminiKeyValidation.status === "invalid" ? 600 : 400,
-              }}>
-                {verifying ? "Verifying access to Gemini 3.1 Flash-Lite…" : keyValidationMessage(settings.geminiKeyValidation)}
-              </div>
-              <div style={{ marginTop: 6, fontSize: 12, color: "var(--muted)" }}>
-                The key value is hidden after saving. Delete it before adding a replacement.
-              </div>
-            </div>
-          ) : (
-            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-              <input
-                type="text"
-                value={pendingKeyName}
-                onChange={(e) => setPendingKeyName(e.target.value)}
-                placeholder="Name this key (e.g. Personal AI Studio key)"
-                style={{ fontSize: 13 }}
-                autoComplete="off"
-              />
-              <input
-                type="password"
-                value={pendingKeyValue}
-                onChange={(e) => setPendingKeyValue(e.target.value)}
-                placeholder="Paste API key — you won't be able to view it after saving"
-                style={{ fontFamily: "monospace", fontSize: 13 }}
-                autoComplete="new-password"
-                spellCheck={false}
-              />
-              <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                You can delete it later, but you cannot view or edit it.
-              </div>
-              <div>
-                <button
-                  className="btn btn-primary"
-                  onClick={() => void saveApiKey()}
-                  disabled={!pendingKeyValue.trim()}
-                >
-                  Save key
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
       </>
@@ -351,32 +238,20 @@ export function DirectApiSection() {
       <div className="settings-group">
         <div className="settings-group-title"><Icon name="sliders" /> Behavior</div>
 
-        {/* Request count summary */}
-        {settings.useDirectApi && (
-          <div style={{ marginBottom: 12, fontSize: 12, color: "var(--muted)" }}>
-            <span style={{
-              display: "inline-block", background: "var(--border)",
-              borderRadius: "999px", padding: "2px 10px", fontWeight: 600, fontSize: 11,
-            }}>
-              1 Gemini request per video
-            </span>
-            {" "}&nbsp;Channel comparison is computed locally — no extra request.
-          </div>
-        )}
-
         <div className="setting-row">
           <div className="setting-info">
-            <div className="setting-label">Enabled by default</div>
+            <div className="setting-label" id="directapi-enabled-label">Summarize with the Gemini API</div>
             <div className="setting-sub">
-              When on, every summarize goes through the Gemini API directly — no tab opens,
-              regardless of which AI destination is selected. Replaces Alt+Shift+G for getting
-              the TL;DW widget. Turn off to fall back to the normal tab-based flow.
+              {hasKey
+                ? "On: the TL;DW button, auto-runs and the popup's inline action summarize right on the page, with no tab. The keyboard shortcut and right-click menu still open your chosen AI in a tab. Off: everything opens a tab."
+                : "Turns on by itself when you save a verified key in the Setup tab."}
             </div>
           </div>
           <div className="setting-control">
             <label className="toggle">
               <input
                 type="checkbox"
+                aria-labelledby="directapi-enabled-label"
                 checked={settings.useDirectApi}
                 onChange={(e) => void update({ useDirectApi: e.target.checked })}
                 disabled={!hasKey}
@@ -386,10 +261,40 @@ export function DirectApiSection() {
           </div>
         </div>
 
+        <div className="setting-row setting-row-stack">
+          <div className="setting-info">
+            <div className="setting-label" id="directapi-model-label">Model</div>
+            <div className="setting-sub">
+              Gemini 3.5 Flash-Lite suits most people. If it hits its limit, TL;DW switches to
+              3.1 Flash-Lite for you and says so once. Pick a larger model if you pay for the API
+              or want more depth: they cost more and have lower free-tier limits (
+              <a href={AI_STUDIO_LINKS.pricing} target="_blank" rel="noreferrer">pricing ↗</a>,{" "}
+              <a href={AI_STUDIO_LINKS.rateLimitDocs} target="_blank" rel="noreferrer">rate limits ↗</a>).
+            </div>
+          </div>
+          <div className="model-options" role="radiogroup" aria-labelledby="directapi-model-label">
+            {GEMINI_MODELS.map((m) => (
+              <label key={m.id} className={`model-option${resolveGeminiModelId(settings.geminiModelId) === m.id ? " active" : ""}`}>
+                <input
+                  type="radio"
+                  name="gemini-model"
+                  value={m.id}
+                  checked={resolveGeminiModelId(settings.geminiModelId) === m.id}
+                  onChange={() => void changeModel(m.id)}
+                />
+                <span>
+                  <span className="model-option-name">{m.label}</span>
+                  <span className="model-option-note">{m.note}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+
         {profiles.length > 0 && (
           <div className="setting-row">
             <div className="setting-info">
-              <div className="setting-label">Profile for auto-runs</div>
+              <div className="setting-label" id="directapi-profile-label">Profile for auto-runs</div>
               <div className="setting-sub">
                 Which prompt profile to use when Direct API fires automatically on page load.
                 Defaults to your global default profile if not set.
@@ -397,6 +302,7 @@ export function DirectApiSection() {
             </div>
             <div className="setting-control">
               <select
+                aria-labelledby="directapi-profile-label"
                 value={settings.directApiProfileId ?? ""}
                 onChange={(e) => void update({ directApiProfileId: e.target.value || undefined })}
                 disabled={!hasKey}
@@ -413,7 +319,7 @@ export function DirectApiSection() {
 
         <div className="setting-row">
           <div className="setting-info">
-            <div className="setting-label">Keep full prompt &amp; response in the call log</div>
+            <div className="setting-label" id="directapi-fulllog-label">Keep full prompt &amp; response in the call log</div>
             <div className="setting-sub">
               Off by default to save space — the call log stores only metadata (video + time),
               since the call count is tracked separately under Usage. Turn on if you want to
@@ -425,6 +331,7 @@ export function DirectApiSection() {
             <label className="toggle">
               <input
                 type="checkbox"
+                aria-labelledby="directapi-fulllog-label"
                 checked={settings.keepFullCallLog}
                 onChange={(e) => void update({ keepFullCallLog: e.target.checked })}
               />
@@ -444,41 +351,12 @@ export function DirectApiSection() {
         <div className="settings-group-title"><Icon name="eye" /> Usage</div>
 
         <div className="card" style={{ marginBottom: 0 }}>
-          {/* Free-tier quota bar */}
-          {(() => {
-            const pct = Math.min(100, (geminiUsage.attemptsToday / GEMINI_FREE_TIER_RPD) * 100);
-            const barColor = pct >= 85 ? "#dc2626" : pct >= 60 ? "#d97706" : "#16a34a";
-            return (
-              <div style={{ marginBottom: 18 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600 }}>
-                    TL;DW requests this Gemini quota day
-                  </span>
-                  <span style={{ fontSize: 12, color: "var(--muted)" }}>
-                    {geminiUsage.attemptsToday} / {GEMINI_FREE_TIER_RPD} attempts
-                  </span>
-                </div>
-                <div style={{ background: "var(--border)", borderRadius: 999, height: 7, overflow: "hidden" }}>
-                  <div style={{
-                    width: `${pct}%`, height: "100%",
-                    background: barColor, borderRadius: 999,
-                    transition: "width 0.4s ease",
-                  }} />
-                </div>
-                <div style={{ marginTop: 5, fontSize: 11, color: "var(--muted)" }}>
-                  Gemini 3.1 Flash-Lite free tier: {GEMINI_FREE_TIER_RPD} RPD as of {GEMINI_RECOMMENDATION_DATE} ·{" "}
-                  <a
-                    href={AI_STUDIO_LINKS.usage}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ color: "var(--muted)", textDecoration: "underline" }}
-                  >
-                    AI Studio usage ↗
-                  </a>
-                </div>
-              </div>
-            );
-          })()}
+          <div style={{ marginBottom: 18, fontSize: 13 }}>
+            <strong>{geminiUsage.attemptsToday}</strong> TL;DW request{geminiUsage.attemptsToday === 1 ? "" : "s"} this
+            Gemini quota day (it resets at midnight Pacific time). Your limits depend on the model and
+            your project:{" "}
+            <a href={AI_STUDIO_LINKS.rateLimits} target="_blank" rel="noreferrer">see them in AI Studio ↗</a>.
+          </div>
 
           {/* Always-visible all-time total */}
           <div style={{ display: "flex", gap: 32, flexWrap: "wrap", marginBottom: 16 }}>

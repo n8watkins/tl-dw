@@ -1,4 +1,5 @@
 import type {
+  ModelFallbackState,
   AutoRunChannel,
   CachedSummary,
   DeliveryStatus,
@@ -20,6 +21,7 @@ import {
   extractVideoId,
   GEMINI_CALL_LOG_KEY,
   GEMINI_USAGE_KEY,
+  MODEL_FALLBACK_KEY,
   OPEN_SEARCHES_KEY,
   PENDING_KEY,
   STORAGE_KEYS,
@@ -674,4 +676,13 @@ export async function getOpenSearches(): Promise<OpenSearch[]> {
     });
   }
   return pruned;
+}
+
+export async function getModelFallback(): Promise<ModelFallbackState> {
+  const r = await chrome.storage.local.get(MODEL_FALLBACK_KEY);
+  return (r[MODEL_FALLBACK_KEY] as ModelFallbackState | undefined) ?? {};
+}
+
+export async function setModelFallback(state: ModelFallbackState): Promise<void> {
+  await chrome.storage.local.set({ [MODEL_FALLBACK_KEY]: state });
 }

@@ -80,6 +80,10 @@ type PlayerInfo = {
   isLive: boolean;
   /** No caption tracks means YouTube has no transcript for this video. */
   hasCaptions: boolean;
+  /** YouTube's playability status: "OK" when the video plays. */
+  playability?: string;
+  /** Neither private nor unlisted: Gemini can watch it from the link. */
+  isPublic?: boolean;
 };
 
 /**
@@ -535,8 +539,28 @@ function isUnsummarizableLive(): boolean {
   return activelyLive() === true && !transcriptLikelyAvailable();
 }
 
+/**
+ * Whether YouTube shows "Video unavailable" (removed, private, blocked) or
+ * otherwise won't play this video here (age check, upcoming premiere): there
+ * is nothing to summarize, so TL;DW offers no button.
+ */
+function videoUnavailable(): boolean {
+  if (!pageShowsCurrentVideo()) return false;
+  const info = playerInfoForCurrentVideo();
+  if (info?.playability && info.playability !== "OK") return true;
+  if (document.querySelector("ytd-watch-flexy")?.hasAttribute("player-unavailable")) return true;
+  const error = document.querySelector<HTMLElement>("#error-screen yt-playability-error-supported-renderers");
+  return !!error && error.offsetParent !== null && !error.hidden && !!error.textContent?.trim();
+}
+
+/** Whether TL;DW has nothing to offer on this video: a live broadcast without a transcript, or an unavailable video. */
+function unsummarizable(): boolean {
+  return isUnsummarizableLive() || videoUnavailable();
+}
+
 /** Whether it is known for sure that this video can be summarized after all. */
 function knownSummarizable(): boolean {
+  if (videoUnavailable()) return false;
   const live = activelyLive();
   return live === false || (live === true && transcriptLikelyAvailable());
 }
@@ -559,7 +583,9 @@ function getCurrentVideoMeta(): VideoMeta {
   }
   const heading = document.querySelector("ytd-watch-metadata h1")?.textContent?.trim();
   const title = heading || cleanDocumentTitle(document.title) || undefined;
-  return { videoId, current: true, title, live: isUnsummarizableLive(), ...getVideoMeta() };
+  const info = playerInfoForCurrentVideo();
+  const watchable = info ? info.isPublic !== false && (info.playability ?? "OK") === "OK" : undefined;
+  return { videoId, current: true, title, live: isUnsummarizableLive(), watchable, ...getVideoMeta() };
 }
 
 /**
@@ -780,7 +806,16 @@ function promoteVideoTags(vid: string, channelKey: string, tagIds: string[]): Pr
 
 // --- TL;DW summary panel -------------------------------------------------
 
-type TldwSummary = { summary: string; details?: string; source?: string; sourceKind?: SummarySourceKind };
+type TldwSummary = {
+  summary: string;
+  details?: string;
+  /** How it was made, shown next to the title ("Watched by Gemini (no transcript)"). */
+  label?: string;
+  /** A one-off line shown under the summary (the model fallback notice). */
+  note?: string;
+  source?: string;
+  sourceKind?: SummarySourceKind;
+};
 
 /** A panel that may carry a teardown fn (e.g. removing a document listener),
  *  invoked by removeSummaryPanel so we don't leak listeners across rebuilds. */
@@ -795,7 +830,7 @@ let summaryPanel: HTMLElement | null = null;
 // Note: the in-flight ("analyzing") state is NOT a panel kind — there is no
 // skeleton panel. The inline TL;DW button is the sole loading indicator; the
 // `runInFlight` flag below tracks that state.
-let summaryPanelKind: "summary" | "idle" | null = null;
+let summaryPanelKind: "summary" | "idle" | "progress" | "notice" | null = null;
 
 // True while a summary run is in flight (request sent, no SET_SUMMARY /
 // SET_SUMMARY_ERROR / timeout yet). The inline TL;DW button shows the
@@ -814,7 +849,7 @@ let loadingTimeoutTimer: number | undefined;
 // How long to wait for a result before showing the retry panel. Tab-mode
 // scrapes (open destination, wait for generation, scrape) can be slow, so this
 // is generous; a real result that arrives later still replaces the panel.
-const LOADING_TIMEOUT_MS = 90_000;
+const LOADING_TIMEOUT_MS = 180_000;
 
 function clearLoadingTimeout(): void {
   if (loadingTimeoutTimer !== undefined) {
@@ -831,6 +866,9 @@ function clearLoadingTimeout(): void {
 function endRunInFlight(): void {
   runInFlight = false;
   clearLoadingTimeout();
+  // The progress panel describes the run that just ended: drop it. A notice
+  // (how the video was sent) stays until the summary replaces it.
+  if (summaryPanelKind === "progress") removeSummaryPanel();
 }
 
 function removeSummaryPanel(): void {
@@ -971,7 +1009,10 @@ function ensureWatchButton(): void {
     e.stopPropagation();
     if (!extensionContextAlive()) { tearDownOrphanedScript(); return; }
     // A panel already up (cached / summary): jump to it, don't re-run.
-    if (summaryPanel) { summaryPanel.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+    if (summaryPanel && summaryPanelKind !== "notice") {
+      summaryPanel.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     // Already analyzing (loading lives in the button now): a second click must
     // not kick a duplicate run.
     if (runInFlight) return;
@@ -1403,6 +1444,8 @@ function startRunInFlight(): void {
   // remount derives "analyzing" from runInFlight.
   ensureWatchButton();
   setWatchButtonState("analyzing");
+  // Say what is happening; the worker's SET_RUN_PROGRESS messages update it.
+  showProgress("Reading the transcript…");
   log("run in flight (inline button shows Analyzing…)");
 
   // Don't let the run spin forever. After a grace period, surface a retry panel —
@@ -1417,12 +1460,110 @@ function startRunInFlight(): void {
   }, LOADING_TIMEOUT_MS);
 }
 
+/** What the error panel can offer besides its message. */
+type ErrorPanelOptions = {
+  noTranscript?: boolean;
+  /** The Gemini error category, which picks the panel's main action. */
+  category?: string;
+  /** The page must choose how to send a video the chosen site can't take. */
+  choice?: "long" | "no-transcript";
+  /** That site's name and id (for "send the first part only"). */
+  site?: string;
+  destinationId?: string;
+  /** Whether a Gemini key is set up and on, so "Add a free key" isn't offered. */
+  hasKey?: boolean;
+};
+
+type PanelAction = { label: string; title?: string; primary?: boolean; onClick: () => void };
+
+/** A pill button for a panel action: filled blue when primary, outlined otherwise. */
+function actionButton(t: ReturnType<typeof theme>, action: PanelAction): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = action.label;
+  if (action.title) b.title = action.title;
+  Object.assign(b.style, {
+    fontSize: "13px", fontWeight: "600",
+    padding: "0 14px", borderRadius: "999px",
+    background: action.primary ? "#1a73e8" : "transparent",
+    color: action.primary ? "#fff" : t.text,
+    border: action.primary ? "none" : `1px solid ${t.border}`,
+    cursor: "pointer", whiteSpace: "nowrap", maxWidth: "100%",
+    overflow: "hidden", textOverflow: "ellipsis",
+    ...pillGeom,
+  });
+  b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    action.onClick();
+  });
+  return b;
+}
+
+/** Start a page run that sends this video another way (Gemini tab, the API, the first part only). */
+function sendInstead(ask: { destinationId?: string; source: "page" | "page-tab"; allowTruncate?: boolean }): void {
+  const vid = currentVideoId();
+  if (!vid) return;
+  startRunInFlight();
+  void chrome.runtime.sendMessage({ type: "ASK", ...ask }).then(
+    (reply: unknown) => handleAskReply(vid, reply),
+    () => { /* best effort */ },
+  );
+}
+
+const openKeySetup = () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" });
+
+/** The buttons an error or choice panel offers, most useful first. */
+function errorPanelActions(opts: ErrorPanelOptions): PanelAction[] {
+  const retry: PanelAction = {
+    label: "↻ Try again",
+    onClick: () => { if (currentSummarizeAction) void currentSummarizeAction(); },
+  };
+  const geminiTab: PanelAction = {
+    label: "Send to Gemini instead (it watches the link)",
+    title: "Open Gemini in a background tab with this video's link; TL;DW shows its answer here",
+    primary: true,
+    onClick: () => sendInstead({ destinationId: "gemini", source: "page-tab" }),
+  };
+  const keyAction: PanelAction = opts.hasKey
+    ? {
+        label: "Summarize here with the Gemini API",
+        onClick: () => sendInstead({ source: "page" }),
+      }
+    : {
+        label: "Add a free key",
+        title: "Set up a free Gemini API key (about 2 minutes) to summarize any video right here",
+        onClick: openKeySetup,
+      };
+  if (opts.choice === "long") {
+    return [
+      geminiTab,
+      keyAction,
+      {
+        label: "Send the first part only (truncated)",
+        title: `Send ${opts.site ?? "the site"} as much of the transcript as fits; the rest is left out`,
+        onClick: () => sendInstead({ destinationId: opts.destinationId, source: "page-tab", allowTruncate: true }),
+      },
+    ];
+  }
+  if (opts.choice === "no-transcript") return [geminiTab, keyAction];
+  if (opts.category === "unauthorized") {
+    return [{ label: "Replace key in TL;DW settings", primary: true, onClick: openKeySetup }, retry];
+  }
+  if (opts.category === "quota_limited") {
+    return [{ ...geminiTab, label: "Send to Gemini in a tab instead" }, retry];
+  }
+  if (opts.category === "model_unavailable") {
+    return [{ label: "Choose another model", primary: true, onClick: openKeySetup }, retry];
+  }
+  if (opts.noTranscript) return [];
+  return [{ ...retry, primary: true }];
+}
+
 /**
- * Shown when a loading panel times out — the API call or the tab-mode scrape
- * never returned a usable summary. Offers a one-click retry and explains the
- * tab-mode caveat so the user isn't left staring at a dead skeleton.
+ * Shown when a run fails or needs a decision: the reason, and the actions that
+ * fix it (replace the key, send to a Gemini tab, add a key, retry).
  */
-function showSummaryErrorPanel(reason?: string, actionUrl?: string, opts: { noTranscript?: boolean } = {}): void {
+function showSummaryErrorPanel(reason?: string, actionUrl?: string, opts: ErrorPanelOptions = {}): void {
   const host = panelHost();
   if (!host) return;
   removeSummaryPanel();
@@ -1430,61 +1571,100 @@ function showSummaryErrorPanel(reason?: string, actionUrl?: string, opts: { noTr
   const t = theme();
   const panel = document.createElement("div");
   panel.id = "tldw-summary";
-  Object.assign(panel.style, {
-    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
-    padding: "10px 14px", marginTop: "12px", marginBottom: "16px",
-    font: "14px/1.4 Roboto, system-ui, sans-serif",
-  });
+  panel.setAttribute("role", "status");
+  Object.assign(panel.style, panelBoxStyle(t));
 
-  const retryBtn = document.createElement("button");
-  retryBtn.textContent = "↻ Try again";
-  Object.assign(retryBtn.style, {
-    fontSize: "13px", fontWeight: "700", letterSpacing: "0.03em",
-    padding: "0 14px", borderRadius: "999px",
-    background: "#1a73e8", color: "#fff",
-    border: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0",
-    ...pillGeom,
-  });
-  retryBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (currentSummarizeAction) void currentSummarizeAction();
-  });
-
-  const head = buildPanelHead(t, [], currentChannelInfo, false, true, [retryBtn]);
+  const head = buildPanelHead(t, [], currentChannelInfo, false, true);
   Object.assign(head.style, { marginBottom: "8px" });
 
   const msg = document.createElement("div");
-  // Prefer a specific reason from the Direct-API path (e.g. "quota exceeded",
-  // "input too long"); fall back to the generic tab-flow timeout copy.
-  // No transcript is not a failed request: say so plainly, with no prefix.
-  msg.textContent = reason && opts.noTranscript
+  // A specific reason from the worker (an API error, no transcript, a choice);
+  // without one, the run timed out.
+  msg.textContent = reason && (opts.noTranscript || opts.choice)
     ? reason
     : reason
     ? `Couldn't get the summary: ${reason}`
     : "Couldn't get the summary back in time. If you're using the tab flow (no API key), " +
-      "the destination tab may still be working or may need a sign-in — check it, then retry.";
+      "the destination tab may still be working or may need a sign-in: check it, then retry.";
   Object.assign(msg.style, { fontSize: "13px", lineHeight: "1.5", color: t.sub });
-
   panel.append(head, msg);
-  if (actionUrl) {
-    const action = document.createElement("a");
-    action.href = actionUrl;
-    action.target = "_blank";
-    action.rel = "noreferrer";
-    action.textContent = "Open Google AI Studio ↗";
-    Object.assign(action.style, {
-      display: "inline-block",
-      marginTop: "8px",
-      color: "#1a73e8",
-      fontWeight: "600",
-      fontSize: "12px",
-    });
-    panel.append(action);
+
+  const actions = errorPanelActions(opts);
+  if (actions.length || actionUrl) {
+    const row = document.createElement("div");
+    Object.assign(row.style, { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", marginTop: "10px" });
+    for (const action of actions) row.append(actionButton(t, action));
+    if (actionUrl) {
+      const link = document.createElement("a");
+      link.href = actionUrl;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = "Open Google AI Studio ↗";
+      Object.assign(link.style, { color: "#3ea6ff", fontWeight: "600", fontSize: "12px" });
+      if (!document.documentElement.hasAttribute("dark")) link.style.color = "#065fd4";
+      row.append(link);
+    }
+    panel.append(row);
   }
   summaryPanel = panel;
   summaryPanelKind = "idle";
   host.prepend(panel);
   log("summary error panel shown:", reason ?? "loading timed out");
+  refreshSponsorPanel();
+}
+
+/** The box every TL;DW panel shares. */
+function panelBoxStyle(t: ReturnType<typeof theme>): Partial<CSSStyleDeclaration> {
+  return {
+    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
+    padding: "10px 14px", marginTop: "12px", marginBottom: "16px",
+    font: "14px/1.4 Roboto, system-ui, sans-serif", color: t.text,
+    boxSizing: "border-box", maxWidth: "100%", overflowWrap: "anywhere",
+  };
+}
+
+/**
+ * While a run is in flight: what TL;DW is doing right now ("Reading the
+ * transcript…", "Asking Gemini…") and, when there is one, a notice about how
+ * the video is being sent. Without a run in flight (a send from the popup or
+ * the shortcut), only a notice is shown, in a panel the user can close.
+ */
+function showProgress(step: string | undefined, notice?: string): void {
+  const host = panelHost();
+  if (!host) return;
+  const kind = runInFlight ? "progress" : "notice";
+  if (!runInFlight && !notice) return;
+  const t = theme();
+  let panel = summaryPanel;
+  if (!panel || (summaryPanelKind !== "progress" && summaryPanelKind !== "notice")) {
+    removeSummaryPanel();
+    panel = document.createElement("div");
+    panel.id = "tldw-summary";
+    Object.assign(panel.style, panelBoxStyle(t));
+    const head = buildPanelHead(t, [], currentChannelInfo, false, true);
+    Object.assign(head.style, { marginBottom: "6px" });
+    const stepEl = document.createElement("div");
+    stepEl.dataset.tldwStep = "1";
+    stepEl.setAttribute("role", "status");
+    stepEl.setAttribute("aria-live", "polite");
+    Object.assign(stepEl.style, { fontSize: "13px", lineHeight: "1.5", color: t.sub, animation: "tldw-shimmer 1.4s infinite" });
+    const noticeEl = document.createElement("div");
+    noticeEl.dataset.tldwNotice = "1";
+    Object.assign(noticeEl.style, { fontSize: "13px", lineHeight: "1.5", color: t.text, marginTop: "6px" });
+    panel.append(head, stepEl, noticeEl);
+    summaryPanel = panel;
+    host.prepend(panel);
+    if (runInFlight) setWatchButtonState("analyzing");
+  }
+  summaryPanelKind = kind;
+  const stepEl = panel.querySelector<HTMLElement>("[data-tldw-step]");
+  if (stepEl) {
+    stepEl.textContent = kind === "progress" ? step ?? "" : "";
+    stepEl.style.display = kind === "progress" && step ? "" : "none";
+  }
+  const noticeEl = panel.querySelector<HTMLElement>("[data-tldw-notice]");
+  if (noticeEl && notice !== undefined) noticeEl.textContent = notice;
+  if (noticeEl) noticeEl.style.display = noticeEl.textContent ? "" : "none";
   refreshSponsorPanel();
 }
 
@@ -1931,7 +2111,18 @@ function buildSummaryPanel(
 
   // --- header: "⋯" overflow menu (F1) ---
   // The panel is summary-only: no AI verdict pill and no engagement/rating cue.
+  // A label says how the summary was made when it wasn't from the transcript.
   const headerControls: HTMLElement[] = [];
+  if (tldw.label) {
+    const label = document.createElement("span");
+    label.dataset.tldwLabel = "1";
+    label.textContent = tldw.label;
+    Object.assign(label.style, {
+      fontSize: "12px", fontWeight: "600", color: t.sub, background: t.hover,
+      borderRadius: "999px", padding: "3px 10px", whiteSpace: "nowrap",
+    });
+    headerControls.push(label);
+  }
 
   // F1: collapse the secondary actions (Open tab / Clear cache / source badge)
   // into a right-aligned "⋯" popover. The Auto-summarize toggle (added by
@@ -2033,7 +2224,16 @@ function buildSummaryPanel(
 
   // The panel is summary-only: summary text + tags row + the "⋯" menu. No
   // engagement cue and no AI verdict pill.
-  panel.append(head, body, tagsRow);
+  panel.append(head, body);
+  if (tldw.note) {
+    const note = document.createElement("div");
+    note.dataset.tldwNote = "1";
+    note.setAttribute("role", "note");
+    note.textContent = tldw.note;
+    Object.assign(note.style, { fontSize: "12px", lineHeight: "1.5", color: t.sub, marginTop: "8px" });
+    panel.append(note);
+  }
+  panel.append(tagsRow);
   return panel;
 }
 
@@ -2222,10 +2422,17 @@ function sendAutoAsk(vid: string): boolean {
  * the reason, instead of leaving the button on "Analyzing..." until the timeout.
  */
 function handleAskReply(vid: string, reply: unknown): void {
-  const res = reply as { ok?: boolean; error?: string; actionUrl?: string; noTranscript?: boolean } | undefined;
+  const res = reply as ({ ok?: boolean; error?: string; actionUrl?: string } & ErrorPanelOptions) | undefined;
   if (res?.ok !== false || currentVideoId() !== vid || !runInFlight) return;
   endRunInFlight();
-  showSummaryErrorPanel(res.error, res.actionUrl, { noTranscript: res.noTranscript });
+  showSummaryErrorPanel(res.error, res.actionUrl, {
+    noTranscript: res.noTranscript,
+    category: res.category,
+    choice: res.choice,
+    site: res.site,
+    destinationId: res.destinationId,
+    hasKey: res.hasKey,
+  });
 }
 
 /**
@@ -2254,7 +2461,7 @@ async function maybeStartDirectApiRun(
   // In-progress live streams have no transcript to summarize — don't offer the
   // summary UI (no panel, no inline button). A finished/recorded live stream has
   // a transcript, so it's fine.
-  if (isUnsummarizableLive()) {
+  if (unsummarizable()) {
     watchButtonAllowed = false;
     removeWatchButton();
     removeSummaryPanel();
@@ -2470,8 +2677,8 @@ function tearDownOrphanedScript(): void {
 function refreshLiveGate(): void {
   if (!pageShowsCurrentVideo()) return;
   if (watchButtonAllowed) {
-    if (!isUnsummarizableLive()) return;
-    log("live stream with no transcript: hiding TL;DW");
+    if (!unsummarizable()) return;
+    log("live stream with no transcript, or video unavailable: hiding TL;DW");
     watchButtonAllowed = false;
     removeWatchButton();
     removeSummaryPanel();
@@ -2561,7 +2768,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   if (type === "SET_SUMMARY") {
-    const msg = message as { tldw?: TldwSummary; source?: string; sourceKind?: SummarySourceKind; videoId?: string };
+    const msg = message as { tldw?: TldwSummary; source?: string; sourceKind?: SummarySourceKind; videoId?: string; note?: string };
     const tldw = msg?.tldw;
     if (tldw?.summary) {
       const cur = currentVideoId();
@@ -2582,8 +2789,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       // run IS done and the summary is cached below; leaving runInFlight set would
       // strand the button on "Analyzing…" and fire a bogus 90s timeout error.
       endRunInFlight();
-      showSummaryPanel({ ...tldw, source: msg.source, sourceKind: msg.sourceKind }, vid);
+      showSummaryPanel({ ...tldw, source: msg.source, sourceKind: msg.sourceKind, note: msg.note }, vid);
     }
+    sendResponse({ ok: true });
+    return false;
+  }
+  if (type === "SET_RUN_PROGRESS") {
+    const msg = message as { videoId?: string; step?: string; notice?: string };
+    if (!msg.videoId || msg.videoId === currentVideoId()) showProgress(msg.step, msg.notice);
     sendResponse({ ok: true });
     return false;
   }
@@ -2595,11 +2808,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // button now; `runInFlight`, not a panel kind, is the gate.)
     // "No transcript" is shown for any send (popup, shortcut, menu), not only
     // for a run the page started: otherwise nothing would say why no summary came.
-    const msg = message as { videoId?: string; reason?: string; actionUrl?: string; noTranscript?: boolean };
+    // A decision the page must make (a transcript too long for the site, or
+    // none) is likewise shown for any send.
+    const msg = message as { videoId?: string; reason?: string; actionUrl?: string; decision?: boolean } & ErrorPanelOptions;
     if (!msg.videoId || msg.videoId === currentVideoId()) {
-      if (runInFlight || msg.noTranscript) {
+      if (runInFlight || msg.noTranscript || msg.decision) {
         endRunInFlight();
-        showSummaryErrorPanel(msg.reason, msg.actionUrl, { noTranscript: msg.noTranscript });
+        showSummaryErrorPanel(msg.reason, msg.actionUrl, {
+          noTranscript: msg.noTranscript,
+          category: msg.category,
+          choice: msg.choice,
+          site: msg.site,
+          destinationId: msg.destinationId,
+          hasKey: msg.hasKey,
+        });
       }
     }
     sendResponse({ ok: true });
