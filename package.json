@@ -21,7 +21,8 @@
     "validate:package": "node scripts/validate-package.mjs",
     "assets:store": "node scripts/capture-store-assets.mjs",
     "release": "release-kit release",
-    "release:check": "release-kit check && npm run lint && npm run typecheck && npm test && vite build"
+    "release:check": "release-kit check && npm run lint && npm run typecheck && npm test && vite build",
+    "smoke:gemini": "node scripts/smoke-gemini.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.3",

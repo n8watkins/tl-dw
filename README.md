@@ -32,21 +32,20 @@ See [PRIVACY.md](PRIVACY.md) for the complete policy.
 
 ## Development
 
-Node 20.19 or newer is required.
+Node 24 is recommended (`.nvmrc`); Node 20.19 or newer builds.
+No API key is needed to build or test.
 
 ```bash
-npm install
-npm run typecheck
-npm test
-npx vite build
+npm install                        # npm 12+: npm install --allow-git=all
+npx playwright install chromium    # once, for the browser tests
+npm run typecheck && npm run lint && npm test && npm run test:e2e
+npx vite build                     # production build into dist/
 ```
 
-`npm run build` is the development release helper and increments the patch version before building and copying to the configured Windows extension directory.
-Use `npx vite build` when a non-bumping production build is required.
-
-Load the unpacked extension from `dist/` or from the copied Windows directory through `chrome://extensions`.
+Load the unpacked extension from `dist/` (the folder holding `manifest.json`) through `chrome://extensions` with Developer mode on.
 `npm run test:e2e` builds its own test build (with a short Gemini timeout) into `dist-e2e/`, so it never replaces the production build in `dist/`.
-The default command is `Alt+Shift+G` and can be confirmed at `chrome://extensions/shortcuts`.
+`npm run build` is the maintainer's release helper: it bumps the patch version, builds, and copies `dist/` to `TLDW_COPY_DIR` only when that variable is set.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 ## Store package
 
