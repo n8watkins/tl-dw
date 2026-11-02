@@ -231,3 +231,11 @@ export function isYouTubeShortUrl(url: string | undefined): boolean {
     return false;
   }
 }
+
+/**
+ * Shown instead of a summary when TL;DW couldn't read the video's transcript.
+ * It never sends a prompt that could only be answered from the title.
+ */
+export const NO_TRANSCRIPT_MESSAGE =
+  "No transcript available for this video, so TL;DW didn't summarize it: a summary from the title alone would be guesswork. " +
+  "YouTube may have no captions for it, or couldn't load them just now.";

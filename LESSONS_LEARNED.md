@@ -153,6 +153,24 @@ lifetime stats.
   before an `await`ed `sendMessage`, **claim it before the await** and restore on
   failure, or an overlapping flush double-counts the same seconds.
 
+## 14. Find YouTube's panels by what they show, not by their id
+
+`closeTranscriptPanel()` looked up the transcript panel by `target-id="engagement-panel-searchable-transcript"`.
+In late 2026 YouTube kept that panel in the page but hidden, and "Show transcript" expanded `PAmodern_transcript_view`, or the "In this video" panel, which has no target-id.
+TL;DW clicked the hidden panel's close button and left the real one open over the recommendations after every send.
+
+- Identify an engagement panel by what it holds (transcript segments) or a loose match (`/transcript/i` on the target-id), never one exact id.
+- To undo something you opened, remember what was open before your click and close only what changed (`closePanelOpenedSince()` in `src/content/youtube.ts`).
+  That also leaves a panel the user opened alone.
+
+## 15. Playwright pages always have focus
+
+Playwright turns on focus emulation for every page, so `document.hasFocus()` is true even in a background tab, and `navigator.clipboard.writeText()` never fails with "Document is not focused" in a test.
+In real Chrome it fails in exactly the place TL;DW copies from: a destination tab opened in the background.
+
+- To test background-tab behavior, send `Emulation.setFocusEmulationEnabled { enabled: false }` on the page's CDP session.
+- Check the test catches the bug by breaking the fix on purpose (the "background tab" cut-short test fails without the `execCommand("copy")` fallback in `copyText()`, `src/content/inject.ts`).
+
 ---
 
 ### How to add to this file

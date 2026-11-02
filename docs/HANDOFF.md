@@ -25,24 +25,31 @@ It is not live anywhere yet: the 1.0.0 Unlisted Chrome Web Store submission is p
    On 2026-11-02, with TL;DW loaded alone in Playwright Chromium against live YouTube, the comments panel followed each Short across three scrolls, both before and after that change.
    In TubeVault the main suspect is its Shorts button, which inserts a React root into YouTube's recycled `reel-action-bar-view-model` (see TubeVault's `docs/HANDOFF.md`).
    Next: reproduce with TubeVault alone, fix it there, and add a Playwright regression test that scrolls between Shorts and asserts the comments panel follows the active Short.
-2. **Local `npm ci` fails on npm 12.**
+2. **Some captioned videos give TL;DW no transcript (HIGH, partly outside TL;DW).**
+   On 2026-11-02, in Playwright Chromium (headless and headed, signed out), 3Blue1Brown's `aircAruvnKk` and `IHZwWFHWa-w` (both with chapters) opened YouTube's legacy transcript panel, whose `get_transcript` request YouTube answered with 400 FAILED_PRECONDITION; YouTube's own panel stayed empty.
+   Videos without chapters (e.g. `dQw4w9WgXcQ`) use the modern `get_panel` path, which works.
+   The caption track URLs carry `exp=xpe` and return empty bodies without a PO token, so they are no fallback either.
+   Since v1.0.3, TL;DW stops waiting as soon as that request fails and shows "No transcript available for this video" instead of summarizing the title (the Gemini web app still gets the link, since it watches the video).
+   Next: check the same videos in the owner's signed-in Chrome; if they work there, the failure is specific to signed-out automation.
+   A possible follow-up is sending the YouTube URL to the Gemini API as a fallback.
+3. **Local `npm ci` fails on npm 12.**
    npm 12 defaults `allow-git` to `none`, and release-kit is a `github:` dev dependency, so `npm ci` stops with `EALLOWGIT` and leaves `node_modules` empty.
    Use `npm ci --allow-git=all` locally until the dependency source changes; CI's `npm ci` still succeeds (its runner uses an older npm).
-3. **No local commit-msg hook.**
+4. **No local commit-msg hook.**
    `RELEASING.md` says a `commit-msg` hook checks commit messages, but the repo has no `.githooks/` and no `prepare` script.
    When release-kit was applied, the local `core.hooksPath` still pointed at a deleted folder (`~/personal/tools/extensions/tldw/.git/hooks`), so release-kit treated it as another hook manager and skipped installing its hook.
    That stale local setting was removed on 2026-10-27; re-run release-kit's apply step (or add `.githooks/commit-msg` and the `prepare` script it writes) to get the hook.
    The Commit messages CI check still enforces the format on every push.
 
-4. **Dev-only `minimatch` advisory (low).**
+5. **Dev-only `minimatch` advisory (low).**
    Since 2026-11-02, `npm audit` reports GHSA-g3hv-75wg-m249 (moderate, `minimatch` below 11.0.1) through eslint, `@eslint/*`, `eslint-plugin-react` and `typescript-eslint`.
    Nothing compatible fixes it yet: those packages call minimatch 3's function export, which minimatch 11 dropped, so an override would break lint.
    The Quality gate now fails on any advisory in production dependencies (`npm audit --omit=dev`) and on high or critical ones across the whole tree (`npm audit --audit-level=high`).
    Go back to a plain `npm audit` once eslint ships on minimatch 11.
 
-5. **CI runs on Node 20 (low).**
+6. **CI runs on Node 20 (low).**
    `.github/workflows` pins Node 20.19.0, which has been end-of-life since April 2026 and no longer gets security fixes.
-   Move CI (and `engines`) to Node 24; this also brings an npm that may need `--allow-git` for release-kit (open problem 2).
+   Move CI (and `engines`) to Node 24; this also brings an npm that may need `--allow-git` for release-kit (open problem 3).
 
 ### Blocked on the owner
 
@@ -56,9 +63,9 @@ It is not live anywhere yet: the 1.0.0 Unlisted Chrome Web Store submission is p
 
 1. Confirm the Shorts comments bug is TubeVault's (open problem 1) and fix it there, with a regression test.
 2. Switch the Direct API model to `gemini-3.5-flash-lite` and update the disclosures, then repeat the real-key smoke test with the owner's new key.
-3. Restore the local commit-msg hook via release-kit (open problem 3).
+3. Restore the local commit-msg hook via release-kit (open problem 4).
 4. Rebuild and revalidate the store ZIP with `npx vite build`, `npm run package` and `npm run validate:package` (never `npm run build`, which bumps the version), then hand the upload to the owner.
-5. Move CI to Node 24 (open problem 5).
+5. Move CI to Node 24 (open problem 6).
 
 ## Objective
 

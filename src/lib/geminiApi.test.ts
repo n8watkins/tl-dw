@@ -15,6 +15,22 @@ describe("Gemini API errors", () => {
     expect(geminiErrorForStatus(status).category).toBe(category);
   });
 
+  it("treats Google's 400 for an invalid key as a key problem, with the AI Studio link", async () => {
+    // What generateContent answers for a key that doesn't exist (2026-11-02).
+    const fetcher = async () => new Response(JSON.stringify({
+      error: {
+        code: 400,
+        message: "API key not valid. Please pass a valid API key.",
+        status: "INVALID_ARGUMENT",
+        details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "API_KEY_INVALID", domain: "googleapis.com" }],
+      },
+    }), { status: 400 });
+    const error = await callGeminiApi("prompt", "bad-key", { fetcher: fetcher as typeof fetch }).catch((e) => e);
+    expect(error).toMatchObject({ category: "unauthorized", httpStatus: 400 });
+    expect(error.actionUrl).toBeTruthy();
+    expect(error.message).not.toContain("shorter transcript");
+  });
+
   it("does not expose a key or unsafe response content", () => {
     const error = geminiErrorForStatus(403, "prompt: private transcript", "secret-key");
     expect(error.message).not.toContain("private transcript");

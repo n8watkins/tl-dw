@@ -13,10 +13,12 @@ import {
   isYouTubeShortUrl,
   isYouTubeVideoUrl,
   localDateKey,
+  NO_TRANSCRIPT_MESSAGE,
   STORAGE_KEYS,
 } from "../lib/constants";
 import { cacheContextForScrape, findOpenSearchForVideo } from "../lib/openSearchMatch";
 import { cachedSourceLabel } from "../lib/summarySource";
+import { fillFailureMessage } from "../lib/fillFailure";
 import { addHistoryEntry, expireOldEntries, trimToLimit } from "../lib/history";
 import {
   addOpenSearch,
@@ -204,7 +206,9 @@ async function getTranscriptFromTab(
 }
 
 /** How a summary run ended, for the ASK reply: a refusal or failure carries the reason. */
-type RunOutcome = { ok: true } | { ok: false; error: string };
+/** A failure can carry a link to where the user can fix it (AI Studio). */
+/** `noTranscript` marks the refusal to summarize a video whose transcript couldn't be read. */
+type RunOutcome = { ok: true } | { ok: false; error: string; actionUrl?: string; noTranscript?: true };
 
 // Runs between "send" and the hand-off; while any is preparing (reading the
 // page, fetching the transcript) the toolbar badge shows a grey "…".
@@ -412,12 +416,26 @@ async function prepareAndSend(
   // so the structured TL;DW block often never comes back. Including the
   // transcript makes the tab flow as reliable as the headless path.
   let transcript: string | null = null;
-  if (
-    destination.payload !== "link" &&
-    !isThumbnail &&
-    activeTab?.id !== undefined
-  ) {
-    transcript = await getTranscriptFromTab(activeTab.id, extractVideoId(url));
+  const transcriptTabId = destination.payload !== "link" && !isThumbnail ? activeTab?.id : undefined;
+  const readsTranscript = transcriptTabId !== undefined;
+  if (transcriptTabId !== undefined) {
+    transcript = await getTranscriptFromTab(transcriptTabId, extractVideoId(url));
+  }
+  // Without the transcript, the Gemini API and the chat sites that can't watch
+  // YouTube would summarize the title and nothing else, and present a guess as
+  // the video's content. Say there's no transcript instead. (The Gemini web app
+  // watches the URL, so it still gets the link.)
+  if (readsTranscript && !transcript && isPromptDest && (willUseDirectApi || !destination.canWatch)) {
+    await flashBadge("N/A", "muted");
+    // Say it on the page too: a send from the popup, the shortcut or the menu
+    // has no run on the page waiting for this reply.
+    void chrome.tabs.sendMessage(transcriptTabId, {
+      type: "SET_SUMMARY_ERROR",
+      videoId: extractVideoId(url) ?? undefined,
+      reason: NO_TRANSCRIPT_MESSAGE,
+      noTranscript: true,
+    }).catch(() => {});
+    return { ok: false, error: NO_TRANSCRIPT_MESSAGE, noTranscript: true };
   }
 
   // Video metadata (read once above) feeds channel-tracking stats, the
@@ -564,7 +582,9 @@ async function prepareAndSend(
           })
           .catch(() => {});
       }
-      return { ok: false, error: reason };
+      // The reply carries the link too: whichever of the two reaches the page
+      // first ends the run, and the error panel must keep its link either way.
+      return { ok: false, error: reason, actionUrl: apiError.actionUrl };
     }
     return { ok: true };
   }
@@ -722,11 +742,12 @@ chrome.runtime.onMessage.addListener(
           const search = (await getOpenSearches()).find((s) => s.tabId === destTabId);
           if (search?.sourceTabId === undefined) return;
           const videoId = search.videoUrl ? extractVideoId(search.videoUrl) ?? undefined : undefined;
-          const site = message.site;
-          const reason = message.keptPercent !== undefined
-            ? `${site} took only about ${message.keptPercent}% of the prompt (it was too long), ` +
-              `so nothing was sent. The ${site} tab has the full prompt ready to paste.`
-            : `TL;DW couldn't fill the ${site} tab (${message.reason ?? "unknown problem"}).`;
+          const reason = fillFailureMessage({
+            site: message.site,
+            reason: message.reason,
+            keptPercent: message.keptPercent,
+            copied: message.copied,
+          });
           await chrome.tabs.sendMessage(search.sourceTabId, { type: "SET_SUMMARY_ERROR", videoId, reason });
         })().catch(() => {});
       }

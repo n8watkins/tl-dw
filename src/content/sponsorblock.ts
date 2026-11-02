@@ -47,6 +47,41 @@ function videoIdFromUrl(): string {
   }
 }
 
+/**
+ * The video the main player holds, read through youtube-intercept.ts's
+ * player-info bridge (the player API lives in the page's world), or null when
+ * that can't be read.
+ */
+function playerVideoId(): string | null {
+  let videoId: string | null = null;
+  const onReply = (event: Event) => {
+    try {
+      const info = JSON.parse(String((event as CustomEvent).detail)) as { videoId?: unknown } | null;
+      videoId = typeof info?.videoId === "string" ? info.videoId : null;
+    } catch {
+      videoId = null;
+    }
+  };
+  document.addEventListener("tldw:player-info", onReply);
+  try {
+    document.dispatchEvent(new CustomEvent("tldw:player-info-request"));
+  } finally {
+    document.removeEventListener("tldw:player-info", onReply);
+  }
+  return videoId;
+}
+
+/**
+ * Off a watch page, whether the player still plays the video whose segments
+ * we hold: browsing with it in the miniplayer keeps skipping, but a Short has a
+ * player of its own, and a miniplayer that moved on is another video.
+ */
+function stillPlayingHandledVideo(): boolean {
+  if (location.pathname.startsWith("/shorts")) return false;
+  const playing = playerVideoId();
+  return playing === null || playing === lastHandledVid;
+}
+
 async function loadEnabled(): Promise<boolean> {
   const r = await chrome.storage.local.get("settings");
   const s = r["settings"] as { skipSponsors?: boolean } | undefined;
@@ -213,9 +248,10 @@ async function handleNav(): Promise<void> {
   }
   const vid = videoIdFromUrl();
   if (!vid) {
-    // Left the watch page (a Short, the home feed...): never seek another
-    // player with the last video's sponsor segments.
-    if (lastHandledVid) {
+    // Left the watch page. With the video in the miniplayer, keep skipping;
+    // on a Short, or once the player holds another video, never seek it with
+    // the last video's sponsor segments.
+    if (lastHandledVid && !stillPlayingHandledVideo()) {
       lastHandledVid = "";
       currentVid = "";
       detach();

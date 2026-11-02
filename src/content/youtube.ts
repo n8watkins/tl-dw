@@ -83,14 +83,11 @@ type PlayerInfo = {
 };
 
 /**
- * YouTube's player response for the video in the URL, read through
- * youtube-intercept.ts (the player API lives in the page's world). Null when
- * the bridge or the player isn't there, or the player still holds another
- * video (right after an in-page navigation).
+ * YouTube's player response, read through youtube-intercept.ts (the player API
+ * lives in the page's world), for whichever video the player holds. Null when
+ * the bridge or the player isn't there.
  */
-function playerInfoForCurrentVideo(): PlayerInfo | null {
-  const vid = currentVideoId();
-  if (!vid) return null;
+function playerInfo(): PlayerInfo | null {
   const reply: { info: PlayerInfo | null } = { info: null };
   const onReply = (event: Event) => {
     try {
@@ -105,7 +102,18 @@ function playerInfoForCurrentVideo(): PlayerInfo | null {
   } finally {
     document.removeEventListener("tldw:player-info", onReply);
   }
-  return reply.info && reply.info.videoId === vid ? reply.info : null;
+  return reply.info;
+}
+
+/**
+ * The player response for the video in the URL. Null when there is none, or
+ * the player still holds another video (right after an in-page navigation).
+ */
+function playerInfoForCurrentVideo(): PlayerInfo | null {
+  const vid = currentVideoId();
+  if (!vid) return null;
+  const info = playerInfo();
+  return info && info.videoId === vid ? info : null;
 }
 
 /** Whether the player is showing an ad (its <video> and clock are the ad's). */
@@ -119,12 +127,14 @@ let captured: string | null = null;
 let capturedVideoId: string | null = null;
 // Transcript-panel responses seen so far, and the video the latest was for.
 let panelResponseSeq = 0;
+// The HTTP status when the latest of those responses was an error, else null.
+let lastPanelResponseFailed: number | null = null;
 let lastPanelResponseVideoId: string | null = null;
 
 window.addEventListener("message", (event) => {
   if (event.source !== window) return;
   const data = event.data as
-    | { __tldw?: boolean; kind?: string; body?: unknown; videoId?: string }
+    | { __tldw?: boolean; kind?: string; body?: unknown; videoId?: string; failedStatus?: number }
     | undefined;
   if (!data || data.__tldw !== true) return;
 
@@ -149,6 +159,10 @@ window.addEventListener("message", (event) => {
   if (videoId && (data.kind === "get_panel" || data.kind === "get_transcript")) {
     panelResponseSeq++;
     lastPanelResponseVideoId = videoId;
+    lastPanelResponseFailed = typeof data.failedStatus === "number" ? data.failedStatus : null;
+    if (lastPanelResponseFailed !== null) {
+      log("YouTube couldn't load the transcript for", videoId, "(HTTP", `${lastPanelResponseFailed})`);
+    }
   }
 
   if (text && videoId) {
@@ -274,36 +288,65 @@ function available(): string | null {
   return cachedForCurrentVideo() ?? scrapeRenderedTranscript();
 }
 
-/** The transcript engagement panel element, if present. */
-function transcriptPanelEl(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(
-    'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]',
-  );
+// YouTube's side panels (transcript, comments, chapters...) are all
+// engagement panels. Which one shows the transcript keeps changing: the old
+// `engagement-panel-searchable-transcript` panel still exists but stays hidden,
+// while "Show transcript" expands `PAmodern_transcript_view`, or the "In this
+// video" panel, which has no target-id at all (seen 2026-11-02).
+const ENGAGEMENT_PANEL = "ytd-engagement-panel-section-list-renderer";
+const PANEL_EXPANDED = "ENGAGEMENT_PANEL_VISIBILITY_EXPANDED";
+const TRANSCRIPT_SEGMENT =
+  "transcript-segment-view-model, .ytwTranscriptSegmentViewModelHost, ytd-transcript-segment-renderer";
+
+function expandedPanels(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>(ENGAGEMENT_PANEL)]
+    .filter((panel) => panel.getAttribute("visibility") === PANEL_EXPANDED);
 }
 
-/** Whether YouTube's transcript panel is currently open. */
+/** Whether an engagement panel is (or holds) a transcript. */
+function isTranscriptPanel(panel: HTMLElement): boolean {
+  return /transcript/i.test(panel.getAttribute("target-id") ?? "") || !!panel.querySelector(TRANSCRIPT_SEGMENT);
+}
+
+/** Whether a transcript panel is open on the page. */
 function transcriptPanelOpen(): boolean {
-  const panel = transcriptPanelEl();
-  if (panel) {
-    return panel.getAttribute("visibility") === "ENGAGEMENT_PANEL_VISIBILITY_EXPANDED";
-  }
-  const seg = document.querySelector<HTMLElement>("ytd-transcript-segment-renderer");
+  if (expandedPanels().some(isTranscriptPanel)) return true;
+  // A page without engagement panels: rendered segments mean it's showing.
+  if (document.querySelector(ENGAGEMENT_PANEL)) return false;
+  const seg = document.querySelector<HTMLElement>(TRANSCRIPT_SEGMENT);
   return !!(seg && seg.offsetParent !== null);
 }
 
-/** Collapse the transcript panel (best-effort) — used to undo a panel we opened. */
-function closeTranscriptPanel(): void {
-  const panel = transcriptPanelEl();
-  const closeBtn =
-    panel?.querySelector<HTMLElement>("#visibility-button button") ??
-    panel?.querySelector<HTMLElement>('button[aria-label*="lose" i]') ??
-    null;
-  if (closeBtn) {
-    log("closing transcript panel we opened");
-    closeBtn.click();
-    return;
+/** How long to wait for the panel our click opened to show up, to close it. */
+const PANEL_CLOSE_WAIT_MS = 2000;
+
+/**
+ * Close the panel our "Show transcript" click opened: one expanded now that
+ * wasn't before the click. A panel that was already open (the user's) is left
+ * alone, even when the click switched it to the transcript. The panel can
+ * expand a moment after the transcript response arrives, so wait briefly.
+ */
+async function closePanelOpenedSince(openBefore: Set<HTMLElement>, vid: string): Promise<void> {
+  const deadline = Date.now() + PANEL_CLOSE_WAIT_MS;
+  for (;;) {
+    if (currentVideoId() !== vid) return;
+    const opened = expandedPanels().filter((panel) => !openBefore.has(panel));
+    const panel = opened.find(isTranscriptPanel) ?? opened[0];
+    if (panel) {
+      const closeBtn =
+        panel.querySelector<HTMLElement>("#visibility-button button") ??
+        panel.querySelector<HTMLElement>('button[aria-label*="close" i]');
+      if (closeBtn) {
+        log("closing the transcript panel TL;DW opened");
+        closeBtn.click();
+      } else {
+        log("couldn't find the close button of the transcript panel TL;DW opened");
+      }
+      return;
+    }
+    if (Date.now() >= deadline) return;
+    await sleep(100);
   }
-  transcriptButtonForCurrentVideo()?.click();
 }
 
 /** How long to wait for the page to catch up with the URL after a navigation. */
@@ -359,6 +402,7 @@ async function fetchTranscript(vid: string): Promise<string | null> {
   // mid-fetch, or we'd click the NEW video's controls.
   const openedByUs = !transcriptPanelOpen();
   const expandedByUs = openedByUs && expandDescription();
+  const panelsOpenBefore = new Set(expandedPanels());
   const seqAtClick = panelResponseSeq;
   const clickedAt = Date.now();
   if (openedByUs) {
@@ -368,7 +412,7 @@ async function fetchTranscript(vid: string): Promise<string | null> {
   }
   const restore = () => {
     if (currentVideoId() !== vid) return;
-    if (openedByUs) closeTranscriptPanel();
+    if (openedByUs) void closePanelOpenedSince(panelsOpenBefore, vid);
     if (expandedByUs) collapseDescription();
   };
 
@@ -388,6 +432,19 @@ async function fetchTranscript(vid: string): Promise<string | null> {
       // read nothing and treat this video as having none.
       restore();
       log("transcript response was for", lastPanelResponseVideoId, "not", vid, "- no transcript");
+      return null;
+    }
+    // YouTube's own request for this video's transcript failed, so its panel
+    // has nothing to show either: stop waiting (unless the panel already holds
+    // segments) instead of running out the clock.
+    if (answered && lastPanelResponseVideoId === vid && lastPanelResponseFailed !== null) {
+      const scraped = scrapeRenderedTranscript();
+      restore();
+      if (scraped) {
+        log("transcript scraped from the panel:", scraped.length, "chars");
+        return scraped;
+      }
+      log("YouTube didn't provide a transcript for this video");
       return null;
     }
     // Fallback for when the network response can't be read: scrape the panel,
@@ -436,16 +493,18 @@ function hmsToSeconds(text: string | null | undefined): number {
 
 /**
  * Whether the broadcast is happening RIGHT NOW (as opposed to a finished live
- * stream, which becomes an ordinary VOD with a transcript). The player response
- * says so directly, even while a pre-roll ad plays. Without it, fall back to the
- * player's red "LIVE" badge (shown only while the stream is ongoing) and the
- * infinite media duration of non-DVR live, neither of which is readable during
- * an ad; the onNavigate poll re-checks once the ad is over.
+ * stream, which becomes an ordinary VOD with a transcript), or null while that
+ * can't be told. The player response says so directly, even while a pre-roll ad
+ * plays; while the player still holds the previous video, its answer (and its
+ * badge and duration) belong to that video, so the answer waits for a later
+ * check. Without a player response, fall back to the player's red "LIVE" badge
+ * (shown only while the stream is ongoing) and the infinite media duration of
+ * non-DVR live, neither of which is readable during an ad.
  */
-function isActivelyLive(): boolean {
-  const info = playerInfoForCurrentVideo();
-  if (info) return info.isLive;
-  if (adShowing()) return false;
+function activelyLive(): boolean | null {
+  const info = playerInfo();
+  if (info) return info.videoId === currentVideoId() ? info.isLive : null;
+  if (adShowing()) return null;
   const badge = document.querySelector<HTMLElement>(".ytp-live-badge");
   if (badge && badge.offsetParent !== null && !badge.closest("[hidden]")) return true;
   const video = document.querySelector<HTMLVideoElement>("video.html5-main-video, video");
@@ -473,7 +532,13 @@ function transcriptLikelyAvailable(): boolean {
  * summarizable, while a genuinely in-progress broadcast is not.
  */
 function isUnsummarizableLive(): boolean {
-  return isActivelyLive() && !transcriptLikelyAvailable();
+  return activelyLive() === true && !transcriptLikelyAvailable();
+}
+
+/** Whether it is known for sure that this video can be summarized after all. */
+function knownSummarizable(): boolean {
+  const live = activelyLive();
+  return live === false || (live === true && transcriptLikelyAvailable());
 }
 
 /** Clean YouTube's tab title: drop an unread "(3) " prefix and " - YouTube". */
@@ -1357,7 +1422,7 @@ function startRunInFlight(): void {
  * never returned a usable summary. Offers a one-click retry and explains the
  * tab-mode caveat so the user isn't left staring at a dead skeleton.
  */
-function showSummaryErrorPanel(reason?: string, actionUrl?: string): void {
+function showSummaryErrorPanel(reason?: string, actionUrl?: string, opts: { noTranscript?: boolean } = {}): void {
   const host = panelHost();
   if (!host) return;
   removeSummaryPanel();
@@ -1391,7 +1456,10 @@ function showSummaryErrorPanel(reason?: string, actionUrl?: string): void {
   const msg = document.createElement("div");
   // Prefer a specific reason from the Direct-API path (e.g. "quota exceeded",
   // "input too long"); fall back to the generic tab-flow timeout copy.
-  msg.textContent = reason
+  // No transcript is not a failed request: say so plainly, with no prefix.
+  msg.textContent = reason && opts.noTranscript
+    ? reason
+    : reason
     ? `Couldn't get the summary: ${reason}`
     : "Couldn't get the summary back in time. If you're using the tab flow (no API key), " +
       "the destination tab may still be working or may need a sign-in — check it, then retry.";
@@ -1416,7 +1484,7 @@ function showSummaryErrorPanel(reason?: string, actionUrl?: string): void {
   summaryPanel = panel;
   summaryPanelKind = "idle";
   host.prepend(panel);
-  log("summary error panel shown (loading timed out)");
+  log("summary error panel shown:", reason ?? "loading timed out");
   refreshSponsorPanel();
 }
 
@@ -2138,6 +2206,9 @@ let autoAskedVid: string | null = null;
 function sendAutoAsk(vid: string): boolean {
   if (autoAskedVid === vid) return false;
   autoAskedVid = vid;
+  // Show "Analyzing…" (the channel auto-run path already did), so the reply or a
+  // SET_SUMMARY_ERROR can end the run on the page with its reason.
+  if (!runInFlight) startRunInFlight();
   void chrome.runtime.sendMessage({ type: "ASK" }).then(
     (reply: unknown) => handleAskReply(vid, reply),
     () => { /* best effort */ },
@@ -2151,10 +2222,10 @@ function sendAutoAsk(vid: string): boolean {
  * the reason, instead of leaving the button on "Analyzing..." until the timeout.
  */
 function handleAskReply(vid: string, reply: unknown): void {
-  const res = reply as { ok?: boolean; error?: string } | undefined;
+  const res = reply as { ok?: boolean; error?: string; actionUrl?: string; noTranscript?: boolean } | undefined;
   if (res?.ok !== false || currentVideoId() !== vid || !runInFlight) return;
   endRunInFlight();
-  showSummaryErrorPanel(res.error);
+  showSummaryErrorPanel(res.error, res.actionUrl, { noTranscript: res.noTranscript });
 }
 
 /**
@@ -2389,17 +2460,29 @@ function tearDownOrphanedScript(): void {
 }
 
 /**
- * Re-check, on every poll tick, that the video isn't a live broadcast with
- * nothing to summarize. Live state can't always be read at navigation time
- * (a pre-roll ad hides it), so the first check alone isn't enough.
+ * Re-check, on every poll tick, whether the video is a live broadcast with
+ * nothing to summarize. Live state can't always be read at navigation time (a
+ * pre-roll ad hides it, and the player can still hold the previous video), so
+ * the first check alone isn't enough, in either direction: a later tick can
+ * hide the button, and one that finds the video isn't live brings it back.
+ * (watchButtonAllowed is turned off only for live streams.)
  */
 function refreshLiveGate(): void {
-  if (!watchButtonAllowed || !pageShowsCurrentVideo() || !isUnsummarizableLive()) return;
-  log("live stream with no transcript: hiding TL;DW");
-  watchButtonAllowed = false;
-  removeWatchButton();
-  removeSummaryPanel();
-  endRunInFlight();
+  if (!pageShowsCurrentVideo()) return;
+  if (watchButtonAllowed) {
+    if (!isUnsummarizableLive()) return;
+    log("live stream with no transcript: hiding TL;DW");
+    watchButtonAllowed = false;
+    removeWatchButton();
+    removeSummaryPanel();
+    endRunInFlight();
+    return;
+  }
+  if (!knownSummarizable()) return;
+  log("not a live stream after all: showing TL;DW");
+  watchButtonAllowed = true;
+  void maybeStartDirectApiRun();
+  void autoRunIfLong();
 }
 
 function onNavigate(): void {
@@ -2510,11 +2593,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // 90s timeout and then show the misleading tab-flow message — but only if a
     // run is still in flight for the video the error is for. (Loading lives in the
     // button now; `runInFlight`, not a panel kind, is the gate.)
-    const msg = message as { videoId?: string; reason?: string; actionUrl?: string };
+    // "No transcript" is shown for any send (popup, shortcut, menu), not only
+    // for a run the page started: otherwise nothing would say why no summary came.
+    const msg = message as { videoId?: string; reason?: string; actionUrl?: string; noTranscript?: boolean };
     if (!msg.videoId || msg.videoId === currentVideoId()) {
-      if (runInFlight) {
+      if (runInFlight || msg.noTranscript) {
         endRunInFlight();
-        showSummaryErrorPanel(msg.reason, msg.actionUrl);
+        showSummaryErrorPanel(msg.reason, msg.actionUrl, { noTranscript: msg.noTranscript });
       }
     }
     sendResponse({ ok: true });
