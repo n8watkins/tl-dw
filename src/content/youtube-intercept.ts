@@ -42,6 +42,45 @@ function currentUrlVideoId(): string | undefined {
   }
 }
 
+// --- player-info bridge ----------------------------------------------------
+// The isolated content script can't call the player's own API (it lives in this
+// world), so it asks here. YouTube's player response is the page's own record
+// of the loaded video: its id, its real length (not a pre-roll ad's), whether
+// it is live right now, and whether it has caption tracks (no captions means no
+// transcript). The request and reply are synchronous DOM events, so the
+// isolated script gets the answer before its dispatchEvent call returns.
+const PLAYER_INFO_REQUEST = "tldw:player-info-request";
+const PLAYER_INFO_REPLY = "tldw:player-info";
+
+type PlayerResponseLike = {
+  videoDetails?: { videoId?: unknown; lengthSeconds?: unknown; isLive?: unknown };
+  captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: unknown } };
+};
+
+function readPlayerInfo(): string {
+  try {
+    const player = document.getElementById("movie_player") as
+      | (HTMLElement & { getPlayerResponse?: () => PlayerResponseLike | null | undefined })
+      | null;
+    const res = player?.getPlayerResponse?.();
+    const details = res?.videoDetails;
+    if (!details || typeof details.videoId !== "string" || !details.videoId) return "null";
+    const tracks = res?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    return JSON.stringify({
+      videoId: details.videoId,
+      lengthSeconds: Number(details.lengthSeconds) || 0,
+      isLive: details.isLive === true,
+      hasCaptions: Array.isArray(tracks) && tracks.length > 0,
+    });
+  } catch {
+    return "null";
+  }
+}
+
+document.addEventListener(PLAYER_INFO_REQUEST, () => {
+  document.dispatchEvent(new CustomEvent(PLAYER_INFO_REPLY, { detail: readPlayerInfo() }));
+});
+
 const originalFetch = window.fetch;
 window.fetch = function patchedFetch(
   this: unknown,

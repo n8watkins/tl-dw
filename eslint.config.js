@@ -27,7 +27,7 @@ const browserGlobals = {
 };
 
 export default tseslint.config(
-  { ignores: ["dist/**", "node_modules/**", "web-store/**", "spike-gemini.js"] },
+  { ignores: ["dist/**", "dist-e2e/**", "node_modules/**", "web-store/**", "spike-gemini.js"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

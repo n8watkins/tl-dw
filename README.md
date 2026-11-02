@@ -45,6 +45,7 @@ npx vite build
 Use `npx vite build` when a non-bumping production build is required.
 
 Load the unpacked extension from `dist/` or from the copied Windows directory through `chrome://extensions`.
+`npm run test:e2e` builds its own test build (with a short Gemini timeout) into `dist-e2e/`, so it never replaces the production build in `dist/`.
 The default command is `Alt+Shift+G` and can be confirmed at `chrome://extensions/shortcuts`.
 
 ## Store package

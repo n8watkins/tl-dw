@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDestinationPrompt } from "./promptBuilder";
+import { buildDestinationPrompt, TLDW_REMINDER, TRANSCRIPT_TRUNCATED_NOTE } from "./promptBuilder";
 import type { Destination, PromptProfile, VideoContext } from "../types";
 
 const profile: PromptProfile = {
@@ -92,8 +92,58 @@ describe("buildDestinationPrompt", () => {
     expect(out).toContain("<<<TRANSCRIPT START>>>");
     expect(out).toContain("<<<TRANSCRIPT END>>>");
     expect(out).toContain("TRANSCRIPT");
-    // The binding output-format block comes AFTER the untrusted transcript.
-    expect(out.indexOf("<<<TRANSCRIPT END>>>")).toBeLessThan(out.indexOf("---TLDW---"));
+    // The binding output-format block comes BEFORE the transcript, so a site
+    // that cuts a long message short keeps it, and a one-line reminder of the
+    // format comes after the untrusted transcript so it stays the last word.
+    expect(out.indexOf("---END TLDW---")).toBeLessThan(out.indexOf("<<<TRANSCRIPT START>>>"));
+    expect(out.trimEnd().endsWith(TLDW_REMINDER)).toBe(true);
+  });
+
+  it("keeps a long transcript within the destination's limit, marked as truncated", () => {
+    const words = Array.from({ length: 30_000 }, (_, i) => `word${i}`);
+    const transcript = `${words.join(" ")}. The final conclusion is here.`;
+    const out = buildDestinationPrompt(
+      profile,
+      video,
+      dest({ payload: "prompt", canWatch: false, maxPromptChars: 30_000 }),
+      transcript,
+    );
+    expect(out.length).toBeLessThanOrEqual(30_000);
+    expect(out).toContain(TRANSCRIPT_TRUNCATED_NOTE);
+    // The opening and the closing stretch survive; the cut is at word boundaries.
+    expect(out).toContain("word0 word1 word2");
+    expect(out).toContain("The final conclusion is here.");
+    expect(out).not.toMatch(/ord\d+ wo\b/);
+    // The instructions and the format block are intact, before the transcript.
+    expect(out.startsWith("Summarize My Video at https://youtube.com/watch?v=abc")).toBe(true);
+    expect(out.indexOf("---END TLDW---")).toBeLessThan(out.indexOf("<<<TRANSCRIPT START>>>"));
+    expect(out.trimEnd().endsWith(TLDW_REMINDER)).toBe(true);
+  });
+
+  it("an explicit limit overrides the destination's (the Direct API takes more)", () => {
+    const transcript = "x ".repeat(40_000);
+    const out = buildDestinationPrompt(
+      profile,
+      video,
+      dest({ payload: "prompt", canWatch: false, maxPromptChars: 30_000 }),
+      transcript,
+      null,
+      null,
+      { maxChars: 1_000_000 },
+    );
+    expect(out).toContain(transcript.trim());
+    expect(out).not.toContain(TRANSCRIPT_TRUNCATED_NOTE);
+  });
+
+  it("leaves a transcript that fits untouched", () => {
+    const out = buildDestinationPrompt(
+      profile,
+      video,
+      dest({ payload: "prompt", canWatch: false, maxPromptChars: 30_000 }),
+      "Short transcript.",
+    );
+    expect(out).toContain("Short transcript.");
+    expect(out).not.toContain(TRANSCRIPT_TRUNCATED_NOTE);
   });
 
   it("a non-watch chat destination omits the transcript section when null", () => {

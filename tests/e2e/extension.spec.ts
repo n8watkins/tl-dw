@@ -3,7 +3,9 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-const extensionPath = path.resolve("dist");
+// `npm run test:e2e` builds a test build (short Gemini timeout) into dist-e2e/,
+// so dist/ stays the production build that gets loaded unpacked.
+const extensionPath = path.resolve("dist-e2e");
 // The modern transcript panel's segment markup as YouTube rendered it on
 // 2026-11-02: a visible clock, a screen-reader time label, then the text.
 function modernSegment(clock: string, label: string, text: string): string {
@@ -101,6 +103,109 @@ const shortsFixture = `<!doctype html>
     </ytd-video-description-transcript-section-renderer>
     <button aria-label="Transcript" onclick="window.__clicks++">T</button>
     <video></video>
+  </body>
+</html>`;
+
+// A captioned watch page whose description lags an in-page navigation, as
+// YouTube's does: right after the URL (and ytd-watch-flexy) switch to the next
+// video, the description still holds the previous video's "Show transcript"
+// button for about a second. Clicking it loads the PREVIOUS video's transcript.
+// `window.__tldwNav(id)` performs that navigation; the next video has no
+// captions, so once the description catches up it offers no transcript.
+const staleDescriptionFixture = `<!doctype html>
+<html>
+  <head><title>Video A - YouTube</title></head>
+  <body>
+    <ytd-watch-flexy video-id="fixture-a"></ytd-watch-flexy>
+    <ytd-watch-metadata video-id="fixture-a">
+      <h1>Video A</h1>
+      <div id="owner">
+        <div id="channel-name"><a href="/@FixtureChannel">Fixture Channel</a></div>
+        <div id="subscribe-button"></div>
+      </div>
+      <ytd-video-description-transcript-section-renderer>
+        <button id="show-transcript">Show transcript</button>
+      </ytd-video-description-transcript-section-renderer>
+    </ytd-watch-metadata>
+    <div id="below"></div>
+    <div id="transcript-panel"></div>
+    <script>
+      window.__panelClicks = 0;
+      document.getElementById("show-transcript").addEventListener("click", () => {
+        window.__panelClicks++;
+        // The button always belongs to video A: it loads A's transcript.
+        fetch("/youtubei/v1/get_panel?prettyPrint=false", { method: "POST", body: "{}" }).then(() => {
+          document.getElementById("transcript-panel").innerHTML = ${JSON.stringify(
+            modernSegment("0:01", "1 second", "Video A's transcript must never reach video B."),
+          )};
+        });
+      });
+      window.__tldwNav = (id) => {
+        history.pushState({}, "", "/watch?v=" + id);
+        document.querySelector("ytd-watch-flexy").setAttribute("video-id", id);
+        window.dispatchEvent(new Event("yt-navigate-finish"));
+        setTimeout(() => {
+          document.title = "Video B - YouTube";
+          const md = document.querySelector("ytd-watch-metadata");
+          md.setAttribute("video-id", id);
+          md.querySelector("h1").textContent = "Video B";
+          md.querySelector("ytd-video-description-transcript-section-renderer")?.remove();
+        }, 1200);
+      };
+    </script>
+  </body>
+</html>`;
+
+/**
+ * A watch page with a stand-in for YouTube's player: #movie_player with the
+ * player API's getPlayerResponse(), answering for the video in the URL.
+ * `player` sets what it reports (null: no player API); `extra` is appended.
+ */
+function playerFixture(player: { lengthSeconds?: number; isLive?: boolean; captions?: boolean } | null, extra = ""): string {
+  const api = player
+    ? `<script>
+        document.getElementById("movie_player").getPlayerResponse = () => ({
+          videoDetails: {
+            videoId: new URLSearchParams(location.search).get("v"),
+            lengthSeconds: "${player.lengthSeconds ?? 600}",
+            isLive: ${player.isLive ?? false},
+          },
+          ${player.captions ? 'captions: { playerCaptionsTracklistRenderer: { captionTracks: [{ languageCode: "en" }] } },' : ""}
+        });
+      </script>`
+    : "";
+  return `<!doctype html>
+<html>
+  <head><title>Player Video - YouTube</title></head>
+  <body>
+    <div id="movie_player" class="html5-video-player"><div class="ytp-time-duration">10:00</div></div>
+    ${api}
+    <ytd-watch-metadata>
+      <h1>Player Video</h1>
+      <div id="owner">
+        <div id="channel-name"><a href="/@FixtureChannel">Fixture Channel</a></div>
+        <div id="subscribe-button"></div>
+      </div>
+    </ytd-watch-metadata>
+    <div id="below"></div>
+    ${extra}
+  </body>
+</html>`;
+}
+
+// A Gemini web app stand-in whose composer keeps only the first 500
+// characters of whatever is typed into it, like a site with a length limit.
+const truncatingGeminiFixture = `<!doctype html>
+<html>
+  <head><title>Gemini</title></head>
+  <body>
+    <div class="ql-editor" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>
+    <script>
+      const editor = document.querySelector(".ql-editor");
+      editor.addEventListener("input", () => {
+        if (editor.textContent.length > 500) editor.textContent = editor.textContent.slice(0, 500);
+      });
+    </script>
   </body>
 </html>`;
 
@@ -309,7 +414,7 @@ test("manual and automatic summaries use their effective profiles", async () => 
     expect(prompts[0]).not.toContain("AUTOMATIC PROFILE");
 
     await page.reload();
-    await expect(page.locator("#tldw-summary")).toContainText("cached · Global Profile");
+    await expect(page.locator("#tldw-summary")).toContainText("💾 Cached (Global Profile)");
     expect(prompts).toHaveLength(1);
     const usage = await getStorage<{ attemptsToday?: number }>(manual, "geminiUsage");
     const stats = await getStorage<{ cacheHits?: number }>(manual, "tldwStats");
@@ -643,6 +748,258 @@ test("the popup says TL;DW isn't available on Shorts", async () => {
     await expect(popup.getByRole("status")).toHaveText("TL;DW isn't available on YouTube Shorts.");
     await expect(popup.locator(".ask-btn")).toHaveCount(0);
     await expect(popup.locator(".dest-grid")).toHaveCount(0);
+  } finally {
+    await session.close();
+  }
+});
+
+async function transcriptFromPage(session: ExtensionSession, page: Page): Promise<{ transcript: string | null; ms: number }> {
+  const tabId = await tabIdFor(session, page.url());
+  const started = Date.now();
+  const transcript = await session.worker.evaluate(async (id) => {
+    const res = await chrome.tabs.sendMessage(id!, { type: "GET_TRANSCRIPT" });
+    return (res as { transcript: string | null }).transcript;
+  }, tabId);
+  return { transcript, ms: Date.now() - started };
+}
+
+test("the previous video's transcript never reaches the next, uncaptioned video", async () => {
+  const session = await launchExtension();
+  try {
+    const prompts: string[] = [];
+    await routeYouTube(session.context, staleDescriptionFixture);
+    await session.context.route("https://www.youtube.com/youtubei/v1/get_panel**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: getPanelBody("fixture-a") });
+    });
+    await mockGemini(session.context, prompts);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-a");
+
+    // In-page navigation to the uncaptioned video B, and an immediate send,
+    // while the description still shows A's "Show transcript" button.
+    await page.evaluate(() => (window as unknown as { __tldwNav: (id: string) => void }).__tldwNav("fixture-b"));
+    await page.locator("#tldw-watch-btn").click();
+    // While the send prepares, the toolbar badge shows progress.
+    await expect.poll(() => session.worker.evaluate(() => chrome.action.getBadgeText({})), { timeout: 3_000, intervals: [50] }).toBe("…");
+    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("watch?v=fixture-b");
+    expect(prompts[0]).not.toContain("Video A's transcript");
+    expect(prompts[0]).not.toContain("<<<TRANSCRIPT START>>>");
+    // A's stale button was never clicked.
+    expect(await page.evaluate(() => (window as unknown as { __panelClicks: number }).__panelClicks)).toBe(0);
+    // Nothing built on A's transcript is cached under B.
+    const cache = await getStorage<Record<string, unknown>>(session, "tldwSummaryCache");
+    expect(JSON.stringify(cache ?? {})).not.toContain("Video A's transcript");
+  } finally {
+    await session.close();
+  }
+});
+
+test("a video without a transcript answers at once instead of after a long wait", async () => {
+  const session = await launchExtension();
+  try {
+    // The player reports no caption tracks: no transcript, no waiting.
+    await routeYouTube(session.context, playerFixture({ captions: false }));
+    const withPlayer = await openVideo(session.context, "fixture-uncaptioned");
+    const fromPlayer = await transcriptFromPage(session, withPlayer);
+    expect(fromPlayer.transcript).toBeNull();
+    expect(fromPlayer.ms).toBeLessThan(1_000);
+    await withPlayer.close();
+
+    // Without the player's data, no "Show transcript" button for this video
+    // means no transcript, after only a short grace for it to render.
+    await session.context.unroute("https://www.youtube.com/**");
+    await routeYouTube(session.context, playerFixture(null));
+    const bare = await openVideo(session.context, "fixture-bare");
+    const fromPage = await transcriptFromPage(session, bare);
+    expect(fromPage.transcript).toBeNull();
+    expect(fromPage.ms).toBeLessThan(2_500);
+  } finally {
+    await session.close();
+  }
+});
+
+test("auto-run-if-long uses the video's length, not a pre-roll ad's", async () => {
+  const session = await launchExtension();
+  try {
+    const prompts: string[] = [];
+    await mockGemini(session.context, prompts);
+    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), autoTldwMinutes: 30 } });
+
+    // An hour-long video behind a 15-second ad, with no player data to read: the
+    // player clock shows the ad's 0:15 until the ad ends.
+    await routeYouTube(session.context, playerFixture(null, `<script>
+      const player = document.getElementById("movie_player");
+      player.classList.add("ad-showing");
+      player.querySelector(".ytp-time-duration").textContent = "0:15";
+      setTimeout(() => {
+        player.classList.remove("ad-showing");
+        player.querySelector(".ytp-time-duration").textContent = "1:00:00";
+      }, 4000);
+    </script>`));
+    const page = await openVideo(session.context, "fixture-long-ad");
+    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.", { timeout: 15_000 });
+    expect(prompts).toHaveLength(1);
+    await page.close();
+
+    // With the player's data, the real length is known during the ad, and it is
+    // what the worker records for the video.
+    await session.context.unroute("https://www.youtube.com/**");
+    await routeYouTube(session.context, playerFixture({ lengthSeconds: 3600, captions: false }, `<script>
+      const player = document.getElementById("movie_player");
+      player.classList.add("ad-showing");
+      player.querySelector(".ytp-time-duration").textContent = "0:15";
+    </script>`));
+    const second = await openVideo(session.context, "fixture-long-ad-2");
+    await expect(second.locator("#tldw-summary")).toContainText("Fixture summary.", { timeout: 15_000 });
+    const tabId = await tabIdFor(session, second.url());
+    const meta = await session.worker.evaluate(async (id) => chrome.tabs.sendMessage(id!, { type: "GET_VIDEO_META" }), tabId);
+    expect((meta as { durationSeconds: number }).durationSeconds).toBe(3600);
+  } finally {
+    await session.close();
+  }
+});
+
+test("a live stream is recognized once its pre-roll ad ends, and is never sent", async () => {
+  const session = await launchExtension();
+  try {
+    const prompts: string[] = [];
+    await mockGemini(session.context, prompts);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    // During the ad nothing says "live"; the LIVE badge appears after it.
+    await routeYouTube(session.context, playerFixture(null, `<script>
+      const player = document.getElementById("movie_player");
+      player.classList.add("ad-showing");
+      setTimeout(() => {
+        player.classList.remove("ad-showing");
+        const badge = document.createElement("div");
+        badge.className = "ytp-live-badge";
+        badge.textContent = "LIVE";
+        player.appendChild(badge);
+      }, 2500);
+    </script>`));
+    const page = await openVideo(session.context, "fixture-live");
+    await expect(page.locator("#tldw-watch-btn")).toHaveCount(0, { timeout: 5_000 });
+
+    const tabId = await tabIdFor(session, page.url());
+    const popup = await session.context.newPage();
+    await popup.goto(`chrome-extension://${session.extensionId}/src/popup/index.html`);
+    const reply = await popup.evaluate(async (sourceTabId) =>
+      chrome.runtime.sendMessage({ type: "ASK", source: "popup-inline", sourceTabId }), tabId);
+    expect(reply).toMatchObject({ ok: false });
+    expect(await session.worker.evaluate(() => chrome.action.getBadgeText({}))).toBe("N/A");
+    expect(prompts).toHaveLength(0);
+  } finally {
+    await session.close();
+  }
+});
+
+test("a prompt the destination cuts short is reported, copied, and ends the page's run", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context);
+    await session.context.route("https://gemini.google.com/**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "text/html", body: truncatingGeminiFixture });
+    });
+    await setStorage(session, {
+      profiles: profiles(),
+      settings: { ...directSettings(), useDirectApi: false, temporaryChats: false, focusGeminiTab: false },
+    });
+    const page = await openVideo(session.context, "fixture-tab");
+    // Context routes don't reach a tab the extension opens itself, so open it
+    // blank and load the routed Gemini stand-in into it from here.
+    await session.worker.evaluate(() => {
+      const create = chrome.tabs.create.bind(chrome.tabs);
+      chrome.tabs.create = ((props: chrome.tabs.CreateProperties) =>
+        create({ ...props, url: "about:blank" })) as typeof chrome.tabs.create;
+    });
+    const geminiPage = session.context.waitForEvent("page");
+    await page.locator("#tldw-watch-btn").click();
+    const gemini = await geminiPage;
+    await gemini.goto("https://gemini.google.com/app");
+
+    // The site kept only the start: TL;DW says so, empties the composer so the
+    // partial prompt can't be sent, and keeps the full prompt for pasting.
+    await expect(gemini.locator("[data-tldw-toast]")).toContainText("Gemini cut the prompt off");
+    await expect(gemini.locator(".ql-editor")).toHaveText("");
+    // The YouTube page stops "Analyzing..." at once, with the reason.
+    await expect(page.locator("#tldw-summary")).toContainText("Gemini took only about", { timeout: 10_000 });
+    await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
+    const status = await session.worker.evaluate(async () => (await chrome.storage.session.get(null)));
+    expect(JSON.stringify(status)).toContain('"ok":false');
+  } finally {
+    await session.close();
+  }
+});
+
+test("a refused send ends the page's run with the reason", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context);
+    await setStorage(session, { profiles: [], settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-no-profile");
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText("no prompt profile", { timeout: 5_000 });
+    await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
+  } finally {
+    await session.close();
+  }
+});
+
+test("after the extension reloads, the old page UI is removed instead of hanging", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context);
+    // A Gemini call that never answers keeps the run in flight.
+    await session.context.route("https://generativelanguage.googleapis.com/**", () => {});
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-orphan");
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-watch-btn")).toHaveText("Analyzing…");
+    await session.worker.evaluate(() => chrome.runtime.reload()).catch(() => {});
+    await expect(page.locator("#tldw-watch-btn")).toHaveCount(0, { timeout: 5_000 });
+  } finally {
+    await session.close();
+  }
+});
+
+test("closing the auto-run confirmation leaves no key listener behind", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context);
+    await mockGemini(session.context, []);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-confirm");
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+
+    // Listeners are listed per JavaScript world: read them from TL;DW's own
+    // (isolated) world, where the content script adds them.
+    const cdp = await session.context.newCDPSession(page);
+    const contexts: Array<{ id: number; origin: string; auxData?: { type?: string } }> = [];
+    cdp.on("Runtime.executionContextCreated", ({ context }) => contexts.push(context));
+    await cdp.send("Runtime.enable");
+    const isolated = contexts.find(
+      (c) => c.auxData?.type === "isolated" && c.origin === `chrome-extension://${session.extensionId}`,
+    );
+    expect(isolated).toBeDefined();
+    const keydownListeners = async () => {
+      const { result } = await cdp.send("Runtime.evaluate", { expression: "document", contextId: isolated!.id });
+      const { listeners } = await cdp.send("DOMDebugger.getEventListeners", { objectId: result.objectId! });
+      return listeners.filter((l) => l.type === "keydown").length;
+    };
+    const before = await keydownListeners();
+    for (const close of ["Cancel", "Escape", "backdrop"] as const) {
+      await page.getByRole("button", { name: "↻ Auto-summarize" }).click();
+      await expect(page.locator("#tldw-autorun-overlay")).toBeVisible();
+      if (close === "Cancel") await page.getByRole("button", { name: "Cancel" }).click();
+      else if (close === "Escape") await page.keyboard.press("Escape");
+      else await page.locator("#tldw-autorun-overlay").click({ position: { x: 5, y: 5 } });
+      await expect(page.locator("#tldw-autorun-overlay")).toHaveCount(0);
+      expect(await keydownListeners(), `after closing with ${close}`).toBe(before);
+    }
   } finally {
     await session.close();
   }

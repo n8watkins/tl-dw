@@ -13,6 +13,8 @@
  * onto a hidden/off-screen element. The clipboard fallback covers the rest.
  */
 
+import { insertedShare, promptInsertedWhole } from "../lib/promptInsert";
+
 type SiteConfig = {
   name: string;
   editorSelectors: string[];
@@ -143,7 +145,7 @@ function insertText(editor: Element, text: string): boolean {
       editor.dispatchEvent(new Event("input", { bubbles: true }));
       editor.dispatchEvent(new Event("change", { bubbles: true }));
     }
-    return editor.value.includes(text.slice(0, 20));
+    return promptInsertedWhole(editor.value, text);
   }
 
   // Select all existing content so execCommand("insertText") replaces it.
@@ -166,7 +168,7 @@ function insertText(editor: Element, text: string): boolean {
   } catch {
     ok = false;
   }
-  if (!ok || !(editor.textContent ?? "").includes(text.slice(0, 20))) {
+  if (!ok || !promptInsertedWhole(editor.textContent ?? "", text)) {
     editor.textContent = text;
     // Fire beforeinput then input so React/Vue/Svelte state machines all update.
     editor.dispatchEvent(
@@ -185,7 +187,30 @@ function insertText(editor: Element, text: string): boolean {
       }),
     );
   }
-  return (editor.textContent ?? "").includes(text.slice(0, 20));
+  return promptInsertedWhole(editor.textContent ?? "", text);
+}
+
+/** The text a composer holds (a textarea's value or an editor's text). */
+function composerText(editor: Element): string {
+  return editor instanceof HTMLTextAreaElement || editor instanceof HTMLInputElement
+    ? editor.value
+    : editor.textContent ?? "";
+}
+
+/** Empty a composer, so a cut-off prompt can't be sent by accident. */
+function clearComposer(editor: Element): void {
+  try {
+    if (editor instanceof HTMLTextAreaElement || editor instanceof HTMLInputElement) {
+      const proto =
+        editor instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(editor, "");
+    } else {
+      editor.textContent = "";
+    }
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }));
+  } catch {
+    /* best effort */
+  }
 }
 
 async function findEnabledSendButton(
@@ -210,7 +235,7 @@ async function findEnabledSendButton(
   return null;
 }
 
-function showToast(text: string): void {
+function showToast(text: string, durationMs = 5000): void {
   const el = document.createElement("div");
   el.textContent = text;
   Object.assign(el.style, {
@@ -227,16 +252,23 @@ function showToast(text: string): void {
     boxShadow: "0 4px 16px rgba(0,0,0,.3)",
     maxWidth: "80vw",
   });
+  el.setAttribute("role", "status");
+  el.dataset.tldwToast = "";
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 5000);
+  setTimeout(() => el.remove(), durationMs);
 }
 
-async function fallbackToClipboard(prompt: string, site: string): Promise<void> {
+/**
+ * Copy the prompt to the clipboard and say so on the page. `problem` names
+ * what went wrong (default: the composer couldn't be filled).
+ */
+async function fallbackToClipboard(prompt: string, site: string, problem?: string): Promise<void> {
+  const what = problem ?? `couldn't auto-fill ${site}`;
   try {
     await navigator.clipboard.writeText(prompt);
-    showToast(`TL;DW: couldn't auto-fill ${site} — prompt copied, paste it (Ctrl+V) to send.`);
+    showToast(`TL;DW: ${what}. The full prompt is copied: paste it (Ctrl+V) to send.`, 12000);
   } catch {
-    showToast(`TL;DW: couldn't auto-fill ${site}. Open the popup to copy the prompt.`);
+    showToast(`TL;DW: ${what}. Open the TL;DW popup to copy the prompt.`, 12000);
   }
 }
 
@@ -611,7 +643,7 @@ async function waitForResponseAndSend(
   }
 }
 
-type Outcome = { ok: boolean; reason?: string };
+type Outcome = { ok: boolean; reason?: string; keptPercent?: number };
 
 /** Tell the background how the fill went, so the popup can surface failures. */
 async function reportOutcome(site: string, outcome: Outcome): Promise<void> {
@@ -621,6 +653,7 @@ async function reportOutcome(site: string, outcome: Outcome): Promise<void> {
       site,
       ok: outcome.ok,
       reason: outcome.reason,
+      keptPercent: outcome.keptPercent,
     });
   } catch {
     /* background may be asleep mid-navigation; best effort */
@@ -729,7 +762,7 @@ async function pasteIntoEditor(editor: HTMLElement, text: string): Promise<boole
       }),
     );
     await sleep(500);
-    return (editor.textContent ?? "").includes(text.slice(0, 20));
+    return promptInsertedWhole(editor.textContent ?? "", text);
   } catch {
     return false;
   }
@@ -804,11 +837,24 @@ async function run(): Promise<void> {
     inserted = await pasteIntoEditor(editor, prompt);
   }
   if (!inserted) {
-    // All in-page approaches failed — write to clipboard so user can Ctrl+V.
-    await fallbackToClipboard(prompt, config.name);
+    // All in-page approaches failed. A composer holding only part of the prompt
+    // means the site cut it short (a length limit): say so, and empty it so the
+    // partial prompt (missing the transcript's end) can't be sent by accident.
+    const share = insertedShare(composerText(editor), prompt);
+    const cutShort = share > 0;
+    if (cutShort) clearComposer(editor);
+    const pct = Math.round(share * 100);
+    await fallbackToClipboard(
+      prompt,
+      config.name,
+      cutShort ? `${config.name} cut the prompt off (it kept about ${pct}%)` : undefined,
+    );
     await reportOutcome(config.name, {
       ok: false,
-      reason: "found the composer but couldn't type into it",
+      reason: cutShort
+        ? `cut the prompt off at about ${pct}% (too long for it); nothing was sent`
+        : "found the composer but couldn't type into it",
+      keptPercent: cutShort ? pct : undefined,
     });
     return;
   }

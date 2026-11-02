@@ -5,6 +5,7 @@ import { fingerprintPrompt } from "../lib/summaryCache";
 import { verifyGeminiKey } from "../lib/geminiKeyValidation";
 import { callGeminiApi, GeminiApiError, normalizeGeminiError } from "../lib/geminiApi";
 import {
+  DIRECT_API_MAX_PROMPT_CHARS,
   GEMINI_MODEL_ID,
   GEMINI_URL,
   extractVideoId,
@@ -14,7 +15,8 @@ import {
   localDateKey,
   STORAGE_KEYS,
 } from "../lib/constants";
-import { findOpenSearchForVideo } from "../lib/openSearchMatch";
+import { cacheContextForScrape, findOpenSearchForVideo } from "../lib/openSearchMatch";
+import { cachedSourceLabel } from "../lib/summarySource";
 import { addHistoryEntry, expireOldEntries, trimToLimit } from "../lib/history";
 import {
   addOpenSearch,
@@ -176,16 +178,56 @@ async function flashBadge(
   setTimeout(() => void chrome.action.setBadgeText({ text: "" }), 2500);
 }
 
-/** Ask the YouTube content script for the open video's transcript, if any. */
-async function getTranscriptFromTab(tabId: number): Promise<string | null> {
+/**
+ * Ask the YouTube content script for the open video's transcript, if any. The
+ * reply names the video the transcript is for; one for any other video than
+ * `videoId` (the page moved on mid-request) is refused, so it can never be
+ * summarized or cached under the wrong video.
+ */
+async function getTranscriptFromTab(
+  tabId: number,
+  videoId: string | null,
+): Promise<string | null> {
   try {
     const res = (await chrome.tabs.sendMessage(tabId, {
       type: "GET_TRANSCRIPT",
-    })) as { transcript: string | null } | undefined;
-    return res?.transcript ?? null;
+    })) as { transcript: string | null; videoId?: string | null } | undefined;
+    if (!res?.transcript) return null;
+    if (res.videoId !== undefined && res.videoId !== videoId) {
+      console.warn("[TL;DW] dropped a transcript for", res.videoId, "while summarizing", videoId);
+      return null;
+    }
+    return res.transcript;
   } catch {
     return null;
   }
+}
+
+/** How a summary run ended, for the ASK reply: a refusal or failure carries the reason. */
+type RunOutcome = { ok: true } | { ok: false; error: string };
+
+// Runs between "send" and the hand-off; while any is preparing (reading the
+// page, fetching the transcript) the toolbar badge shows a grey "…".
+let preparingRuns = 0;
+const PREPARING_BADGE = "…";
+
+async function beginPreparingBadge(): Promise<void> {
+  preparingRuns++;
+  try {
+    await chrome.action.setBadgeBackgroundColor({ color: BADGE_COLORS.muted });
+    await chrome.action.setBadgeText({ text: PREPARING_BADGE });
+  } catch { /* cosmetic */ }
+}
+
+async function endPreparingBadge(): Promise<void> {
+  preparingRuns = Math.max(0, preparingRuns - 1);
+  if (preparingRuns > 0) return;
+  try {
+    // Leave a result badge (✓, !, N/A) that replaced the progress one alone.
+    if ((await chrome.action.getBadgeText({})) === PREPARING_BADGE) {
+      await chrome.action.setBadgeText({ text: "" });
+    }
+  } catch { /* cosmetic */ }
 }
 
 /** Ask the YouTube content script for the video's title, duration + channel. */
@@ -270,7 +312,27 @@ async function runSummary(
   source: SummarySource = "auto",
   forceFocusTab = false,
   bypassCache = false,
-): Promise<void> {
+): Promise<RunOutcome> {
+  await beginPreparingBadge();
+  try {
+    return await prepareAndSend(
+      profileId, linkUrl, destinationOverride, userCuriosity, senderTabId, source, forceFocusTab, bypassCache,
+    );
+  } finally {
+    await endPreparingBadge();
+  }
+}
+
+async function prepareAndSend(
+  profileId: string | undefined,
+  linkUrl: string | undefined,
+  destinationOverride: string | undefined,
+  userCuriosity: string | undefined,
+  senderTabId: number | undefined,
+  source: SummarySource,
+  forceFocusTab: boolean,
+  bypassCache: boolean,
+): Promise<RunOutcome> {
   // A right-clicked video link (a thumbnail) wins over the active tab, so a
   // suggested video gets summarized rather than the page you're sitting on.
   // Everything else — page right-click, toolbar icon, keyboard shortcut —
@@ -288,12 +350,12 @@ async function runSummary(
   // grey badge acknowledges the keystroke or menu click instead of an error.
   if (!isThumbnail && isYouTubeShortUrl(url)) {
     await flashBadge("N/A", "muted");
-    return;
+    return { ok: false, error: "TL;DW doesn't run on YouTube Shorts." };
   }
 
   if (!url || !isYouTubeVideoUrl(url)) {
     await flashBadge("!");
-    return;
+    return { ok: false, error: "Open a YouTube video first." };
   }
 
   // Title and channel come from the page, read once it shows the video in the
@@ -302,6 +364,14 @@ async function runSummary(
   let meta: VideoMeta | null = null;
   if (!isThumbnail && activeTab?.id !== undefined) {
     meta = await readCurrentVideoMeta(activeTab.id, extractVideoId(url));
+    // A broadcast that is live right now has no transcript yet: nothing to send.
+    if (meta?.live) {
+      await flashBadge("N/A", "muted");
+      return {
+        ok: false,
+        error: "this is a live stream. TL;DW can summarize it once the broadcast ends.",
+      };
+    }
     if (meta?.title) {
       title = meta.title;
     } else {
@@ -331,7 +401,10 @@ async function runSummary(
   const apiKey = settings.geminiApiKey?.trim();
   const willUseDirectApi = !!(apiKey && settings.useDirectApi && isPromptDest && !opensTab);
   const profile = selectSummaryProfile(profiles, settings, source, profileId, willUseDirectApi);
-  if (!profile) return;
+  if (!profile) {
+    await flashBadge("!");
+    return { ok: false, error: "there's no prompt profile. Add one in TL;DW's options." };
+  }
 
   // Fetch the transcript for any prompt/source destination. Originally we
   // skipped it for "canWatch" Gemini and let the web app watch the URL — but the
@@ -344,7 +417,7 @@ async function runSummary(
     !isThumbnail &&
     activeTab?.id !== undefined
   ) {
-    transcript = await getTranscriptFromTab(activeTab.id);
+    transcript = await getTranscriptFromTab(activeTab.id, extractVideoId(url));
   }
 
   // Video metadata (read once above) feeds channel-tracking stats, the
@@ -373,7 +446,11 @@ async function runSummary(
   // This covers both the headless REST path and the tab flow (incl. Gemini).
   const promptDest =
     willUseDirectApi || transcript ? { ...destination, canWatch: false } : destination;
-  const prompt = buildDestinationPrompt(profile, video, promptDest, transcript, userCuriosity, activeTags);
+  // The Direct API model takes a far longer prompt than any chat site's composer.
+  const prompt = buildDestinationPrompt(
+    profile, video, promptDest, transcript, userCuriosity, activeTags,
+    willUseDirectApi ? { maxChars: DIRECT_API_MAX_PROMPT_CHARS } : {},
+  );
 
   // --- headless path: call Gemini API directly (no tab) -------------------
   if (willUseDirectApi) {
@@ -393,14 +470,15 @@ async function runSummary(
         .sendMessage(activeTab.id, {
           type: "SET_SUMMARY",
           tldw: cachedSummary.tldw,
-          source: `cached · ${cachedSummary.profileName}`,
+          source: cachedSourceLabel(cachedSummary.profileName),
+          sourceKind: "cache",
           videoId,
         })
         .catch(() => {});
       // Bump lifetime stats: cache hit.
       void bumpLifetimeStats((s) => { s.cacheHits += 1; });
       void flashBadge("✓", true);
-      return;
+      return { ok: true };
     }
 
     // --- live call: fetch from Gemini, then write to cache ---
@@ -430,7 +508,7 @@ async function runSummary(
 
       if (activeTab?.id !== undefined) {
         void chrome.tabs
-          .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw, source: "Gemini API", videoId })
+          .sendMessage(activeTab.id, { type: "SET_SUMMARY", tldw, source: "Gemini API", sourceKind: "api", videoId })
           .catch(() => {});
 
         // Cache the result so future visits to this video skip the API call.
@@ -486,8 +564,9 @@ async function runSummary(
           })
           .catch(() => {});
       }
+      return { ok: false, error: reason };
     }
-    return;
+    return { ok: true };
   }
 
   const tabVideoId = extractVideoId(video.url);
@@ -501,12 +580,13 @@ async function runSummary(
     void chrome.tabs.sendMessage(activeTab.id, {
       type: "SET_SUMMARY",
       tldw: tabCachedSummary.tldw,
-      source: `cached · ${tabCachedSummary.profileName}`,
+      source: cachedSourceLabel(tabCachedSummary.profileName),
+      sourceKind: "cache",
       videoId: tabVideoId,
     }).catch(() => {});
     void bumpLifetimeStats((stats) => { stats.cacheHits += 1; });
     void flashBadge("✓", true);
-    return;
+    return { ok: true };
   }
 
   // Open the destination tab and hand its injector the prompt to auto-fill.
@@ -530,6 +610,7 @@ async function runSummary(
       video,
       destination,
       activeTab?.id,
+      transcript ? (tabVideoId ?? undefined) : undefined,
       tabVideoId && tabPromptFingerprint
         ? {
             videoId: tabVideoId,
@@ -556,6 +637,7 @@ async function runSummary(
       channelAvatarUrl: video.avatarUrl,
     });
   }
+  return { ok: true };
 }
 
 /** Remember a destination tab we opened, so the popup can offer "jump back". */
@@ -564,11 +646,13 @@ async function recordOpenSearch(
   video: VideoContext,
   destination: { id: string; label: string },
   sourceTabId?: number,
+  transcriptVideoId?: string,
   cacheContext?: import("../types").OpenSearch["cacheContext"],
 ): Promise<void> {
   await addOpenSearch({
     tabId,
     sourceTabId,
+    transcriptVideoId,
     videoUrl: video.url,
     videoTitle: video.title,
     destinationId: destination.id,
@@ -609,7 +693,7 @@ chrome.runtime.onMessage.addListener(
         false,
         message.bypassCache ?? false,
       ).then(
-        () => sendResponse({ ok: true }),
+        (outcome) => sendResponse(outcome),
         // runSummary has awaits outside its inner try (tabs.create, storage
         // writes) that can reject. Without this, the rejection is unhandled AND
         // the promised response never arrives, so the caller's port hangs until
@@ -630,6 +714,22 @@ chrome.runtime.onMessage.addListener(
       // pending prompt now so it isn't re-delivered, but only after a real
       // attempt completed (so a slow-mounting composer kept its chance to retry).
       if (sender.tab?.id !== undefined) void clearPendingPrompt(sender.tab.id);
+      // A failed fill ends the run on the YouTube page now, with the reason,
+      // instead of leaving its button on "Analyzing..." until the 90s timeout.
+      if (!message.ok && sender.tab?.id !== undefined) {
+        const destTabId = sender.tab.id;
+        void (async () => {
+          const search = (await getOpenSearches()).find((s) => s.tabId === destTabId);
+          if (search?.sourceTabId === undefined) return;
+          const videoId = search.videoUrl ? extractVideoId(search.videoUrl) ?? undefined : undefined;
+          const site = message.site;
+          const reason = message.keptPercent !== undefined
+            ? `${site} took only about ${message.keptPercent}% of the prompt (it was too long), ` +
+              `so nothing was sent. The ${site} tab has the full prompt ready to paste.`
+            : `TL;DW couldn't fill the ${site} tab (${message.reason ?? "unknown problem"}).`;
+          await chrome.tabs.sendMessage(search.sourceTabId, { type: "SET_SUMMARY_ERROR", videoId, reason });
+        })().catch(() => {});
+      }
       sendResponse({ ok: true });
       return false;
     }
@@ -645,13 +745,15 @@ chrome.runtime.onMessage.addListener(
         let match: OpenSearch | undefined;
         try {
           const searches = await getOpenSearches();
-          match =
-            searches.find((s) => destTabId !== undefined && s.tabId === destTabId) ??
-            searches.find((s) => s.sourceTabId === srcTabId);
+          const ownSearch = searches.find((s) => destTabId !== undefined && s.tabId === destTabId);
+          match = ownSearch ?? searches.find((s) => s.sourceTabId === srcTabId);
           if (match?.videoUrl) videoId = extractVideoId(match.videoUrl) ?? undefined;
-          if (match?.cacheContext) {
+          // Cache only a scrape we can tie to its own request (this destination
+          // tab), and never one whose prompt carried another video's transcript.
+          const cacheContext = cacheContextForScrape(ownSearch);
+          if (cacheContext) {
             await setCachedSummary({
-              ...match.cacheContext,
+              ...cacheContext,
               tldw: message.tldw,
               createdAt: new Date().toISOString(),
             });
@@ -662,6 +764,7 @@ chrome.runtime.onMessage.addListener(
             type: "SET_SUMMARY",
             tldw: message.tldw,
             source: match?.destinationLabel,
+            sourceKind: "tab",
             videoId,
           })
           .catch(() => {});
