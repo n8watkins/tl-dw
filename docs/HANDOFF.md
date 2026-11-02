@@ -19,16 +19,12 @@ It is not live anywhere yet: the 1.0.0 Unlisted Chrome Web Store submission is p
 
 ### Open problems
 
-1. **YouTube Shorts comments stop updating when scrolling between Shorts (HIGH, user-facing).**
-   Seen with both TL;DW and TubeVault installed; it is not yet known which extension causes it, or whether it needs both.
-   Reproduce: load both unpacked extensions in Chrome, open any `https://www.youtube.com/shorts/...` page, open the comments panel, scroll to the next Short, and check whether the comments still show the previous Short.
-   Likely places in TL;DW (read, not yet confirmed):
-   - `src/content/youtube.ts` `onNavigate()` runs on `yt-navigate-finish` and every 500 ms, treats `/shorts/` as a video page (`currentVideoId()` in `src/lib/constants.ts`), and on each new Short calls `removeSummaryPanel()`, `ensureWatchButton()` and `maybeStartDirectApiRun()`.
-   - `openTranscriptPanel()` / `closeTranscriptPanel()` in the same file click YouTube's description and engagement-panel controls; if any path reaches them on a Short it could disturb the Shorts engagement panel that hosts comments.
-   - `src/content/sponsorblock.ts` `handleNav()` also runs on every navigation and a 1 s poll.
-   - `src/content/youtube-intercept.ts` wraps `window.fetch` in the page world, but only reads `get_transcript` and `timedtext` responses, so it is an unlikely cause.
+1. **YouTube Shorts comments stop updating when scrolling between Shorts (HIGH, user-facing, most likely TubeVault).**
+   Seen with both TL;DW and TubeVault installed.
+   TL;DW no longer runs on Shorts at all (owner decision, 2026-11-02): its content scripts treat only `/watch?v=` as a video page (`currentVideoId()` in `src/content/youtube.ts`, `videoIdFromUrl()` in `src/content/sponsorblock.ts`, `currentUrlVideoId()` in `src/content/youtube-intercept.ts`), so on a Short they read nothing, click nothing and mount nothing.
+   On 2026-11-02, with TL;DW loaded alone in Playwright Chromium against live YouTube, the comments panel followed each Short across three scrolls, both before and after that change.
    In TubeVault the main suspect is its Shorts button, which inserts a React root into YouTube's recycled `reel-action-bar-view-model` (see TubeVault's `docs/HANDOFF.md`).
-   Plan: isolate by loading one extension at a time (TL;DW only, TubeVault only, both), then fix the culprit and add a Playwright regression test that scrolls between Shorts and asserts the comments panel follows the active Short.
+   Next: reproduce with TubeVault alone, fix it there, and add a Playwright regression test that scrolls between Shorts and asserts the comments panel follows the active Short.
 2. **Local `npm ci` fails on npm 12.**
    npm 12 defaults `allow-git` to `none`, and release-kit is a `github:` dev dependency, so `npm ci` stops with `EALLOWGIT` and leaves `node_modules` empty.
    Use `npm ci --allow-git=all` locally until the dependency source changes; CI's `npm ci` still succeeds (its runner uses an older npm).
@@ -52,7 +48,7 @@ It is not live anywhere yet: the 1.0.0 Unlisted Chrome Web Store submission is p
 
 ### Next steps, in order
 
-1. Isolate and fix the Shorts comments bug (open problem 1), with a regression test.
+1. Confirm the Shorts comments bug is TubeVault's (open problem 1) and fix it there, with a regression test.
 2. Switch the Direct API model to `gemini-3.5-flash-lite` and update the disclosures, then repeat the real-key smoke test with the owner's new key.
 3. Restore the local commit-msg hook via release-kit (open problem 3).
 4. Rebuild and revalidate the store ZIP with `npx vite build`, `npm run package` and `npm run validate:package` (never `npm run build`, which bumps the version), then hand the upload to the owner.
