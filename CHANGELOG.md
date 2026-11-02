@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3 - 2026-11-02
+
+### Fixed
+
+- TL;DW closes the transcript panel it opens and says when a video has no transcript ([#14](https://github.com/n8watkins/tl-dw/pull/14))
+
 ## 1.0.2 - 2026-11-02
 
 ### Fixed
