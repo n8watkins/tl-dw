@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.3 - 2026-11-02
+
+### Fixed
+
+- Transcripts YouTube's own button can't load are read again, and broken answers aren't cached ([#27](https://github.com/n8watkins/tl-dw/pull/27))
+
 ## 1.1.2 - 2026-11-02
 
 ### Fixed
