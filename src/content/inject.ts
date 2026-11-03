@@ -232,8 +232,13 @@ function clearComposer(editor: Element): void {
   }
 }
 
-/** Page areas that list other chats (sidebars), never the composer. */
-const NAVIGATION_AREAS = 'nav, aside, [role="navigation"], side-navigation-v2, bard-sidenav, conversations-list';
+/**
+ * Page areas that list other chats (sidebars), never the composer. Only the
+ * sidebar itself: Gemini wraps its whole app, composer included, in
+ * side-navigation-v2 and bard-sidenav-container, with the sidebar in
+ * bard-sidenav beside bard-sidenav-content.
+ */
+const NAVIGATION_AREAS = 'nav, aside, [role="navigation"], bard-sidenav';
 
 /** How many levels above the editor to look for its composer when no selector matches. */
 const COMPOSER_MAX_DEPTH = 6;
@@ -248,8 +253,12 @@ function composerRoot(config: SiteConfig): Element | null {
     .map((sel) => [...document.querySelectorAll<HTMLElement>(sel)].find((el) => !el.closest(NAVIGATION_AREAS)))
     .find(Boolean);
   if (!editor) return null;
-  const known = editor.closest(config.composerSelectors.join(","));
-  if (known && !known.closest(NAVIGATION_AREAS)) return known;
+  // In the config's order, not the nearest match: Gemini's editor sits in a
+  // fieldset inside input-area-v2, and the outer element is the safer root.
+  for (const sel of config.composerSelectors) {
+    const known = editor.closest(sel);
+    if (known && !known.closest(NAVIGATION_AREAS)) return known;
+  }
   // Unknown markup: the nearest ancestor that also holds a button.
   let el: Element | null = editor.parentElement;
   for (let depth = 0; el && depth < COMPOSER_MAX_DEPTH; depth += 1, el = el.parentElement) {

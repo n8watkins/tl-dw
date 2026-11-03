@@ -209,6 +209,8 @@ Signed-out tests never saw it, because a signed-out page has no sidebar.
 - Find the send and stop buttons inside the composer around the editor (`composerRoot()` in `src/content/inject.ts`), and match whole labels or test ids, never substrings.
 - Prefer completion signals tied to the answer itself: a complete TL;DW block that stops changing is accepted even if a stop button seems to linger.
 - Test with the signed-in page shape too: the e2e chat-site stand-ins have an account button and a chat-history sidebar with "Stop", "Cancel" and "Send" in its titles.
+- Don't exclude "sidebar" areas by guessing their tag names: Gemini wraps its whole app, composer included, in `side-navigation-v2`, and the first version of this fix excluded it and so never found the Send button (caught only by the live background-tab runner).
+  The Gemini stand-in now copies that nesting.
 
 ---
 

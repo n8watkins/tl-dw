@@ -1684,13 +1684,22 @@ type ChatSite = "gemini" | "chatgpt" | "claude";
  */
 const CHAT_SITES: Record<ChatSite, {
   composer: [string, string];
+  /** What wraps the page: the sidebar goes in the first slot, the chat in the second. */
+  layout: [string, string, string];
   editor: string;
   send: string;
   stop: string;
   response: [string, string];
 }> = {
   gemini: {
-    composer: ["<input-area-v2>", "</input-area-v2>"],
+    composer: ["<input-container><input-area-v2><fieldset>", "</fieldset></input-area-v2></input-container>"],
+    // Gemini's real nesting (2026-11-02): the whole app, composer included,
+    // sits in side-navigation-v2, with the sidebar in bard-sidenav.
+    layout: [
+      "<side-navigation-v2><bard-sidenav-container><bard-sidenav>",
+      "</bard-sidenav><bard-sidenav-content><chat-window>",
+      "</chat-window></bard-sidenav-content></bard-sidenav-container></side-navigation-v2>",
+    ],
     editor: '<div class="ql-editor" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>',
     send: '<button class="send-button" aria-label="Send message">Send</button>',
     stop: '<button class="send-button stop" aria-label="Stop response">Stop</button>',
@@ -1698,6 +1707,7 @@ const CHAT_SITES: Record<ChatSite, {
   },
   chatgpt: {
     composer: ["<form>", "</form>"],
+    layout: ["<div>", "</div><main>", "</main>"],
     editor: '<div id="prompt-textarea" class="ProseMirror" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>',
     send: '<button id="composer-submit-button" data-testid="send-button" aria-label="Send prompt" type="button">Send</button>',
     stop: '<button id="composer-submit-button" data-testid="stop-button" aria-label="Stop streaming" type="button">Stop</button>',
@@ -1705,6 +1715,7 @@ const CHAT_SITES: Record<ChatSite, {
   },
   claude: {
     composer: ["<fieldset>", "</fieldset>"],
+    layout: ["<div>", "</div><main>", "</main>"],
     editor: '<div class="ProseMirror" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>',
     send: '<button aria-label="Send message" type="button">Send</button>',
     stop: '<button aria-label="Stop response" type="button">Stop</button>',
@@ -1741,11 +1752,10 @@ function chatSiteFixture(site: ChatSite, signedIn: boolean): string {
   <head><title>Chat</title><style>.pending { display: none; }</style></head>
   <body>
     <header>${account}</header>
-    ${signedIn ? chatHistorySidebar : ""}
-    <main>
+    ${m.layout[0]}${signedIn ? chatHistorySidebar : ""}${m.layout[1]}
       <div id="thread"></div>
       ${m.composer[0]}${m.editor}<span id="slot">${m.send}</span>${m.composer[1]}
-    </main>
+    ${m.layout[2]}
     <script>
       const lines = ["---TLDW---", "SUMMARY: Hidden answers are read in full.",
         "DETAILS: Background tabs keep finished paragraphs hidden until they are shown.", "---END TLDW---"];
