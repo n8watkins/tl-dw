@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDestinationPrompt, buildDestinationPromptInfo, TLDW_REMINDER, TRANSCRIPT_TRUNCATED_NOTE } from "./promptBuilder";
+import { buildDestinationPrompt, buildDestinationPromptInfo, TLDW_REMINDER, TRANSCRIPT_SHORTENED_NOTE } from "./promptBuilder";
 import type { Destination, PromptProfile, VideoContext } from "../types";
 
 const profile: PromptProfile = {
@@ -109,7 +109,7 @@ describe("buildDestinationPrompt", () => {
       transcript,
     );
     expect(out.length).toBeLessThanOrEqual(30_000);
-    expect(out).toContain(TRANSCRIPT_TRUNCATED_NOTE);
+    expect(out).toContain(TRANSCRIPT_SHORTENED_NOTE);
     // The opening and the closing stretch survive; the cut is at word boundaries.
     expect(out).toContain("word0 word1 word2");
     expect(out).toContain("The final conclusion is here.");
@@ -132,7 +132,7 @@ describe("buildDestinationPrompt", () => {
       { maxChars: 1_000_000 },
     );
     expect(out).toContain(transcript.trim());
-    expect(out).not.toContain(TRANSCRIPT_TRUNCATED_NOTE);
+    expect(out).not.toContain(TRANSCRIPT_SHORTENED_NOTE);
   });
 
   it("leaves a transcript that fits untouched", () => {
@@ -143,7 +143,7 @@ describe("buildDestinationPrompt", () => {
       "Short transcript.",
     );
     expect(out).toContain("Short transcript.");
-    expect(out).not.toContain(TRANSCRIPT_TRUNCATED_NOTE);
+    expect(out).not.toContain(TRANSCRIPT_SHORTENED_NOTE);
   });
 
   it("a non-watch chat destination omits the transcript section when null", () => {
@@ -207,14 +207,30 @@ describe("buildDestinationPromptInfo", () => {
     expect(long.prompt.length).toBeLessThanOrEqual(6000);
   });
 
-  it("keeps only the start, labelled, when asked to send the first part", () => {
-    const transcript = "start ".repeat(2000) + "ENDING";
-    const { prompt, truncated } = buildDestinationPromptInfo(profile, video, site, transcript, null, null, { cut: "head" });
+  it("keeps the start and the end of a long transcript, with the middle marked as left out", () => {
+    const transcript = "START " + "middle ".repeat(2000) + "ENDING";
+    const { prompt, truncated } = buildDestinationPromptInfo(profile, video, site, transcript, null, null);
     expect(truncated).toBe(true);
-    expect(prompt).toContain("only its first part is included");
-    expect(prompt).toMatch(/the last \d+% of the transcript is left out/);
-    expect(prompt).not.toContain("ENDING");
+    expect(prompt).toContain("START");
+    expect(prompt).toContain("ENDING");
+    expect(prompt).toMatch(/\[\.\.\. transcript shortened: about \d+% of the transcript, from the middle of the video, is left out/);
+    expect(prompt).toContain("its middle is left out where marked");
     expect(prompt.length).toBeLessThanOrEqual(6000);
+  });
+
+  it("always puts the video's link in a link send, even when the template leaves it out", () => {
+    const noUrl: PromptProfile = { ...profile, promptTemplate: "Summarize {{title}}." };
+    const gemini: Destination = { ...site, canWatch: true };
+    const link = buildDestinationPromptInfo(noUrl, video, gemini, null, null, null).prompt;
+    expect(link).toContain("Video link: https://www.youtube.com/watch?v=abc");
+    expect(link).toContain("If you can't open the video itself");
+    // No transcript at all is a link send too, whatever the site.
+    expect(buildDestinationPromptInfo(noUrl, video, site, null, null, null).prompt).toContain("Video link:");
+    // A template that places {{url}} itself isn't given a second copy.
+    const withUrl = buildDestinationPromptInfo(profile, video, gemini, null, null, null).prompt;
+    expect(withUrl.match(/watch\?v=abc/g)).toHaveLength(1);
+    // A transcript send doesn't need the line.
+    expect(buildDestinationPromptInfo(noUrl, video, site, "words", null, null).prompt).not.toContain("Video link:");
   });
 
   it("fits a long transcript whole into the API budget", () => {

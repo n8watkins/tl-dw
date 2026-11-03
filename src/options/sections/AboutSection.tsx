@@ -92,8 +92,8 @@ export function AboutSection() {
           <div className="about-card-title">{DESTINATIONS.length} AI destinations</div>
           <div className="about-card-desc">
             Each destination handled the right way: Gemini, ChatGPT and Claude get the transcript when it
-            fits their message box, a longer video goes to Gemini as a link it watches, and NotebookLM
-            adds the link as a source.
+            fits their message box, a longer one is shortened in the middle with a label saying so, and
+            NotebookLM adds the link as a source.
           </div>
           <div className="about-dest-row">
             {DESTINATIONS.map((d) => (

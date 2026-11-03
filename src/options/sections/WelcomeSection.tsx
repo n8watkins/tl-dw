@@ -64,8 +64,9 @@ export function WelcomeSection({ onDone }: { onDone: () => void }) {
             <h3>Gemini in a background tab</h3>
             <p>
               TL;DW opens Gemini in a tab behind the video, using the Google account you're signed in
-              with, and puts Gemini's answer on the YouTube page. Long videos: Gemini watches them
-              from the link.
+              with, and puts Gemini's answer on the YouTube page. A long video's summary comes from
+              part of its transcript. Without a key Gemini can't watch videos, so for one with no
+              transcript it can only summarize public info about it.
             </p>
           </div>
           <div className="welcome-mode welcome-mode-recommended">

@@ -10,15 +10,15 @@ import { fallbackNotice, GeminiApiError, normalizeGeminiError, summarizeWithFall
 import { geminiQuotaDay } from "../lib/geminiUsage";
 import {
   API_TOO_LONG_MESSAGE,
-  LONG_VIDEO_LINK_NOTICE,
-  LONG_VIDEO_LINK_NOTICE_WITH_KEY,
+  excerptLabel,
+  excerptNotice,
   longTranscriptChoiceMessage,
-  NO_TRANSCRIPT_LINK_NOTICE,
   noTranscriptChoiceMessage,
+  noTranscriptLinkNotice,
   NOT_WATCHABLE_MESSAGE,
   planSend,
+  publicInfoLabel,
   WATCHED_BY_GEMINI_LABEL,
-  WATCHED_FROM_LINK_LABEL,
 } from "../lib/sendPlan";
 import {
   DIRECT_API_MAX_PROMPT_CHARS,
@@ -302,7 +302,7 @@ type RunOutcome =
 
 /**
  * Tell the YouTube page how a run is going ("Reading the transcript…"), and
- * optionally show a notice there (a long video Gemini will watch from the link).
+ * optionally show a notice there (a long video sent as part of its transcript).
  */
 function progress(tabId: number, videoId: string | null, step: string, notice?: string): void {
   void chrome.tabs.sendMessage(tabId, {
@@ -433,7 +433,7 @@ type RunOptions = {
   source?: SummarySource;
   forceFocusTab?: boolean;
   bypassCache?: boolean;
-  /** The user chose "send the first part only" of a transcript too long for the site. */
+  /** The user chose "send part of the transcript" of one too long for the site. */
   allowTruncate?: boolean;
 };
 
@@ -595,7 +595,7 @@ async function prepareAndSend({
     const error = plan === "choose-long"
       ? longTranscriptChoiceMessage(destination.label)
       : plan === "choose-no-transcript"
-        ? noTranscriptChoiceMessage(destination.label)
+        ? noTranscriptChoiceMessage(destination.label, hasApi)
         : API_TOO_LONG_MESSAGE;
     const outcome = {
       ok: false as const,
@@ -799,19 +799,21 @@ async function prepareAndSend({
   }
 
   // --- tab path: open the destination and let its injector fill it ---------
+  // A summary made from less than the whole transcript says so on the panel:
+  // TL;DW never cuts a transcript, or leaves it out, silently.
   let prompt: string;
   let notice: string | undefined;
-  if (plan === "tab-transcript") {
+  let summaryLabel: string | undefined;
+  if (plan === "tab-transcript" || plan === "tab-excerpt") {
     prompt = full.prompt;
-  } else if (plan === "tab-head") {
-    prompt = buildDestinationPromptInfo(
-      profile, video, transcriptDest, transcript, userCuriosity, activeTags, { cut: "head" },
-    ).prompt;
+    if (plan === "tab-excerpt") {
+      notice = excerptNotice(destination.label, hasApi);
+      summaryLabel = excerptLabel(hasApi);
+    }
   } else if (plan === "tab-link") {
     prompt = linkPrompt;
-    notice = transcript
-      ? (hasApi ? LONG_VIDEO_LINK_NOTICE_WITH_KEY : LONG_VIDEO_LINK_NOTICE)
-      : NO_TRANSCRIPT_LINK_NOTICE;
+    notice = noTranscriptLinkNotice(hasApi);
+    summaryLabel = publicInfoLabel(hasApi);
   } else {
     prompt = buildDestinationPrompt(profile, video, destination, transcript, userCuriosity, activeTags);
   }
@@ -885,7 +887,7 @@ async function prepareAndSend({
       video,
       destination,
       activeTab?.id,
-      plan === "tab-transcript" || plan === "tab-head" ? (tabVideoId ?? undefined) : undefined,
+      plan === "tab-transcript" || plan === "tab-excerpt" ? (tabVideoId ?? undefined) : undefined,
       tabVideoId && tabPromptFingerprint
         ? {
             videoId: tabVideoId,
@@ -895,7 +897,7 @@ async function prepareAndSend({
             modelOrDestination: destination.id,
           }
         : undefined,
-      plan === "tab-link" ? WATCHED_FROM_LINK_LABEL : undefined,
+      summaryLabel,
     );
   }
   if (settings.saveHistoryOnSearch) {

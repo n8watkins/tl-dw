@@ -8,7 +8,8 @@ It is a Manifest V3 Chrome extension that turns a YouTube transcript into a conc
 - Works out of the box with no key: the TL;DW button under a video opens Gemini in a background tab and brings its answer back to the YouTube page.
 - With your own free Gemini API key (Direct API), the summary appears on the page in seconds with no tab: long videos are summarized from the full transcript, and videos without captions are watched by Gemini from their link.
 - Direct API uses Gemini 3.5 Flash-Lite and switches to Gemini 3.1 Flash-Lite by itself when Google reports a rate or quota limit; a model picker offers larger models for people who pay or want more depth.
-- TL;DW never cuts a transcript silently: too long for the Gemini tab means Gemini watches the link, and for ChatGPT or Claude the page asks what to do.
+- TL;DW never cuts a transcript silently: when one is too long for the Gemini tab, Gemini gets its start and end and the summary says "Summarized from part of the transcript"; for ChatGPT or Claude the page asks first.
+- Without a key, Gemini can't watch YouTube videos. For a video with no transcript the Gemini tab gets the link and can only summarize public info about the video, and the summary says so; with a key, the Gemini API watches the video itself.
 - Open-in-a-tab mode also supports ChatGPT, Claude and NotebookLM, using your signed-in sessions; Chrome asks for access to each site the first time you pick it.
 - Prompt profiles, channel and video tags, and specific questions shape the summary.
 - Automatic summaries can run for chosen channels or for videos over a set length.

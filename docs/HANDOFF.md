@@ -5,16 +5,21 @@
 ### What this is
 
 TL;DW (Too Long; Didn't Watch) is a Manifest V3 Chrome extension for YouTube.
-The TL;DW button under a video puts an AI summary on the page: with no key it opens Gemini in a background tab and reads the answer back; with the user's own free Gemini API key (Direct API) the summary comes straight from the API with no tab.
+The TL;DW button under a video puts an AI summary on the page: with no key it opens Gemini in a background tab and reads the answer back (Gemini then works from the transcript, or for a video without one, from public info about it: signed-out Gemini does not watch YouTube videos); with the user's own free Gemini API key (Direct API) the summary comes straight from the API with no tab.
 It can also send a video to ChatGPT, Claude or NotebookLM.
 Repo: `n8watkins/tl-dw`, default branch `master`.
 It is not live in the Chrome Web Store yet: the Unlisted submission still needs the owner's publisher account.
 
 ### Status as of today
 
+- Version 1.1.1 fixes a v1.1.0 regression: every no-key send to the background Gemini tab timed out (0 of 9 in a live test), because a hidden Gemini tab keeps its answer's paragraphs `display: none` and TL;DW read only rendered text.
+  The reader now falls back to the DOM tree and waits until the answer stops changing; see LESSONS_LEARNED.md lesson 18.
+  It also makes no-key link sends honest: a long video goes to the Gemini tab as the start and end of its transcript (labeled "Summarized from part of the transcript (video is long)"), a video with no transcript goes as its link labeled "No transcript, so Gemini summarized from public info about this video", link prompts always carry the URL, and "Watched by Gemini" appears only on the API video path.
+  ChatGPT and Claude's long-transcript choice now sends the start and end ("Send part of the transcript"), and `parseTldwBlock` splits a `DETAILS:` label run onto the SUMMARY line.
+  Check background-tab behavior with `scripts/live-background-tab.mjs` (plain Chromium under xvfb), never with Playwright alone.
 - Version 1.1.0 (PRs #15 to #18) implements the owner's 2026-11-02 decisions and the UX audit:
   - first install opens `options#welcome` (two modes, free-key steps, "Skip, use without a key"); a verified key turns Direct API on;
-  - sends are planned up front (`src/lib/sendPlan.ts`): the API gets the whole transcript or, with none, watches the YouTube link as video input (`fileData.fileUri`, `MEDIA_RESOLUTION_LOW`); without a key, a transcript too long for the Gemini tab goes as the link, and ChatGPT or Claude get an on-page choice;
+  - sends are planned up front (`src/lib/sendPlan.ts`): the API gets the whole transcript or, with none, watches the YouTube link as video input (`fileData.fileUri`, `MEDIA_RESOLUTION_LOW`); without a key, ChatGPT or Claude get an on-page choice for a transcript too long for them (1.1.1 changed the Gemini tab's handling, see above);
   - Direct API defaults to `gemini-3.5-flash-lite` and retries once on `gemini-3.1-flash-lite` after a 429 (a per-day quota violation sticks to the fallback for the Pacific quota day), with a model picker;
   - the base install asks only for YouTube, Gemini and the Gemini API; ChatGPT, Claude, NotebookLM and SponsorBlock are `optional_host_permissions`, and the injector for those sites is registered at runtime with `chrome.scripting`; the `tabs` permission is gone;
   - SponsorBlock is opt-in; PRIVACY.md is dated 2026-11-02.
@@ -33,7 +38,7 @@ It is not live in the Chrome Web Store yet: the Unlisted submission still needs 
    On 2026-11-02, in Playwright Chromium (headless and headed, signed out), 3Blue1Brown's `aircAruvnKk` and `IHZwWFHWa-w` (both with chapters) opened YouTube's legacy transcript panel, whose `get_transcript` request YouTube answered with 400 FAILED_PRECONDITION; YouTube's own panel stayed empty.
    Videos without chapters (e.g. `dQw4w9WgXcQ`) use the modern `get_panel` path, which works.
    The caption track URLs carry `exp=xpe` and return empty bodies without a PO token, so they are no fallback either.
-   TL;DW stops waiting as soon as that request fails; since v1.1.0 Gemini then watches the video from its link (API video input with a key, the Gemini tab without one), and ChatGPT or Claude offer "Send to Gemini instead".
+   TL;DW stops waiting as soon as that request fails; with a key the Gemini API then watches the video (video input); without one the Gemini tab gets the link and can only summarize public info about the video (labeled so), and ChatGPT or Claude offer a free key or "Send the link to Gemini (public info only)".
    Next: check the same videos in the owner's signed-in Chrome; if they work there, the failure is specific to signed-out automation.
 3. **Local `npm ci` fails on npm 12.**
    npm 12 defaults `allow-git` to `none`, and release-kit is a `github:` dev dependency, so `npm ci` stops with `EALLOWGIT` and leaves `node_modules` empty.
@@ -52,7 +57,7 @@ It is not live in the Chrome Web Store yet: the Unlisted submission still needs 
 
 6. **Most videos give no transcript in signed-out automation (HIGH for testing, see problem 2).**
    On 2026-11-02, in signed-out headless Chromium, only videos without chapters on the modern `get_panel` path (for example `dQw4w9WgXcQ`) returned a transcript; 3Blue1Brown, MIT, Stanford and TED videos all came back empty.
-   Since v1.1.0 those videos are still summarized (Gemini watches the link), but from video rather than the cheaper transcript.
+   With a key those videos are still summarized (the API watches the video), but from video rather than the cheaper transcript; without a key the summary comes only from public info about the video.
    Check in the owner's signed-in Chrome before deciding whether the transcript reader needs work.
 
 ### Blocked on the owner

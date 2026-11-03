@@ -345,7 +345,7 @@ export type AskMessage = {
   source?: SummarySource;
   /** Skip an exact cache match and replace it after a successful run. */
   bypassCache?: boolean;
-  /** Send only the first part of a transcript too long for the destination (an explicit choice). */
+  /** Send part of a transcript too long for the destination (its start and end; an explicit choice). */
   allowTruncate?: boolean;
 };
 

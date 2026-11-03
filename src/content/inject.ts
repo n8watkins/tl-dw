@@ -653,6 +653,61 @@ function textWithListMarkers(el: HTMLElement): string {
   }
 }
 
+/** Elements whose text never belongs to the answer. */
+const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "BUTTON", "MAT-ICON", "TEXTAREA"]);
+/** Elements that start and end a line of text. */
+const BLOCK_TAGS = new Set([
+  "P", "DIV", "LI", "UL", "OL", "H1", "H2", "H3", "H4", "H5", "H6", "PRE", "BLOCKQUOTE",
+  "TABLE", "TR", "SECTION", "ARTICLE", "HEADER", "FOOTER", "DL", "DT", "DD", "FIGURE",
+]);
+
+/**
+ * An element's text read from the DOM tree itself, with line breaks between
+ * blocks and list items marked, whatever the CSS says. innerText leaves out
+ * hidden text, and in a background tab Gemini keeps a finished answer's
+ * paragraphs as `display: none` ("p.pending") until its reveal animation runs,
+ * which only happens once the tab is shown. textContent has the words but runs
+ * the paragraphs together, so this walks the tree instead.
+ */
+function structuralText(root: Element): string {
+  const out: string[] = [];
+  const walk = (node: Node, pre: boolean) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.nodeValue ?? "";
+      out.push(pre ? text : text.replace(/\s+/g, " "));
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node as Element;
+    const tag = el.tagName.toUpperCase();
+    if (SKIP_TAGS.has(tag)) return;
+    if (tag === "BR" || tag === "HR") { out.push("\n"); return; }
+    const block = BLOCK_TAGS.has(tag);
+    if (block) out.push("\n");
+    if (tag === "LI") {
+      const list = el.parentElement;
+      const index = list ? [...list.children].filter((c) => c.tagName === "LI").indexOf(el) : 0;
+      out.push(list?.tagName === "OL" ? `${index + 1}. ` : "- ");
+    }
+    for (const child of el.childNodes) walk(child, pre || tag === "PRE");
+    if (block) out.push("\n");
+  };
+  walk(root, false);
+  return out.join("")
+    .replace(/[ \t]*\n[ \t]*/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** The last element matching the first response selector that has any. */
+function lastResponseElement(responseSelectors: string[]): HTMLElement | null {
+  for (const sel of responseSelectors) {
+    const all = document.querySelectorAll<HTMLElement>(sel);
+    if (all.length) return all[all.length - 1];
+  }
+  return null;
+}
+
 /** Read the last visible response container's text content. */
 function readLastResponse(responseSelectors: string[]): string {
   for (const sel of responseSelectors) {
@@ -664,6 +719,30 @@ function readLastResponse(responseSelectors: string[]): string {
     }
   }
   return "";
+}
+
+type ResponseRead = {
+  /** The answer's text, as best read. */
+  text: string;
+  tldw: ReturnType<typeof parseTldwBlock>;
+  /** Whether it came from the DOM tree because the rendered text lacked it. */
+  hidden: boolean;
+};
+
+/**
+ * Read the last answer and parse its TL;DW block: from the rendered text when
+ * that has it (what the user sees), else from the DOM tree, which also has
+ * text the page keeps hidden (a background tab's unrevealed paragraphs).
+ */
+function readResponse(responseSelectors: string[]): ResponseRead {
+  const rendered = readLastResponse(responseSelectors);
+  const parsed = rendered ? parseTldwBlock(rendered) : null;
+  if (parsed) return { text: rendered, tldw: parsed, hidden: false };
+  const el = lastResponseElement(responseSelectors);
+  const raw = el ? structuralText(el) : "";
+  const fromTree = raw ? parseTldwBlock(raw) : null;
+  if (fromTree) return { text: raw, tldw: fromTree, hidden: true };
+  return { text: raw.length > rendered.length ? raw : rendered, tldw: null, hidden: raw.length > rendered.length };
 }
 
 import { parseTldwBlock } from "../lib/tldw";
@@ -698,27 +777,31 @@ async function waitForResponseAndSend(
   }
   log(sawStop ? "generation started (stop button seen)" : "no stop button seen in 15s — reading anyway");
 
-  // Wait for the stop button to disappear (generation done).
-  while (Date.now() < deadline) {
-    if (!hasStopButton(config.stopSelectors)) break;
-    await sleep(800);
-  }
-
-  // Give the DOM a moment to settle after the stop button disappears.
-  await sleep(600);
-
-  // Poll for the parseable ---TLDW--- block rather than reading once: the final
-  // block can still be streaming in when the stop button vanishes, and stop-
-  // button detection isn't perfect, so a single read can catch a partial answer.
-  let tldw = null;
+  // Then poll until the answer is complete: generation has stopped and the
+  // TL;DW block has stopped changing (the block can still be
+  // streaming when the stop button vanishes, and stop-button detection isn't
+  // perfect). Keep reading until the deadline rather than for a fixed time
+  // after the stop button goes: in a background tab Chrome throttles timers
+  // and the page renders lazily, so the answer can take longer to appear.
+  // Give up early only when generation has stopped and the text hasn't changed
+  // for a while without a block, and fall back to the raw text then.
+  let tldw: ReturnType<typeof parseTldwBlock> = null;
   let lastText = "";
-  const readDeadline = Math.min(deadline, Date.now() + 25_000);
-  while (Date.now() < readDeadline) {
-    lastText = readLastResponse(config.responseSelectors);
-    tldw = lastText ? parseTldwBlock(lastText) : null;
-    if (tldw) break;
+  let previous = "";
+  let stableSince = Date.now();
+  let hidden = false;
+  while (Date.now() < deadline) {
+    const generating = hasStopButton(config.stopSelectors);
+    const read = readResponse(config.responseSelectors);
+    if (read.text !== previous) { previous = read.text; stableSince = Date.now(); }
+    lastText = read.text;
+    hidden = read.hidden;
+    const settled = !generating && Date.now() - stableSince >= 600;
+    if (read.tldw && settled) { tldw = read.tldw; break; }
+    if (!generating && !read.tldw && lastText && Date.now() - stableSince >= 25_000) break;
     await sleep(700);
   }
+  if (tldw && hidden) log("read the answer from the page's hidden text (background tab)");
 
   if (tldw) {
     log("parsed TL;DW block — sending to YouTube tab");

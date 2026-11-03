@@ -1,6 +1,6 @@
 # TL;DW - Privacy Policy
 
-_Last updated: November 2, 2026 (extension v1.1.0)_
+_Last updated: November 2, 2026 (extension v1.1.1)_
 
 TL;DW summarizes YouTube videos.
 It has no developer backend, no accounts, no shared API key, and no analytics, tracking or telemetry.
@@ -15,8 +15,10 @@ What leaves your device depends on how you summarize a video.
 
 - TL;DW opens the AI site you chose (Gemini by default, or ChatGPT, Claude or NotebookLM) in a tab, under the account you are signed in with there.
 - It types a prompt into that site's message box: your prompt profile's instructions, the video's title, channel and link, any question you typed, and the video's transcript when it fits the site's message box.
-- When the transcript is too long for the Gemini web app, or there is none, Gemini gets the video's link instead and watches the video itself.
-  For ChatGPT and Claude, TL;DW asks you on the page first and sends only what you choose.
+- When the transcript is too long for the site's message box, TL;DW sends its start and end with the middle marked as left out, and the summary is labeled so.
+  The Gemini web app gets this right away; for ChatGPT and Claude, TL;DW asks you on the page first and sends only what you choose.
+- When there is no transcript, the Gemini web app gets the video's link instead.
+  Without your API key Gemini does not watch the video: it can only look up public information about it, and the summary is labeled so.
 - NotebookLM gets the video's link as a source.
 - TL;DW then reads the site's answer in that tab to show the summary on the YouTube page.
 - That site's own terms and privacy policy apply to what it receives.
