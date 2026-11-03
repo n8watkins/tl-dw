@@ -1675,44 +1675,99 @@ async function pendingPrompt(session: ExtensionSession): Promise<string> {
   });
 }
 
+type ChatSite = "gemini" | "chatgpt" | "claude";
+
 /**
- * A Gemini stand-in that answers the way Gemini does in a background tab: the
- * whole answer is in the page, but its paragraphs stay `display: none`
- * ("p.pending") until the tab is shown, so the rendered text is only the
- * "Gemini said" heading (seen live, 2026-11-02). Signed in, it shows Google's
- * account button; signed out, a "Sign in" link.
+ * The markup each chat site's stand-in uses: the composer around the editor,
+ * the send button and the stop button that replaces it while the answer
+ * streams, and the element the answer goes in.
  */
-function hiddenAnswerGeminiFixture(signedIn: boolean): string {
+const CHAT_SITES: Record<ChatSite, {
+  composer: [string, string];
+  editor: string;
+  send: string;
+  stop: string;
+  response: [string, string];
+}> = {
+  gemini: {
+    composer: ["<input-area-v2>", "</input-area-v2>"],
+    editor: '<div class="ql-editor" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>',
+    send: '<button class="send-button" aria-label="Send message">Send</button>',
+    stop: '<button class="send-button stop" aria-label="Stop response">Stop</button>',
+    response: ["<model-response><h2>Gemini said</h2><div class=\"markdown\">", "</div></model-response>"],
+  },
+  chatgpt: {
+    composer: ["<form>", "</form>"],
+    editor: '<div id="prompt-textarea" class="ProseMirror" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>',
+    send: '<button id="composer-submit-button" data-testid="send-button" aria-label="Send prompt" type="button">Send</button>',
+    stop: '<button id="composer-submit-button" data-testid="stop-button" aria-label="Stop streaming" type="button">Stop</button>',
+    response: ['<div data-message-author-role="assistant"><div class="markdown">', "</div></div>"],
+  },
+  claude: {
+    composer: ["<fieldset>", "</fieldset>"],
+    editor: '<div class="ProseMirror" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>',
+    send: '<button aria-label="Send message" type="button">Send</button>',
+    stop: '<button aria-label="Stop response" type="button">Stop</button>',
+    response: ['<div data-testid="assistant-message"><div>', "</div></div>"],
+  },
+};
+
+/**
+ * A signed-in sidebar of recent chats, each with a menu button named after its
+ * chat, as Gemini, ChatGPT and Claude show it: titles with "Stop", "Cancel" or
+ * "Send" in them once kept TL;DW waiting for a stop button that never left.
+ */
+const chatHistorySidebar = `<nav aria-label="Recent chats">
+  ${["Cannot Stop Paused Timer", "Cancel my subscription", "Send email to Bob", "Stop generating ideas"]
+    .map((title) => `<div><a href="#">${title}</a><button aria-label="More options for ${title}">⋮</button>` +
+      `<button aria-label="${title}">${title}</button></div>`).join("\n  ")}
+</nav>`;
+
+/**
+ * A chat-site stand-in that answers the way Gemini does in a background tab:
+ * the whole answer is in the page, but its paragraphs stay `display: none`
+ * ("p.pending") until the tab is shown, so the rendered text holds no answer
+ * (seen live, 2026-11-02). Signed in, it shows Google's account button and a
+ * chat-history sidebar; signed out, a "Sign in" link. While the answer
+ * streams, the send button turns into a stop button, as on the real sites.
+ */
+function chatSiteFixture(site: ChatSite, signedIn: boolean): string {
+  const m = CHAT_SITES[site];
   const account = signedIn
     ? '<a aria-label="Google Account: Fixture User" href="https://accounts.google.com/SignOutOptions">FU</a>'
     : '<a href="https://accounts.google.com/ServiceLogin?continue=https://gemini.google.com/app">Sign in</a>';
   return `<!doctype html>
 <html>
-  <head><title>Gemini</title><style>.pending { display: none; }</style></head>
+  <head><title>Chat</title><style>.pending { display: none; }</style></head>
   <body>
     <header>${account}</header>
-    <div class="ql-editor" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>
-    <button aria-label="Send message">Send</button>
+    ${signedIn ? chatHistorySidebar : ""}
+    <main>
+      <div id="thread"></div>
+      ${m.composer[0]}${m.editor}<span id="slot">${m.send}</span>${m.composer[1]}
+    </main>
     <script>
-      document.querySelector("button").addEventListener("click", () => {
-        window.__sentPrompt = document.querySelector(".ql-editor").textContent;
-        const stop = document.createElement("button");
-        stop.setAttribute("aria-label", "Stop response");
-        stop.textContent = "Stop";
-        document.body.append(stop);
+      const lines = ["---TLDW---", "SUMMARY: Hidden answers are read in full.",
+        "DETAILS: Background tabs keep finished paragraphs hidden until they are shown.", "---END TLDW---"];
+      const slot = document.getElementById("slot");
+      const bind = () => slot.querySelector("button").addEventListener("click", () => {
+        window.__sentPrompt = document.querySelector("[contenteditable]").textContent;
+        slot.innerHTML = ${JSON.stringify(m.stop)};
         setTimeout(() => {
-          const response = document.createElement("model-response");
-          response.innerHTML = '<h2>Gemini said</h2><div class="markdown">' +
-            ["---TLDW---", "SUMMARY: Hidden answers are read in full.",
-             "DETAILS: Background tabs keep finished paragraphs hidden until they are shown.", "---END TLDW---"]
-              .map((line) => '<p class="pending">' + line + "</p>").join("") + "</div>";
-          document.body.append(response);
-          stop.remove();
+          document.getElementById("thread").insertAdjacentHTML("beforeend", ${JSON.stringify(m.response[0])} +
+            lines.map((line) => '<p class="pending">' + line + "</p>").join("") + ${JSON.stringify(m.response[1])});
+          window.__answeredAt = Date.now();
+          slot.innerHTML = ${JSON.stringify(m.send)};
         }, 1200);
       });
+      bind();
     </script>
   </body>
 </html>`;
+}
+
+function hiddenAnswerGeminiFixture(signedIn: boolean): string {
+  return chatSiteFixture("gemini", signedIn);
 }
 
 /** Profiles whose default template leaves out {{url}}, as TL;DW's own does. */
@@ -1814,6 +1869,43 @@ for (const { kind, signedIn } of geminiTabCases) {
         expect(sent).not.toContain(readTranscript);
         expect(sent).not.toContain("TRANSCRIPT START");
       }
+    } finally {
+      await session.close();
+    }
+  });
+}
+
+for (const site of ["gemini", "chatgpt", "claude"] as const) {
+  test(`a chat-history sidebar with "Stop" and "Cancel" in its chat titles doesn't hold the answer back (${site})`, async () => {
+    const session = await launchExtension();
+    try {
+      await routeYouTube(session.context);
+      const origin = { gemini: "https://gemini.google.com", chatgpt: "https://chatgpt.com", claude: "https://claude.ai" }[site];
+      await session.context.route(`${origin}/**`, async (route) => {
+        await route.fulfill({ status: 200, contentType: "text/html", body: chatSiteFixture(site, true) });
+      });
+      await setStorage(session, {
+        profiles: profiles(),
+        settings: {
+          ...directSettings(), geminiApiKey: "", useDirectApi: false, temporaryChats: false, focusGeminiTab: false,
+          destinationId: site,
+        },
+      });
+      const page = await openVideo(session.context, `fixture-sidebar-${site}`);
+      const created = await recordTabCreates(session);
+      const chatPage = session.context.waitForEvent("page");
+      await page.locator("#tldw-watch-btn").click();
+      await expect.poll(async () => (await created()).length).toBe(1);
+      const chat = await chatPage;
+      await chat.goto((await created())[0].url!);
+      await page.bringToFront();
+      // TL;DW clicked the composer's send button, not a sidebar button.
+      await expect.poll(() => chat.evaluate(() => (window as unknown as { __sentPrompt?: string }).__sentPrompt ?? "")).toContain("GLOBAL PROFILE");
+      await expect.poll(() => chat.evaluate(() => (window as unknown as { __answeredAt?: number }).__answeredAt ?? 0)).toBeGreaterThan(0);
+      // The summary arrives as soon as the composer's stop button is gone,
+      // not after a safety wait or the three-minute deadline.
+      await expect(page.locator("#tldw-summary")).toContainText("Hidden answers are read in full.", { timeout: 5_000 });
+      await expect(page.locator("#tldw-summary")).not.toContainText("Couldn't get the summary");
     } finally {
       await session.close();
     }
