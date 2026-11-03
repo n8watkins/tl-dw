@@ -124,3 +124,43 @@ describe("list details", () => {
     expect(parsed?.details).toBe("one line wraps here.");
   });
 });
+
+describe("inline field labels", () => {
+  it("splits a DETAILS label that runs onto the SUMMARY line", () => {
+    // Seen live in 5 of about 20 Gemini answers (2026-11-02).
+    const parsed = parseTldwBlock(
+      "---TLDW---\nSUMMARY: Intelligence costs will plummet.DETAILS: Alignment needs public iteration. Safety improves.\n---END TLDW---",
+    );
+    expect(parsed).toEqual({
+      summary: "Intelligence costs will plummet.",
+      details: "Alignment needs public iteration. Safety improves.",
+    });
+  });
+
+  it("splits labels with spaces, bold markup, or on one line with the markers", () => {
+    expect(parseTldwBlock("---TLDW--- SUMMARY: A claim. **DETAILS:** The support. ---END TLDW---")).toEqual({
+      summary: "A claim.",
+      details: "The support.",
+    });
+    expect(parseTldwBlock("---TLDW---SUMMARY: A claim.DETAILS: The support.---END TLDW---")).toEqual({
+      summary: "A claim.",
+      details: "The support.",
+    });
+  });
+
+  it("splits text read without its paragraph breaks (a hidden Gemini tab)", () => {
+    const parsed = parseTldwBlock(
+      "Gemini said ---TLDW---\nSUMMARY: Costs fall.DETAILS: First point. Second point.\n---END TLDW---",
+    );
+    expect(parsed?.summary).toBe("Costs fall.");
+    expect(parsed?.details).toBe("First point. Second point.");
+  });
+
+  it("leaves look-alike words and lowercase labels in the prose alone", () => {
+    const parsed = parseTldwBlock(
+      "---TLDW---\nSUMMARY: Big RETAILS: margins shrink, and the details: matter.\nDETAILS: The API: stays.\n---END TLDW---",
+    );
+    expect(parsed?.summary).toBe("Big RETAILS: margins shrink, and the details: matter.");
+    expect(parsed?.details).toBe("The API: stays.");
+  });
+});

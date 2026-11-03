@@ -7,6 +7,32 @@ import type { TldwSummary } from "../types";
  *  values), but TL;DW no longer requests or surfaces them. */
 const TLDW_FIELDS = new Set(["VERDICT", "RATING", "SUMMARY", "DETAILS"]);
 
+const FIELD_NAMES = [...TLDW_FIELDS].join("|");
+
+/** A field label that starts a line (after list/quote markers and markdown). */
+const LINE_START_FIELD = new RegExp(`^[\\s>+•-]*[*_\`]*\\s*(?:${FIELD_NAMES})\\b[*_\`]*\\s*:`, "m");
+
+/**
+ * Put every field label after the first on its own line. Models sometimes run
+ * the next field onto the same line ("...plummet.DETAILS: ..."), and a reader
+ * that lost the paragraph breaks does too, while the parser below is
+ * line-based. Only an exact all-caps label followed by a colon counts, and only
+ * where it starts a word, so "RETAILS:" or a lowercase "details:" in the prose
+ * stay put. The first field must still start a line, so a stray "SUMMARY:" in
+ * prose around a bare "TLDW" word can't start a block.
+ */
+const INLINE_FIELD = new RegExp(
+  `(?<=[^\\s*_\`])[ \\t]*(?=[*_\`]*\\b(?:${FIELD_NAMES})\\b[*_\`]*\\s*:)`,
+  "g",
+);
+
+function splitInlineFields(text: string): string {
+  const first = LINE_START_FIELD.exec(text);
+  if (!first) return text;
+  const from = first.index + first[0].length;
+  return text.slice(0, from) + text.slice(from).replace(INLINE_FIELD, "\n");
+}
+
 /** "- point", "* point", "• point" -> "• point"; "2. point" / "2) point" -> "2. point"; else null. */
 function listItem(line: string): string | null {
   const bullet = line.match(/^\s*[-*•]\s+(.+)$/);
@@ -25,7 +51,7 @@ function listItem(line: string): string | null {
 function parseFields(inner: string): TldwSummary | null {
   const fields: Record<string, string> = {};
   let key = "";
-  for (const rawLine of inner.split("\n")) {
+  for (const rawLine of splitInlineFields(inner).split("\n")) {
     // Capture: [leading list/quote markers][markdown around label] LABEL : value.
     // m[2] is the markdown that WRAPPED the label (e.g. the ** of "**SUMMARY:**").
     const m = rawLine.match(/^[\s>+•-]*([*_`]*)\s*([A-Z]+)[*_`]*\s*:\s*([\s\S]*)$/);

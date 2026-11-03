@@ -170,6 +170,7 @@ In real Chrome it fails in exactly the place TL;DW copies from: a destination ta
 
 - To test background-tab behavior, send `Emulation.setFocusEmulationEnabled { enabled: false }` on the page's CDP session.
 - Check the test catches the bug by breaking the fix on purpose (the "background tab" cut-short test fails without the `execCommand("copy")` fallback in `copyText()`, `src/content/inject.ts`).
+- Turning focus emulation off is not enough for visibility: see lesson 18.
 
 ## 16. `f?.(await g())` skips `g()` when `f` is undefined
 
@@ -185,6 +186,18 @@ TL;DW declares its injector statically only for Gemini and registers the same co
 
 - crxjs refuses to use one file as both a manifest content script and a `?script&iife` import; import a one-line wrapper (`src/content/inject-optional.ts`).
 - crxjs also lists `?script&iife` output as web-accessible on every site; `vite.config.ts` drops that entry, and `npm run validate:package` checks the store ZIP's permissions.
+
+## 18. Test background tabs with no debugger attached
+
+v1.1.0 opened the Gemini tab in the background, and every no-key send then timed out after about three minutes (0 of 9 in a live test), while the same sends brought to the front took 13 to 21 seconds.
+In a hidden tab Gemini writes the whole answer into the page but keeps its paragraphs `display: none` ("p.pending") until its reveal animation runs, which only happens once the tab is shown.
+`innerText` leaves out hidden text, so the reader saw only "Gemini said" and gave up.
+Every automated test passed, because Playwright's default launch and any CDP session attached to a page make that page report itself visible and focused, so the "background" tab rendered like a front one.
+
+- Read scraped answers from the DOM tree when the rendered text lacks them (`readResponse()` and `structuralText()` in `src/content/inject.ts`), and wait until the answer stops changing rather than a fixed time after the stop button goes.
+- Cover the markup in an e2e fixture (the hidden-answer Gemini stand-in in `tests/e2e/extension.spec.ts`), and check it fails without the fix.
+- Check real background-tab behavior with `scripts/live-background-tab.mjs` (`npm run test:live-background-tab -- <videoId>`): plain Chromium under `xvfb-run`, driven only through the extension's service worker, attaching to no page until the run ends.
+  Compare with `--front` as the control.
 
 ---
 

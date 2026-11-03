@@ -10,15 +10,18 @@ import { fallbackNotice, GeminiApiError, normalizeGeminiError, summarizeWithFall
 import { geminiQuotaDay } from "../lib/geminiUsage";
 import {
   API_TOO_LONG_MESSAGE,
-  LONG_VIDEO_LINK_NOTICE,
-  LONG_VIDEO_LINK_NOTICE_WITH_KEY,
+  captionsLinkNotice,
+  excerptLabel,
+  excerptNotice,
+  geminiLongNotice,
   longTranscriptChoiceMessage,
-  NO_TRANSCRIPT_LINK_NOTICE,
   noTranscriptChoiceMessage,
+  noTranscriptLinkNotice,
   NOT_WATCHABLE_MESSAGE,
   planSend,
+  publicInfoLabel,
+  SIGNED_IN_TRANSCRIPT_LABEL,
   WATCHED_BY_GEMINI_LABEL,
-  WATCHED_FROM_LINK_LABEL,
 } from "../lib/sendPlan";
 import {
   DIRECT_API_MAX_PROMPT_CHARS,
@@ -302,7 +305,7 @@ type RunOutcome =
 
 /**
  * Tell the YouTube page how a run is going ("Reading the transcript…"), and
- * optionally show a notice there (a long video Gemini will watch from the link).
+ * optionally show a notice there (a long video sent as part of its transcript).
  */
 function progress(tabId: number, videoId: string | null, step: string, notice?: string): void {
   void chrome.tabs.sendMessage(tabId, {
@@ -433,7 +436,7 @@ type RunOptions = {
   source?: SummarySource;
   forceFocusTab?: boolean;
   bypassCache?: boolean;
-  /** The user chose "send the first part only" of a transcript too long for the site. */
+  /** The user chose "send part of the transcript" of one too long for the site. */
   allowTruncate?: boolean;
 };
 
@@ -595,7 +598,7 @@ async function prepareAndSend({
     const error = plan === "choose-long"
       ? longTranscriptChoiceMessage(destination.label)
       : plan === "choose-no-transcript"
-        ? noTranscriptChoiceMessage(destination.label)
+        ? noTranscriptChoiceMessage(destination.label, hasApi)
         : API_TOO_LONG_MESSAGE;
     const outcome = {
       ok: false as const,
@@ -799,19 +802,31 @@ async function prepareAndSend({
   }
 
   // --- tab path: open the destination and let its injector fill it ---------
+  // A summary made from less than the whole transcript says so on the panel:
+  // TL;DW never cuts a transcript, or leaves it out, silently.
   let prompt: string;
   let notice: string | undefined;
-  if (plan === "tab-transcript") {
+  let summaryLabel: string | undefined;
+  // Signed in, the Gemini web app reads a video's captions from its link, so a
+  // long or unread-but-captioned video gets that prompt too; the injector
+  // sends it only once the page shows a signed-in account.
+  const signedInVariant = destination.id === "gemini" &&
+    (plan === "tab-excerpt" || (plan === "tab-link" && meta?.hasCaptions === true));
+  const signedInPrompt = signedInVariant
+    ? buildDestinationPromptInfo(profile, video, { ...destination, canWatch: true }, null, userCuriosity, activeTags, {
+        linkMode: "transcript",
+      }).prompt
+    : undefined;
+  if (plan === "tab-transcript" || plan === "tab-excerpt") {
     prompt = full.prompt;
-  } else if (plan === "tab-head") {
-    prompt = buildDestinationPromptInfo(
-      profile, video, transcriptDest, transcript, userCuriosity, activeTags, { cut: "head" },
-    ).prompt;
+    if (plan === "tab-excerpt") {
+      notice = signedInVariant ? geminiLongNotice(hasApi) : excerptNotice(destination.label, hasApi);
+      summaryLabel = excerptLabel(hasApi);
+    }
   } else if (plan === "tab-link") {
     prompt = linkPrompt;
-    notice = transcript
-      ? (hasApi ? LONG_VIDEO_LINK_NOTICE_WITH_KEY : LONG_VIDEO_LINK_NOTICE)
-      : NO_TRANSCRIPT_LINK_NOTICE;
+    notice = signedInVariant ? captionsLinkNotice(hasApi) : noTranscriptLinkNotice(hasApi);
+    summaryLabel = publicInfoLabel(hasApi);
   } else {
     prompt = buildDestinationPrompt(profile, video, destination, transcript, userCuriosity, activeTags);
   }
@@ -879,13 +894,13 @@ async function prepareAndSend({
     active: forceFocusTab || (!fromPage && settings.focusGeminiTab),
   });
   if (injectTab.id !== undefined) {
-    await setPendingPrompt(injectTab.id, { prompt, sourceTabId: activeTab?.id });
+    await setPendingPrompt(injectTab.id, { prompt, signedInPrompt, sourceTabId: activeTab?.id });
     await recordOpenSearch(
       injectTab.id,
       video,
       destination,
       activeTab?.id,
-      plan === "tab-transcript" || plan === "tab-head" ? (tabVideoId ?? undefined) : undefined,
+      plan === "tab-transcript" || plan === "tab-excerpt" ? (tabVideoId ?? undefined) : undefined,
       tabVideoId && tabPromptFingerprint
         ? {
             videoId: tabVideoId,
@@ -895,7 +910,8 @@ async function prepareAndSend({
             modelOrDestination: destination.id,
           }
         : undefined,
-      plan === "tab-link" ? WATCHED_FROM_LINK_LABEL : undefined,
+      summaryLabel,
+      signedInPrompt ? SIGNED_IN_TRANSCRIPT_LABEL : undefined,
     );
   }
   if (settings.saveHistoryOnSearch) {
@@ -924,9 +940,11 @@ async function recordOpenSearch(
   transcriptVideoId?: string,
   cacheContext?: import("../types").OpenSearch["cacheContext"],
   summaryLabel?: string,
+  signedInLabel?: string,
 ): Promise<void> {
   await addOpenSearch({
     summaryLabel,
+    signedInLabel,
     tabId,
     sourceTabId,
     transcriptVideoId,
@@ -1028,7 +1046,8 @@ chrome.runtime.onMessage.addListener(
           if (match?.videoUrl) videoId = extractVideoId(match.videoUrl) ?? undefined;
           // Cache only a scrape we can tie to its own request (this destination
           // tab), and never one whose prompt carried another video's transcript.
-          if (match?.summaryLabel) tldw = { ...tldw, label: match.summaryLabel };
+          const label = message.signedIn && ownSearch?.signedInLabel ? ownSearch.signedInLabel : match?.summaryLabel;
+          if (label) tldw = { ...tldw, label };
           const cacheContext = cacheContextForScrape(ownSearch);
           if (cacheContext) {
             await setCachedSummary({
@@ -1199,6 +1218,7 @@ chrome.runtime.onMessage.addListener(
             autoSubmit: settings.autoSubmit,
             temporaryChats: settings.temporaryChats,
             sourceTabId: pending?.sourceTabId,
+            signedInPrompt: pending?.signedInPrompt,
           }),
         // Always respond even on a storage error, so the injector's port doesn't
         // hang (consistent with the ASK handler).

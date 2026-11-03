@@ -98,7 +98,9 @@ export function SetupSection() {
             summary on the YouTube page. It uses the account you're already signed in with.
           </div>
           <div className="mode-card-note">
-            Long videos: Gemini watches them from the link; ChatGPT and Claude ask you what to do.
+            Long videos: signed in, Gemini reads the transcript through YouTube; signed out, it gets
+            part of the transcript, labeled so. ChatGPT and Claude ask you first. Without a key Gemini
+            doesn't watch videos, so for one with no captions it can only summarize public info about it.
             Reading the answer depends on each site's layout, so it's a little more fragile than Direct API.
           </div>
         </div>

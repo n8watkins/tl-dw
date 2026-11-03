@@ -165,6 +165,12 @@ export async function resolveProfile(
 
 export type PendingData = {
   prompt: string;
+  /**
+   * A prompt to send instead when the user turns out to be signed in to the
+   * Gemini web app, which can then read a video's captions itself from its
+   * link (the injector checks the page before choosing).
+   */
+  signedInPrompt?: string;
   /** YouTube tab to send the AI response back to, if triggered from one. */
   sourceTabId?: number;
   /** ms timestamp the prompt was queued, so a stale one isn't re-delivered on a

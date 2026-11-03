@@ -31,6 +31,7 @@ import {
   stripSegmentTimeLabels,
 } from "../lib/youtubeTranscript";
 import { createKeyedSingleFlight } from "../lib/singleFlight";
+import { ADD_KEY_TO_WATCH, ADD_KEY_WHOLE_VIDEO } from "../lib/sendPlan";
 import {
   cachedSourceLabel,
   describeSummarySource,
@@ -82,7 +83,7 @@ type PlayerInfo = {
   hasCaptions: boolean;
   /** YouTube's playability status: "OK" when the video plays. */
   playability?: string;
-  /** Neither private nor unlisted: Gemini can watch it from the link. */
+  /** Neither private nor unlisted: the Gemini API can watch it from the link. */
   isPublic?: boolean;
 };
 
@@ -592,6 +593,7 @@ function getCurrentVideoMeta(): VideoMeta {
     live: isUnsummarizableLive(),
     unavailable: videoUnavailable(),
     watchable,
+    hasCaptions: info?.hasCaptions,
     ...getVideoMeta(),
   };
 }
@@ -1473,6 +1475,40 @@ function startRunInFlight(): void {
   }, LOADING_TIMEOUT_MS);
 }
 
+/**
+ * How a summary was made, when not from the whole transcript ("Watched by
+ * Gemini", part of a long transcript, public info only), shown above it. Its
+ * "Add a free API key" advice opens the key setup, and drops out once a key is on.
+ */
+function summaryLabelElement(t: ReturnType<typeof theme>, label: string): HTMLElement {
+  const el = document.createElement("div");
+  el.dataset.tldwLabel = "1";
+  el.setAttribute("role", "note");
+  Object.assign(el.style, {
+    fontSize: "12px", lineHeight: "1.5", fontWeight: "600", color: t.sub, background: t.hover,
+    borderRadius: "8px", padding: "4px 10px", marginBottom: "8px", width: "fit-content", maxWidth: "100%",
+    boxSizing: "border-box", overflowWrap: "anywhere",
+  });
+  const advice = [ADD_KEY_WHOLE_VIDEO, ADD_KEY_TO_WATCH].find((a) => label.endsWith(a));
+  if (!advice) {
+    el.textContent = label;
+    return el;
+  }
+  el.textContent = label.slice(0, -advice.length).trim();
+  if (currentDirectApiEnabled) return el;
+  el.append(" ");
+  const link = document.createElement("button");
+  link.type = "button";
+  link.textContent = advice;
+  Object.assign(link.style, {
+    background: "none", border: "none", padding: "0", font: "inherit", fontWeight: "600",
+    color: "#1a73e8", cursor: "pointer", textAlign: "left", textDecoration: "underline",
+  });
+  link.addEventListener("click", (e) => { e.stopPropagation(); openKeySetup(); });
+  el.append(link);
+  return el;
+}
+
 /** What the error panel can offer besides its message. */
 type ErrorPanelOptions = {
   noTranscript?: boolean;
@@ -1480,7 +1516,7 @@ type ErrorPanelOptions = {
   category?: string;
   /** The page must choose how to send a video the chosen site can't take. */
   choice?: "long" | "no-transcript";
-  /** That site's name and id (for "send the first part only"). */
+  /** That site's name and id (for "send part of the transcript"). */
   site?: string;
   destinationId?: string;
   /** Whether a Gemini key is set up and on, so "Add a free key" isn't offered. */
@@ -1512,7 +1548,7 @@ function actionButton(t: ReturnType<typeof theme>, action: PanelAction): HTMLBut
   return b;
 }
 
-/** Start a page run that sends this video another way (Gemini tab, the API, the first part only). */
+/** Start a page run that sends this video another way (Gemini tab, the API, part of the transcript). */
 function sendInstead(ask: { destinationId?: string; source: "page" | "page-tab"; allowTruncate?: boolean }): void {
   const vid = currentVideoId();
   if (!vid) return;
@@ -1532,8 +1568,8 @@ function errorPanelActions(opts: ErrorPanelOptions): PanelAction[] {
     onClick: () => { if (currentSummarizeAction) void currentSummarizeAction(); },
   };
   const geminiTab: PanelAction = {
-    label: "Send to Gemini instead (it watches the link)",
-    title: "Open Gemini in a background tab with this video's link; TL;DW shows its answer here",
+    label: "Send to Gemini instead",
+    title: "Open Gemini in a background tab; TL;DW shows its answer here",
     primary: true,
     onClick: () => sendInstead({ destinationId: "gemini", source: "page-tab" }),
   };
@@ -1549,16 +1585,29 @@ function errorPanelActions(opts: ErrorPanelOptions): PanelAction[] {
       };
   if (opts.choice === "long") {
     return [
-      geminiTab,
-      keyAction,
       {
-        label: "Send the first part only (truncated)",
-        title: `Send ${opts.site ?? "the site"} as much of the transcript as fits; the rest is left out`,
+        label: "Send part of the transcript",
+        title: `Send ${opts.site ?? "the site"} the start and end of the transcript that fit; the middle is left out, and the summary says so`,
+        primary: true,
         onClick: () => sendInstead({ destinationId: opts.destinationId, source: "page-tab", allowTruncate: true }),
+      },
+      keyAction,
+    ];
+  }
+  if (opts.choice === "no-transcript") {
+    // With a key, the API watches the video: that's the answer. Without one,
+    // Gemini's web app can only look up public info about it from the link.
+    if (opts.hasKey) return [{ ...keyAction, primary: true }];
+    return [
+      { ...keyAction, primary: true },
+      {
+        ...geminiTab,
+        primary: false,
+        label: "Send the link to Gemini (public info only)",
+        title: "Without a key Gemini can't watch the video: it summarizes public info about it from the link",
       },
     ];
   }
-  if (opts.choice === "no-transcript") return [geminiTab, keyAction];
   if (opts.category === "permission") {
     return [
       {
@@ -2200,16 +2249,7 @@ function buildSummaryPanel(
   // The panel is summary-only: no AI verdict pill and no engagement/rating cue.
   // A label says how the summary was made when it wasn't from the transcript.
   const headerControls: HTMLElement[] = [];
-  if (tldw.label) {
-    const label = document.createElement("span");
-    label.dataset.tldwLabel = "1";
-    label.textContent = tldw.label;
-    Object.assign(label.style, {
-      fontSize: "12px", fontWeight: "600", color: t.sub, background: t.hover,
-      borderRadius: "999px", padding: "3px 10px", whiteSpace: "nowrap",
-    });
-    headerControls.push(label);
-  }
+  const labelEl = tldw.label ? summaryLabelElement(t, tldw.label) : null;
 
   // F1: collapse the secondary actions (Open tab / Clear cache / source badge)
   // into a right-aligned "⋯" popover. The Auto-summarize toggle (added by
@@ -2313,7 +2353,9 @@ function buildSummaryPanel(
 
   // The panel is summary-only: summary text + tags row + the "⋯" menu. No
   // engagement cue and no AI verdict pill.
-  panel.append(head, body);
+  panel.append(head);
+  if (labelEl) panel.append(labelEl);
+  panel.append(body);
   if (tldw.note) {
     const note = document.createElement("div");
     note.dataset.tldwNote = "1";
