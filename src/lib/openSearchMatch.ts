@@ -41,3 +41,16 @@ export function cacheContextForScrape(
   if (search.videoUrl && extractVideoId(search.videoUrl) !== context.videoId) return undefined;
   return context;
 }
+
+/** What the YouTube page answers to SET_SUMMARY. */
+export type SetSummaryReply = { ok?: boolean; shown?: boolean; late?: boolean };
+
+/**
+ * Whether a summary read back from a destination tab may be cached: only a
+ * parsed TL;DW block (never the raw-text fallback for an answer TL;DW couldn't
+ * parse) that the page showed for its own video (not dropped because the user
+ * moved on) and wasn't late for (its run had already timed out).
+ */
+export function shouldCacheScrape(parsed: boolean | undefined, reply: SetSummaryReply | undefined): boolean {
+  return parsed === true && reply?.shown === true && reply.late !== true;
+}

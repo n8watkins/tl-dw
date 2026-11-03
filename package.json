@@ -15,7 +15,7 @@
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "TLDW_E2E=1 VITE_GEMINI_TIMEOUT_MS=250 vite build --outDir dist-e2e && playwright test",
+    "test:e2e": "TLDW_E2E=1 VITE_GEMINI_TIMEOUT_MS=250 VITE_PAGE_RUN_TIMEOUT_MS=15000 vite build --outDir dist-e2e && playwright test",
     "test:live-background-tab": "vite build --outDir dist-live && xvfb-run -a node scripts/live-background-tab.mjs dist-live",
     "build": "node scripts/build-release.mjs",
     "package": "node scripts/package-store.mjs",

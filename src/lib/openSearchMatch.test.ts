@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cacheContextForScrape, findOpenSearchForVideo } from "./openSearchMatch";
+import { cacheContextForScrape, findOpenSearchForVideo, shouldCacheScrape } from "./openSearchMatch";
 import type { OpenSearch } from "../types";
 
 function search(tabId: number, videoId: string, sourceTabId?: number): OpenSearch {
@@ -81,5 +81,20 @@ describe("cacheContextForScrape", () => {
   it("caches nothing without a recorded search or context", () => {
     expect(cacheContextForScrape(undefined)).toBeUndefined();
     expect(cacheContextForScrape(search({ cacheContext: undefined }))).toBeUndefined();
+  });
+});
+
+describe("shouldCacheScrape", () => {
+  it("caches only a parsed summary the page showed in time", () => {
+    expect(shouldCacheScrape(true, { ok: true, shown: true, late: false })).toBe(true);
+    // The raw-text fallback for an answer with no TL;DW block.
+    expect(shouldCacheScrape(false, { ok: true, shown: true, late: false })).toBe(false);
+    // An older injector that doesn't say.
+    expect(shouldCacheScrape(undefined, { ok: true, shown: true })).toBe(false);
+    // The page had already given up on the run.
+    expect(shouldCacheScrape(true, { ok: true, shown: true, late: true })).toBe(false);
+    // The user moved to another video, or the page didn't answer.
+    expect(shouldCacheScrape(true, { ok: true, shown: false })).toBe(false);
+    expect(shouldCacheScrape(true, undefined)).toBe(false);
   });
 });

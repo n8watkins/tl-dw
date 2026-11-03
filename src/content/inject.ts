@@ -820,6 +820,14 @@ function hasStopButton(config: SiteConfig): boolean {
 const COMPLETE_BLOCK_STABLE_MS = 8000;
 
 /**
+ * How long a finished answer without a TL;DW block must stay unchanged before
+ * TL;DW gives up on the block and shows the raw answer (never cached). Long
+ * enough for a block still rendering after the stop button goes, short enough
+ * that the page's own run hasn't timed out by then.
+ */
+const NO_BLOCK_GIVE_UP_MS = 8000;
+
+/**
  * After the prompt is submitted, wait for the AI to finish generating, then
  * read the response and send it to the background so it can be forwarded to
  * the source YouTube tab. Times out after 3 minutes.
@@ -864,7 +872,7 @@ async function waitForResponseAndSend(
     const complete = !!read.tldw && /END\s+TLDW/i.test(read.text);
     const settled = (!generating && stableFor >= 600) || (complete && stableFor >= COMPLETE_BLOCK_STABLE_MS);
     if (read.tldw && settled) { tldw = read.tldw; break; }
-    if (!generating && !read.tldw && lastText && Date.now() - stableSince >= 25_000) break;
+    if (!generating && !read.tldw && lastText && Date.now() - stableSince >= NO_BLOCK_GIVE_UP_MS) break;
     await sleep(700);
   }
   if (tldw && hidden) log("read the answer from the page's hidden text (background tab)");
@@ -872,7 +880,7 @@ async function waitForResponseAndSend(
   if (tldw) {
     log("parsed TL;DW block — sending to YouTube tab");
     try {
-      await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw, sourceTabId, signedIn });
+      await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw, sourceTabId, signedIn, parsed: true });
     } catch {
       /* background may be asleep — best effort */
     }
@@ -900,7 +908,7 @@ async function waitForResponseAndSend(
       details: lastText.slice(0, 4000),
     };
     try {
-      await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw: fallback, sourceTabId, signedIn });
+      await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw: fallback, sourceTabId, signedIn, parsed: false });
     } catch {
       /* best effort */
     }

@@ -1742,7 +1742,11 @@ const chatHistorySidebar = `<nav aria-label="Recent chats">
  * chat-history sidebar; signed out, a "Sign in" link. While the answer
  * streams, the send button turns into a stop button, as on the real sites.
  */
-function chatSiteFixture(site: ChatSite, signedIn: boolean): string {
+function chatSiteFixture(
+  site: ChatSite,
+  signedIn: boolean,
+  answer: { kind?: "tldw" | "raw"; delayMs?: number } = {},
+): string {
   const m = CHAT_SITES[site];
   const account = signedIn
     ? '<a aria-label="Google Account: Fixture User" href="https://accounts.google.com/SignOutOptions">FU</a>'
@@ -1757,8 +1761,11 @@ function chatSiteFixture(site: ChatSite, signedIn: boolean): string {
       ${m.composer[0]}${m.editor}<span id="slot">${m.send}</span>${m.composer[1]}
     ${m.layout[2]}
     <script>
-      const lines = ["---TLDW---", "SUMMARY: Hidden answers are read in full.",
-        "DETAILS: Background tabs keep finished paragraphs hidden until they are shown.", "---END TLDW---"];
+      const lines = ${answer.kind === "raw"
+        ? JSON.stringify(["Here is a long answer that forgot the requested block entirely, so there is nothing to parse in it at all.",
+          "It goes on for a while about the video without any of the field labels TL;DW asked for."])
+        : JSON.stringify(["---TLDW---", "SUMMARY: Hidden answers are read in full.",
+          "DETAILS: Background tabs keep finished paragraphs hidden until they are shown.", "---END TLDW---"])};
       const slot = document.getElementById("slot");
       const bind = () => slot.querySelector("button").addEventListener("click", () => {
         window.__sentPrompt = document.querySelector("[contenteditable]").textContent;
@@ -1768,7 +1775,7 @@ function chatSiteFixture(site: ChatSite, signedIn: boolean): string {
             lines.map((line) => '<p class="pending">' + line + "</p>").join("") + ${JSON.stringify(m.response[1])});
           window.__answeredAt = Date.now();
           slot.innerHTML = ${JSON.stringify(m.send)};
-        }, 1200);
+        }, ${answer.delayMs ?? 1200});
       });
       bind();
     </script>
@@ -1916,6 +1923,53 @@ for (const site of ["gemini", "chatgpt", "claude"] as const) {
       // not after a safety wait or the three-minute deadline.
       await expect(page.locator("#tldw-summary")).toContainText("Hidden answers are read in full.", { timeout: 5_000 });
       await expect(page.locator("#tldw-summary")).not.toContainText("Couldn't get the summary");
+    } finally {
+      await session.close();
+    }
+  });
+}
+
+for (const kind of ["parsed", "unparsed", "late"] as const) {
+  test(`only an answer the page was waiting for, parsed, is cached (${kind})`, async () => {
+    test.setTimeout(60_000);
+    const session = await launchExtension();
+    try {
+      await routeYouTube(session.context);
+      await session.context.route("https://gemini.google.com/**", async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          // The e2e build gives a page run 15 s; the late answer takes 20.
+          body: chatSiteFixture("gemini", true, { kind: kind === "unparsed" ? "raw" : "tldw", delayMs: kind === "late" ? 20_000 : 1200 }),
+        });
+      });
+      await setStorage(session, {
+        profiles: profiles(),
+        settings: { ...directSettings(), geminiApiKey: "", useDirectApi: false, temporaryChats: false, focusGeminiTab: false },
+      });
+      const videoId = `fixture-cache-${kind}`;
+      const page = await openVideo(session.context, videoId);
+      const created = await recordTabCreates(session);
+      const chatPage = session.context.waitForEvent("page");
+      await page.locator("#tldw-watch-btn").click();
+      await expect.poll(async () => (await created()).length).toBe(1);
+      const chat = await chatPage;
+      await chat.goto("https://gemini.google.com/app");
+      await page.bringToFront();
+      const panel = page.locator("#tldw-summary");
+      if (kind === "late") await expect(panel).toContainText("Couldn't get the summary back in time", { timeout: 20_000 });
+      // The page still shows the answer it gets.
+      await expect(panel).toContainText(
+        kind === "unparsed" ? "Here is a long answer that forgot the requested block" : "Hidden answers are read in full.",
+        { timeout: 25_000 },
+      );
+      const cached = async () => JSON.stringify((await getStorage<Record<string, unknown>>(session, "tldwSummaryCache")) ?? {});
+      if (kind === "parsed") {
+        await expect.poll(cached).toContain(videoId);
+      } else {
+        await page.waitForTimeout(1500);
+        expect(await cached()).not.toContain(videoId);
+      }
     } finally {
       await session.close();
     }

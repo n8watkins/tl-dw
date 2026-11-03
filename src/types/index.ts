@@ -411,6 +411,11 @@ export type AiSummaryMessage = {
   sourceTabId: number;
   /** The tab sent its signed-in prompt (see PendingData.signedInPrompt). */
   signedIn?: boolean;
+  /**
+   * False when no TL;DW block could be parsed and `tldw` is the answer's raw
+   * text, shown so the user gets something, but never cached.
+   */
+  parsed?: boolean;
 };
 
 /** Popup/content asking the worker to open the extension's options page.
