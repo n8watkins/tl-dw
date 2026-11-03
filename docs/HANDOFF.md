@@ -57,8 +57,7 @@ It is not live in the Chrome Web Store yet: the Unlisted submission still needs 
 
 ### Blocked on the owner
 
-- Chrome Web Store: uploading the ZIP and assets and submitting with Unlisted visibility needs the publisher account (steps 2 to 4 under "Required remaining work" below).
-- Gemini key: a real-key smoke test of v1.1.0 (`npm run smoke:gemini`, then [SMOKE_TEST.md](SMOKE_TEST.md)) needs the owner's key in pass-env as `shared/GEMINI_API_KEY`.
+The owner's steps (Gemini key and live smoke test, the signed-in Chrome check, the Chrome Web Store submission) are tracked in [../OWNER-TODO.md](../OWNER-TODO.md); keep that file current instead of listing them here.
 
 ### Next steps, in order
 

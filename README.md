@@ -67,6 +67,7 @@ See [docs/PUBLISH_CHECKLIST.md](docs/PUBLISH_CHECKLIST.md) and [docs/STORE_SUBMI
 - [STATUS.md](STATUS.md) describes current release readiness.
 - [PLAN.md](PLAN.md) describes product and architecture decisions.
 - [docs/HANDOFF.md](docs/HANDOFF.md) provides a zero-context continuation point.
+- [OWNER-TODO.md](OWNER-TODO.md) lists what only the owner can do: the Gemini key, the signed-in Chrome check and the Chrome Web Store submission.
 - [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md) covers manual real-browser verification.
 - [LESSONS_LEARNED.md](LESSONS_LEARNED.md) records extension engineering lessons.
 - [CONTRIBUTING.md](CONTRIBUTING.md) covers the development workflow.
