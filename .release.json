@@ -1,5 +1,6 @@
 {
   "versionFiles": [],
   "workflows": "package",
-  "repository": "n8watkins/tl-dw"
+  "repository": "n8watkins/tl-dw",
+  "visibility": "public"
 }
