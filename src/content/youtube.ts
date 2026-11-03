@@ -593,6 +593,7 @@ function getCurrentVideoMeta(): VideoMeta {
     live: isUnsummarizableLive(),
     unavailable: videoUnavailable(),
     watchable,
+    hasCaptions: info?.hasCaptions,
     ...getVideoMeta(),
   };
 }

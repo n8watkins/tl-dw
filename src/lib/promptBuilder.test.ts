@@ -229,6 +229,11 @@ describe("buildDestinationPromptInfo", () => {
     // A template that places {{url}} itself isn't given a second copy.
     const withUrl = buildDestinationPromptInfo(profile, video, gemini, null, null, null).prompt;
     expect(withUrl.match(/watch\?v=abc/g)).toHaveLength(1);
+    // Signed in, Gemini is asked to read the transcript through YouTube instead.
+    const viaYouTube = buildDestinationPromptInfo(noUrl, video, gemini, null, null, null, { linkMode: "transcript" }).prompt;
+    expect(viaYouTube).toContain("Video link: https://www.youtube.com/watch?v=abc");
+    expect(viaYouTube).toContain("Read this video's transcript (its captions) through YouTube");
+    expect(viaYouTube).not.toContain("If you can't open the video itself");
     // A transcript send doesn't need the line.
     expect(buildDestinationPromptInfo(noUrl, video, site, "words", null, null).prompt).not.toContain("Video link:");
   });

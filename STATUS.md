@@ -10,6 +10,7 @@ TL;DW 1.0 is being prepared as an Unlisted Chrome Web Store soft launch centered
 - Direct API summaries default to Gemini 3.5 Flash-Lite and retry once on Gemini 3.1 Flash-Lite after a 429; a model picker offers larger models.
 - TL;DW decides how to send a video before sending it: the API gets the whole transcript, or watches a video without one (API video input).
   Without a key, a transcript too long for the Gemini tab goes as its start and end and a video without a transcript goes as its link, each labeled on the summary (signed-out Gemini doesn't watch videos, so it uses public info); ChatGPT and Claude ask before a long transcript is shortened.
+- Signed in to Gemini, a long or unread-but-captioned video goes to the Gemini tab as its link, and Gemini reads the captions through YouTube (labeled so).
 - The no-key Gemini tab is read back even while it stays in the background (1.1.1).
 - A first install opens a welcome page with the free-key steps; ChatGPT, Claude, NotebookLM and SponsorBlock are optional host permissions; SponsorBlock is off by default.
 - Automatic Direct API runs use the configured Direct API profile.

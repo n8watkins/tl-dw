@@ -50,8 +50,10 @@ export type OpenSearch = {
   cacheContext?: Omit<CachedSummary, "tldw" | "createdAt">;
   /** The video whose transcript went into the prompt, when one did. */
   transcriptVideoId?: string;
-  /** Label for the summary read back from this tab (e.g. Gemini watched the link). */
+  /** Label for the summary read back from this tab (e.g. part of the transcript). */
   summaryLabel?: string;
+  /** The label instead, when the tab sent its signed-in prompt (Gemini read the captions). */
+  signedInLabel?: string;
 };
 
 /**
@@ -311,6 +313,8 @@ export type VideoMeta = {
    * unplayable); undefined when unknown.
    */
   watchable?: boolean;
+  /** Whether the player lists caption tracks; undefined when unknown. */
+  hasCaptions?: boolean;
   durationSeconds: number;
   channel: string;
   /** Channel id/href (getChannelInfo().id) — for channel-tag resolution. */
@@ -405,6 +409,8 @@ export type AiSummaryMessage = {
   type: "AI_SUMMARY";
   tldw: TldwSummary;
   sourceTabId: number;
+  /** The tab sent its signed-in prompt (see PendingData.signedInPrompt). */
+  signedIn?: boolean;
 };
 
 /** Popup/content asking the worker to open the extension's options page.

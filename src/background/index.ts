@@ -10,14 +10,17 @@ import { fallbackNotice, GeminiApiError, normalizeGeminiError, summarizeWithFall
 import { geminiQuotaDay } from "../lib/geminiUsage";
 import {
   API_TOO_LONG_MESSAGE,
+  captionsLinkNotice,
   excerptLabel,
   excerptNotice,
+  geminiLongNotice,
   longTranscriptChoiceMessage,
   noTranscriptChoiceMessage,
   noTranscriptLinkNotice,
   NOT_WATCHABLE_MESSAGE,
   planSend,
   publicInfoLabel,
+  SIGNED_IN_TRANSCRIPT_LABEL,
   WATCHED_BY_GEMINI_LABEL,
 } from "../lib/sendPlan";
 import {
@@ -804,15 +807,25 @@ async function prepareAndSend({
   let prompt: string;
   let notice: string | undefined;
   let summaryLabel: string | undefined;
+  // Signed in, the Gemini web app reads a video's captions from its link, so a
+  // long or unread-but-captioned video gets that prompt too; the injector
+  // sends it only once the page shows a signed-in account.
+  const signedInVariant = destination.id === "gemini" &&
+    (plan === "tab-excerpt" || (plan === "tab-link" && meta?.hasCaptions === true));
+  const signedInPrompt = signedInVariant
+    ? buildDestinationPromptInfo(profile, video, { ...destination, canWatch: true }, null, userCuriosity, activeTags, {
+        linkMode: "transcript",
+      }).prompt
+    : undefined;
   if (plan === "tab-transcript" || plan === "tab-excerpt") {
     prompt = full.prompt;
     if (plan === "tab-excerpt") {
-      notice = excerptNotice(destination.label, hasApi);
+      notice = signedInVariant ? geminiLongNotice(hasApi) : excerptNotice(destination.label, hasApi);
       summaryLabel = excerptLabel(hasApi);
     }
   } else if (plan === "tab-link") {
     prompt = linkPrompt;
-    notice = noTranscriptLinkNotice(hasApi);
+    notice = signedInVariant ? captionsLinkNotice(hasApi) : noTranscriptLinkNotice(hasApi);
     summaryLabel = publicInfoLabel(hasApi);
   } else {
     prompt = buildDestinationPrompt(profile, video, destination, transcript, userCuriosity, activeTags);
@@ -881,7 +894,7 @@ async function prepareAndSend({
     active: forceFocusTab || (!fromPage && settings.focusGeminiTab),
   });
   if (injectTab.id !== undefined) {
-    await setPendingPrompt(injectTab.id, { prompt, sourceTabId: activeTab?.id });
+    await setPendingPrompt(injectTab.id, { prompt, signedInPrompt, sourceTabId: activeTab?.id });
     await recordOpenSearch(
       injectTab.id,
       video,
@@ -898,6 +911,7 @@ async function prepareAndSend({
           }
         : undefined,
       summaryLabel,
+      signedInPrompt ? SIGNED_IN_TRANSCRIPT_LABEL : undefined,
     );
   }
   if (settings.saveHistoryOnSearch) {
@@ -926,9 +940,11 @@ async function recordOpenSearch(
   transcriptVideoId?: string,
   cacheContext?: import("../types").OpenSearch["cacheContext"],
   summaryLabel?: string,
+  signedInLabel?: string,
 ): Promise<void> {
   await addOpenSearch({
     summaryLabel,
+    signedInLabel,
     tabId,
     sourceTabId,
     transcriptVideoId,
@@ -1030,7 +1046,8 @@ chrome.runtime.onMessage.addListener(
           if (match?.videoUrl) videoId = extractVideoId(match.videoUrl) ?? undefined;
           // Cache only a scrape we can tie to its own request (this destination
           // tab), and never one whose prompt carried another video's transcript.
-          if (match?.summaryLabel) tldw = { ...tldw, label: match.summaryLabel };
+          const label = message.signedIn && ownSearch?.signedInLabel ? ownSearch.signedInLabel : match?.summaryLabel;
+          if (label) tldw = { ...tldw, label };
           const cacheContext = cacheContextForScrape(ownSearch);
           if (cacheContext) {
             await setCachedSummary({
@@ -1201,6 +1218,7 @@ chrome.runtime.onMessage.addListener(
             autoSubmit: settings.autoSubmit,
             temporaryChats: settings.temporaryChats,
             sourceTabId: pending?.sourceTabId,
+            signedInPrompt: pending?.signedInPrompt,
           }),
         // Always respond even on a storage error, so the injector's port doesn't
         // hang (consistent with the ASK handler).

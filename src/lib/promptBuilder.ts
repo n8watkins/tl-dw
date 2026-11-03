@@ -167,16 +167,27 @@ export function appendTags(prompt: string, tags?: Tag[] | null): string {
 export type DestinationPromptOptions = {
   /** The longest prompt allowed (default: the destination's own limit). */
   maxChars?: number;
+  /**
+   * For a link send: "transcript" asks the model to read the video's
+   * transcript through YouTube (the signed-in Gemini web app can); the
+   * default only warns it not to invent what it can't see.
+   */
+  linkMode?: "public" | "transcript";
 };
 
 /**
- * What a link send adds when the template doesn't place {{url}} itself: the
- * model can't summarize a video it can't identify, and without the API the
- * Gemini web app can't watch it, so it is told not to make up what it can't see.
+ * What a link send adds: the link, unless the template places {{url}} itself
+ * (the model can't summarize a video it can't identify), and how to use it.
+ * Without the API the Gemini web app can't watch a video, so it is told not to
+ * make up what it can't see.
  */
-export function linkLine(url: string): string {
-  return `Video link: ${url}\nIf you can't open the video itself, base the summary only on what you can ` +
-    "reliably find about it, and say what's uncertain instead of inventing details.";
+export function linkLine(url: string, mode: "public" | "transcript" = "public", withUrl = true): string {
+  const how = mode === "transcript"
+    ? "Read this video's transcript (its captions) through YouTube and base the summary on it. " +
+      "If you can't get the transcript, say so instead of guessing."
+    : "If you can't open the video itself, base the summary only on what you can reliably find about it, " +
+      "and say what's uncertain instead of inventing details.";
+  return (withUrl ? `Video link: ${url}\n` : "") + how;
 }
 
 export type DestinationPrompt = {
@@ -240,7 +251,7 @@ export function buildDestinationPromptInfo(
   // message short still has it, and the reminder keeps the format the last word
   // so transcript content can't override it.
   if (isLinkSend) {
-    const withLink = hasUrlVar ? withTags : `${withTags}\n\n${linkLine(video.url)}`;
+    const withLink = `${withTags}\n\n${linkLine(video.url, options.linkMode, !hasUrlVar)}`;
     return { prompt: appendTldwBlock(withLink), truncated: false };
   }
   const instructions = appendTldwBlock(withTags);

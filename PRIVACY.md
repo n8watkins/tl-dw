@@ -19,6 +19,7 @@ What leaves your device depends on how you summarize a video.
   The Gemini web app gets this right away; for ChatGPT and Claude, TL;DW asks you on the page first and sends only what you choose.
 - When there is no transcript, the Gemini web app gets the video's link instead.
   Without your API key Gemini does not watch the video: it can only look up public information about it, and the summary is labeled so.
+- If you are signed in to Gemini, TL;DW checks the Gemini page for your account button (it reads nothing else about the account) and, for a long video or one whose transcript it couldn't read, sends the video's link and asks Gemini to read the captions through YouTube instead of a shortened transcript.
 - NotebookLM gets the video's link as a source.
 - TL;DW then reads the site's answer in that tab to show the summary on the YouTube page.
 - That site's own terms and privacy policy apply to what it receives.

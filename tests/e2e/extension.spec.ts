@@ -1638,7 +1638,7 @@ for (const destination of ["chatgpt", "chatgpt by shortcut"] as const) {
       const pending = await session.worker.evaluate(async () => JSON.stringify(await chrome.storage.session.get("pendingPrompts")));
       expect(pending).toContain("watch?v=fixture-no-transcript");
       expect(pending).not.toContain("TRANSCRIPT START");
-      await expect(panel).toContainText("so Gemini gets the link and can only summarize public info about the video, not the video itself");
+      await expect(panel).toContainText("Signed in, Gemini reads the captions through YouTube; signed out, it can only summarize public info about the video.");
     } finally {
       await session.close();
     }
@@ -1679,12 +1679,18 @@ async function pendingPrompt(session: ExtensionSession): Promise<string> {
  * A Gemini stand-in that answers the way Gemini does in a background tab: the
  * whole answer is in the page, but its paragraphs stay `display: none`
  * ("p.pending") until the tab is shown, so the rendered text is only the
- * "Gemini said" heading (seen live, 2026-11-02).
+ * "Gemini said" heading (seen live, 2026-11-02). Signed in, it shows Google's
+ * account button; signed out, a "Sign in" link.
  */
-const hiddenAnswerGeminiFixture = `<!doctype html>
+function hiddenAnswerGeminiFixture(signedIn: boolean): string {
+  const account = signedIn
+    ? '<a aria-label="Google Account: Fixture User" href="https://accounts.google.com/SignOutOptions">FU</a>'
+    : '<a href="https://accounts.google.com/ServiceLogin?continue=https://gemini.google.com/app">Sign in</a>';
+  return `<!doctype html>
 <html>
   <head><title>Gemini</title><style>.pending { display: none; }</style></head>
   <body>
+    <header>${account}</header>
     <div class="ql-editor" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>
     <button aria-label="Send message">Send</button>
     <script>
@@ -1707,30 +1713,47 @@ const hiddenAnswerGeminiFixture = `<!doctype html>
     </script>
   </body>
 </html>`;
+}
 
 /** Profiles whose default template leaves out {{url}}, as TL;DW's own does. */
 function profilesWithoutUrl() {
   return profiles().map((p) => (p.id === "global" ? { ...p, promptTemplate: "GLOBAL PROFILE {{title}}" } : p));
 }
 
-for (const kind of ["transcript", "long video", "no transcript"] as const) {
-  test(`the Gemini tab's hidden answer comes back, labeled honestly (${kind})`, async () => {
+const PART_LABEL = "Summarized from part of the transcript (video is long). Add a free API key to summarize the whole video.";
+const PUBLIC_INFO_LABEL =
+  "No transcript, so Gemini summarized from public info about this video, not the video itself. Add a free API key so Gemini can watch it.";
+const READ_TRANSCRIPT_LABEL = "Gemini read the video's transcript through YouTube";
+
+const geminiTabCases = [
+  { kind: "transcript", signedIn: false },
+  { kind: "long video", signedIn: false },
+  { kind: "long video", signedIn: true },
+  { kind: "unread captions", signedIn: false },
+  { kind: "unread captions", signedIn: true },
+  { kind: "no captions", signedIn: true },
+] as const;
+
+for (const { kind, signedIn } of geminiTabCases) {
+  test(`the Gemini tab's hidden answer comes back, labeled honestly (${kind}, ${signedIn ? "signed in" : "signed out"})`, async () => {
     const session = await launchExtension();
     try {
-      if (kind === "no transcript") {
+      if (kind === "unread captions") {
         await routeYouTube(session.context, failingTranscriptFixture);
         await routeFailingTranscript(session.context);
+      } else if (kind === "no captions") {
+        await routeYouTube(session.context, playerFixture({ lengthSeconds: 1140, captions: false }));
       } else {
         await routeYouTube(session.context, kind === "long video" ? longTranscriptFixture(40_000) : youtubeFixture);
       }
       await session.context.route("https://gemini.google.com/**", async (route) => {
-        await route.fulfill({ status: 200, contentType: "text/html", body: hiddenAnswerGeminiFixture });
+        await route.fulfill({ status: 200, contentType: "text/html", body: hiddenAnswerGeminiFixture(signedIn) });
       });
       await setStorage(session, {
         profiles: profilesWithoutUrl(),
         settings: { ...directSettings(), geminiApiKey: "", useDirectApi: false, temporaryChats: false, focusGeminiTab: false },
       });
-      const videoId = `fixture-hidden-${kind.replace(/ /g, "-")}`;
+      const videoId = `fixture-hidden-${kind.replace(/ /g, "-")}-${signedIn ? "in" : "out"}`;
       const page = await openVideo(session.context, videoId);
       const created = await recordTabCreates(session);
       const geminiPage = session.context.waitForEvent("page");
@@ -1738,14 +1761,15 @@ for (const kind of ["transcript", "long video", "no transcript"] as const) {
       const panel = page.locator("#tldw-summary");
       if (kind === "long video") {
         await expect(panel).toContainText(
-          "This video is long, so Gemini gets part of the transcript (its start and end). Add a free API key to summarize the whole video.",
+          "This video is long. Signed in to Gemini, it reads the transcript through YouTube; signed out, it gets the transcript's start and end.",
         );
-      } else if (kind === "no transcript") {
+      } else if (kind === "unread captions") {
+        await expect(panel).toContainText("Signed in, Gemini reads the captions through YouTube; signed out, it can only summarize public info");
+      } else if (kind === "no captions") {
         await expect(panel).toContainText("so Gemini gets the link and can only summarize public info about the video");
       }
       await expect.poll(async () => (await created()).length).toBe(1);
       expect((await created())[0]).toMatchObject({ url: "https://gemini.google.com/app", active: false });
-      const prompt = await pendingPrompt(session);
 
       // Context routes don't reach a tab the extension opens itself, so load the
       // routed stand-in into it from here; it stays behind the video.
@@ -1753,6 +1777,7 @@ for (const kind of ["transcript", "long video", "no transcript"] as const) {
       await gemini.goto("https://gemini.google.com/app");
       await page.bringToFront();
       await expect.poll(() => gemini.evaluate(() => (window as unknown as { __sentPrompt?: string }).__sentPrompt ?? "")).not.toBe("");
+      const sent = await gemini.evaluate(() => (window as unknown as { __sentPrompt: string }).__sentPrompt);
       expect(await gemini.evaluate(() => document.querySelector("model-response")?.textContent ?? "")).toBe("");
 
       await expect(panel).toContainText("Hidden answers are read in full.", { timeout: 20_000 });
@@ -1761,27 +1786,33 @@ for (const kind of ["transcript", "long video", "no transcript"] as const) {
       await expect(panel).not.toContainText("---TLDW---");
       await expect(panel).not.toContainText("Watched");
       const label = panel.locator("[data-tldw-label]");
+      const link = `Video link: https://www.youtube.com/watch?v=${videoId}`;
+      const readTranscript = "Read this video's transcript (its captions) through YouTube";
       if (kind === "transcript") {
         await expect(label).toHaveCount(0);
-        expect(prompt).toContain("TRANSCRIPT START");
-        expect(prompt).not.toContain("transcript shortened");
+        expect(sent).toContain("TRANSCRIPT START");
+        expect(sent).not.toContain("transcript shortened");
+      } else if (signedIn && kind !== "no captions") {
+        // Signed in, Gemini reads the captions itself from the link.
+        await expect(label).toHaveText(READ_TRANSCRIPT_LABEL);
+        expect(sent).toContain(link);
+        expect(sent).toContain(readTranscript);
+        expect(sent).not.toContain("TRANSCRIPT START");
       } else if (kind === "long video") {
-        await expect(label).toHaveText(
-          "Summarized from part of the transcript (video is long). Add a free API key to summarize the whole video.",
-        );
+        await expect(label).toHaveText(PART_LABEL);
         await expect(label.getByRole("button", { name: "Add a free API key to summarize the whole video." })).toBeVisible();
         // As much of the real transcript as fits, its start and end kept.
-        expect(prompt.length).toBeLessThanOrEqual(30_000);
-        expect(prompt).toContain("TRANSCRIPT START");
-        expect(prompt).toContain("This lecture keeps going with careful detail about the topic at hand and more. 0");
-        expect(prompt).toMatch(/and more\. \d{3}\n<<<TRANSCRIPT END>>>/);
-        expect(prompt).toMatch(/\[\.\.\. transcript shortened: about \d+% of the transcript/);
+        expect(sent.length).toBeLessThanOrEqual(30_000);
+        expect(sent).toContain("TRANSCRIPT START");
+        expect(sent).toContain("This lecture keeps going with careful detail about the topic at hand and more. 0");
+        expect(sent).toMatch(/and more\. \d{3}<<<TRANSCRIPT END>>>/);
+        expect(sent).toMatch(/\[\.\.\. transcript shortened: about \d+% of the transcript/);
       } else {
-        await expect(label).toHaveText(
-          "No transcript, so Gemini summarized from public info about this video, not the video itself. Add a free API key so Gemini can watch it.",
-        );
-        expect(prompt).toContain(`Video link: https://www.youtube.com/watch?v=${videoId}`);
-        expect(prompt).not.toContain("TRANSCRIPT START");
+        // No transcript: the link, and only public info, signed in or not.
+        await expect(label).toHaveText(PUBLIC_INFO_LABEL);
+        expect(sent).toContain(link);
+        expect(sent).not.toContain(readTranscript);
+        expect(sent).not.toContain("TRANSCRIPT START");
       }
     } finally {
       await session.close();

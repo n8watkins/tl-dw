@@ -16,6 +16,14 @@ import type { Destination } from "../types";
  * - `tab-link`: the Gemini web app gets the link, because there is no
  *   transcript. Without the API, Gemini can't watch YouTube videos: it can only
  *   look up public information about the video, and the summary is labeled so.
+ *
+ * The Gemini web app behaves differently signed in (tested 2026-11-02): its
+ * YouTube tool reads a linked video's captions, even for a 2.5-hour video,
+ * though it still doesn't watch the frames. So for a long video, or one whose
+ * captions TL;DW couldn't read, the Gemini tab also gets a link prompt that
+ * asks for the transcript, and the injector sends it only when the page shows
+ * a signed-in account (see `signedInPrompt` in PendingData). Signed out, or
+ * when unsure, the plan above stands.
  * - `tab-plain`: a link or source destination (NotebookLM).
  * - `choose-long`: ChatGPT or Claude and a transcript too long for them: ask
  *   the user on the page what to do.
@@ -79,6 +87,22 @@ export function noTranscriptLinkNotice(hasKey: boolean): string {
 
 /** The label on a summary the Gemini API made by watching the video. */
 export const WATCHED_BY_GEMINI_LABEL = "Watched by Gemini (no transcript)";
+
+/** The label on a summary the signed-in Gemini web app made from the video's captions. */
+export const SIGNED_IN_TRANSCRIPT_LABEL = "Gemini read the video's transcript through YouTube";
+
+/** Shown on the page while a long video goes to the Gemini tab (signed in or not). */
+export function geminiLongNotice(hasKey: boolean): string {
+  return "This video is long. Signed in to Gemini, it reads the transcript through YouTube; " +
+    "signed out, it gets the transcript's start and end." + (hasKey ? "" : ` ${ADD_KEY_WHOLE_VIDEO}`);
+}
+
+/** Shown on the page while a captioned video whose transcript TL;DW couldn't read goes to the Gemini tab. */
+export function captionsLinkNotice(hasKey: boolean): string {
+  return "TL;DW couldn't read this video's transcript, so Gemini gets the link. Signed in, Gemini reads the " +
+    "captions through YouTube; signed out, it can only summarize public info about the video." +
+    (hasKey ? "" : ` ${ADD_KEY_TO_WATCH}`);
+}
 
 /** The label on a summary made from part of a long transcript. */
 export function excerptLabel(hasKey: boolean): string {

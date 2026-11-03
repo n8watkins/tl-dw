@@ -764,6 +764,7 @@ function hasStopButton(stopSelectors: string[]): boolean {
 async function waitForResponseAndSend(
   config: SiteConfig,
   sourceTabId: number,
+  signedIn = false,
 ): Promise<void> {
   log(`watching ${config.name} for the response (sourceTab ${sourceTabId})`);
   const deadline = Date.now() + 180_000;
@@ -806,7 +807,7 @@ async function waitForResponseAndSend(
   if (tldw) {
     log("parsed TL;DW block — sending to YouTube tab");
     try {
-      await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw, sourceTabId });
+      await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw, sourceTabId, signedIn });
     } catch {
       /* background may be asleep — best effort */
     }
@@ -834,7 +835,7 @@ async function waitForResponseAndSend(
       details: lastText.slice(0, 4000),
     };
     try {
-      await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw: fallback, sourceTabId });
+      await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw: fallback, sourceTabId, signedIn });
     } catch {
       /* best effort */
     }
@@ -985,6 +986,37 @@ async function activateTemporaryMode(host: string): Promise<void> {
   }
 }
 
+/** Google's account button: present only when signed in. */
+const SIGNED_IN_SELECTORS = [
+  'a[aria-label^="Google Account" i]',
+  'a[href*="accounts.google.com/SignOutOptions"]',
+];
+/** Sign-in links and buttons: present only when signed out. */
+const SIGNED_OUT_SELECTORS = [
+  'a[href*="accounts.google.com/ServiceLogin"]',
+  'a[href*="accounts.google.com/v3/signin"]',
+  'a[href*="accounts.google.com/AccountChooser"]',
+];
+
+/**
+ * Whether the Gemini page shows a signed-in Google account. Waits briefly for
+ * the account bar, and answers false whenever it isn't sure (no account
+ * button, or any sign-in link or button), since the signed-out plan is the
+ * safe one.
+ */
+async function geminiSignedIn(timeoutMs = 4000): Promise<boolean> {
+  const signedOut = () =>
+    SIGNED_OUT_SELECTORS.some((sel) => document.querySelector(sel)) ||
+    [...document.querySelectorAll<HTMLElement>("a, button")].some((el) => /^\s*sign in\s*$/i.test(el.textContent ?? ""));
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (signedOut()) return false;
+    if (SIGNED_IN_SELECTORS.some((sel) => document.querySelector(sel))) return !signedOut();
+    await sleep(250);
+  }
+  return false;
+}
+
 async function run(): Promise<void> {
   if (location.hostname.endsWith("notebooklm.google.com")) {
     const res = (await chrome.runtime.sendMessage({ type: "GET_PENDING" })) as {
@@ -1004,9 +1036,10 @@ async function run(): Promise<void> {
     autoSubmit?: boolean;
     temporaryChats?: boolean;
     sourceTabId?: number;
+    signedInPrompt?: string;
   } | null;
 
-  const prompt = res?.prompt;
+  let prompt = res?.prompt;
   if (!prompt) { log(`${config.name}: no pending prompt for this tab`); return; }
   log(`${config.name}: pending prompt found (${prompt.length} chars, sourceTab ${res?.sourceTabId ?? "none"}, autoSubmit ${res?.autoSubmit !== false})`);
   if (res?.sourceTabId === undefined) {
@@ -1029,6 +1062,16 @@ async function run(): Promise<void> {
     );
     await reportOutcome(config.name, { ok: false, reason: COMPOSER_MISSING_REASON, copied });
     return;
+  }
+
+  // Signed in, the Gemini web app reads a linked video's captions itself, so
+  // the worker may have prepared a link prompt for that case. Send it only
+  // when the page clearly shows a signed-in account.
+  let signedIn = false;
+  if (res?.signedInPrompt && config.name === "Gemini") {
+    signedIn = await geminiSignedIn();
+    log(`Gemini account: ${signedIn ? "signed in, sending the link prompt" : "signed out or unsure"}`);
+    if (signedIn) prompt = res.signedInPrompt;
   }
 
   // Try execCommand / textContent approach first; fall back to ClipboardEvent paste.
@@ -1066,7 +1109,7 @@ async function run(): Promise<void> {
   if (res?.autoSubmit === false) {
     // Still watch for the response if the user submits manually.
     if (res.sourceTabId !== undefined) {
-      void waitForResponseAndSend(config, res.sourceTabId);
+      void waitForResponseAndSend(config, res.sourceTabId, signedIn);
     }
     return;
   }
@@ -1096,7 +1139,7 @@ async function run(): Promise<void> {
 
   // After submit, wait for the AI to finish and forward the response.
   if (res?.sourceTabId !== undefined) {
-    void waitForResponseAndSend(config, res.sourceTabId);
+    void waitForResponseAndSend(config, res.sourceTabId, signedIn);
   }
 }
 
