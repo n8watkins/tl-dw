@@ -63,11 +63,30 @@ Quality against the real videos:
   Gemini's sidebar lists recent chats, each with a "More options for <chat title>" button, and the owner had a chat whose title contains "Stop".
   The stop-button selector `button[aria-label*="Stop" i]` matched it, so TL;DW thought Gemini was still generating.
   Signed-out tests never saw it, because a signed-out page has no chat history.
-- **Still open:** an answer that arrives after the panel has given up is still cached.
+- **1.1.2, fixed in 1.1.3 (#27):** an answer that arrived after the panel had given up was still cached.
   In the 1.1.1 runs, the Gemini tab's 3-minute fallback sent the raw answer just after the panel timed out; the worker cached it, and the next visit served it from the cache as a broken summary (the whole `---TLDW---` block as the summary line, "Gemini said" in the details).
   Fallback answers (no TL;DW block parsed) and answers for a request the panel has already abandoned should not be cached.
-- **Still open, see HANDOFF open problems 2 and 6:** TL;DW failed to read the Lex Fridman transcript in 4 of 5 signed-in runs, even signed in.
+- **1.1.2, fixed in 1.1.3 (#27):** TL;DW failed to read the Lex Fridman transcript in 4 of 5 signed-in runs, even signed in.
   Signed in this no longer hurts the summary, because the link path recovers it, but signed out the same video gets only public info.
+
+## TL;DW 1.1.3, signed in (2026-11-02)
+
+Same setup as above: production build loaded unpacked, no key, cache cleared before each run, Gemini tab in the background of a minimized window, the owner's synced extensions enabled.
+1.1.3 fetches YouTube's `get_panel` transcript itself and no longer caches unparsed or late answers.
+
+| Case | Path TL;DW took | Result | Time from click | Panel label | Label accurate? |
+| --- | --- | --- | --- | --- | --- |
+| `dQw4w9WgXcQ` control | Transcript read, sent in the prompt | 3/3 | 10.1 s | none | Yes |
+| `L_Guz73e6fw` Lex Fridman #367, 2h24m | Transcript read (3/3), so the long-video handling applied: notice "This video is long", then the signed-in link prompt | 3/3 | 10.1 to 12.6 s | "Gemini read the video's transcript through YouTube" | Yes: the details match the conversation (GPT-4 as early computing, compression, RLHF, building in public, alignment ahead of capability) |
+| `aircAruvnKk` 3Blue1Brown, chaptered | Transcript read (3/3), sent in the prompt | 3/3 | 10.1 to 12.6 s | none | Yes: specific to the video (weighted sums plus bias, sigmoid, the 784-16-16-10 network, matrix-vector form) |
+| `hY7m5jjJ9mM` no captions | Link prompt, public info only | 3/3 | 10.1 s | "No transcript, so Gemini summarized from public info about this video, not the video itself." | Yes |
+
+Times are polled every 2.5 s, so they are accurate to about that.
+
+Unparsed answers are no longer cached.
+With the test profile's prompt changed so that Gemini answered without a `---TLDW---` block, the panel showed the raw answer (17.6 s) and the cache stayed empty.
+A second click on the same video, without clearing the cache, went back to Gemini instead of serving the broken answer.
+A late answer (one that arrives after the panel's 3-minute timeout) could not be produced live; the E2E suite covers it with a shortened timeout.
 
 ## Implications for no-key mode
 
