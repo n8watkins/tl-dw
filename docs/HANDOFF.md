@@ -12,6 +12,7 @@ It is not live in the Chrome Web Store yet: the Unlisted submission still needs 
 
 ### Status as of today
 
+- Version 1.1.2 fixes signed-in sends that waited out the three-minute deadline: TL;DW looked for the stop button anywhere on the page, and a sidebar chat titled with "Stop" or "Cancel" matched; buttons are now found only inside the composer, by whole label (LESSONS_LEARNED.md lesson 19).
 - Version 1.1.1 fixes a v1.1.0 regression: every no-key send to the background Gemini tab timed out (0 of 9 in a live test), because a hidden Gemini tab keeps its answer's paragraphs `display: none` and TL;DW read only rendered text.
   The reader now falls back to the DOM tree and waits until the answer stops changing; see LESSONS_LEARNED.md lesson 18.
   It also makes no-key link sends honest: a long video goes to the Gemini tab as the start and end of its transcript (labeled "Summarized from part of the transcript (video is long)"), a video with no transcript goes as its link labeled "No transcript, so Gemini summarized from public info about this video", link prompts always carry the URL, and "Watched by Gemini" appears only on the API video path.

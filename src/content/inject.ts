@@ -16,9 +16,20 @@
 import { COMPOSER_MISSING_REASON } from "../lib/fillFailure";
 import { insertedShare, promptInsertedWhole } from "../lib/promptInsert";
 
+/**
+ * How TL;DW finds its way around a chat site. The send and stop buttons are
+ * looked for only inside the composer (the box around the message editor):
+ * signed in, these sites list recent chats in a sidebar, each with a menu
+ * button labeled "More options for <chat title>", so a whole-page match on
+ * "Stop" or "Send" also hit a chat called "Cannot Stop Paused Timer", and TL;DW
+ * waited for a "generation" that never ended. Selectors match whole labels,
+ * never a substring.
+ */
 type SiteConfig = {
   name: string;
   editorSelectors: string[];
+  /** The composer around the editor, which holds the send and stop buttons. */
+  composerSelectors: string[];
   sendSelectors: string[];
   /** Buttons present only while the AI is generating — disappear when done. */
   stopSelectors: string[];
@@ -37,14 +48,16 @@ function configForHost(host: string): SiteConfig | null {
         'div[contenteditable="true"]',
         "textarea",
       ],
+      composerSelectors: ["input-area-v2", "input-container", ".input-area-container", ".input-area", "fieldset", "form"],
       sendSelectors: [
-        'button[aria-label*="Send" i]',
-        "button.send-button",
-        'button[mattooltip*="Send" i]',
+        'button[aria-label="Send message" i]',
+        'button.send-button:not(.stop)',
+        'button[mattooltip="Send message" i]',
       ],
       stopSelectors: [
-        'button[aria-label*="Stop" i]',
-        'button[aria-label*="Cancel" i]',
+        'button[aria-label="Stop response" i]',
+        'button[aria-label="Stop generating" i]',
+        "button.send-button.stop",
       ],
       responseSelectors: [
         "model-response",
@@ -63,15 +76,18 @@ function configForHost(host: string): SiteConfig | null {
         "div.ProseMirror",
         'div[contenteditable="true"]',
       ],
+      composerSelectors: ["form", '[data-testid="composer"]', "#thread-bottom"],
       sendSelectors: [
         'button[data-testid="send-button"]',
-        "#composer-submit-button",
-        'button[aria-label*="Send" i]',
-        'form button[type="submit"]',
+        '#composer-submit-button:not([data-testid="stop-button"])',
+        'button[aria-label="Send prompt" i]',
+        'button[aria-label="Send message" i]',
+        'button[type="submit"]:not([data-testid="stop-button"])',
       ],
       stopSelectors: [
         'button[data-testid="stop-button"]',
-        'button[aria-label*="Stop" i]',
+        'button[aria-label="Stop streaming" i]',
+        'button[aria-label="Stop generating" i]',
       ],
       responseSelectors: [
         '[data-message-author-role="assistant"]',
@@ -87,12 +103,14 @@ function configForHost(host: string): SiteConfig | null {
         'fieldset div[contenteditable="true"]',
         'div[contenteditable="true"]',
       ],
+      composerSelectors: ["fieldset", '[data-testid="chat-input"]', "form"],
       sendSelectors: [
-        'button[aria-label*="Send message" i]',
-        'button[aria-label*="Send" i]',
+        'button[aria-label="Send message" i]',
+        'button[aria-label="Send" i]',
       ],
       stopSelectors: [
-        'button[aria-label*="Stop" i]',
+        'button[aria-label="Stop response" i]',
+        'button[aria-label="Stop" i]',
       ],
       responseSelectors: [
         '[data-testid="assistant-message"]',
@@ -214,23 +232,64 @@ function clearComposer(editor: Element): void {
   }
 }
 
+/**
+ * Page areas that list other chats (sidebars), never the composer. Only the
+ * sidebar itself: Gemini wraps its whole app, composer included, in
+ * side-navigation-v2 and bard-sidenav-container, with the sidebar in
+ * bard-sidenav beside bard-sidenav-content.
+ */
+const NAVIGATION_AREAS = 'nav, aside, [role="navigation"], bard-sidenav';
+
+/** How many levels above the editor to look for its composer when no selector matches. */
+const COMPOSER_MAX_DEPTH = 6;
+
+/**
+ * The composer: the element around the message editor that holds its send
+ * and stop buttons. Found from the editor itself, so a sidebar never counts.
+ * Null when there's no editor.
+ */
+function composerRoot(config: SiteConfig): Element | null {
+  const editor = config.editorSelectors
+    .map((sel) => [...document.querySelectorAll<HTMLElement>(sel)].find((el) => !el.closest(NAVIGATION_AREAS)))
+    .find(Boolean);
+  if (!editor) return null;
+  // In the config's order, not the nearest match: Gemini's editor sits in a
+  // fieldset inside input-area-v2, and the outer element is the safer root.
+  for (const sel of config.composerSelectors) {
+    const known = editor.closest(sel);
+    if (known && !known.closest(NAVIGATION_AREAS)) return known;
+  }
+  // Unknown markup: the nearest ancestor that also holds a button.
+  let el: Element | null = editor.parentElement;
+  for (let depth = 0; el && depth < COMPOSER_MAX_DEPTH; depth += 1, el = el.parentElement) {
+    if (el.matches(NAVIGATION_AREAS)) break;
+    if (el.querySelector("button")) return el;
+  }
+  return null;
+}
+
+/**
+ * The visible buttons matching `selectors` inside the composer. Without a
+ * composer, the whole page outside its sidebars (the selectors match whole
+ * labels, so this is the fallback only).
+ */
+function composerButtons(config: SiteConfig, selectors: string[]): HTMLButtonElement[] {
+  const root = composerRoot(config);
+  return selectors.flatMap((sel) =>
+    [...(root ?? document).querySelectorAll<HTMLButtonElement>(sel)].filter(
+      (btn) => isVisible(btn) && (root || !btn.closest(NAVIGATION_AREAS)),
+    ));
+}
+
 async function findEnabledSendButton(
-  sendSelectors: string[],
+  config: SiteConfig,
   timeoutMs: number,
 ): Promise<HTMLButtonElement | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    for (const sel of sendSelectors) {
-      for (const btn of document.querySelectorAll<HTMLButtonElement>(sel)) {
-        if (
-          !btn.disabled &&
-          btn.getAttribute("aria-disabled") !== "true" &&
-          isVisible(btn)
-        ) {
-          return btn;
-        }
-      }
-    }
+    const btn = composerButtons(config, config.sendSelectors)
+      .find((b) => !b.disabled && b.getAttribute("aria-disabled") !== "true");
+    if (btn) return btn;
     await sleep(120);
   }
   return null;
@@ -747,14 +806,18 @@ function readResponse(responseSelectors: string[]): ResponseRead {
 
 import { parseTldwBlock } from "../lib/tldw";
 
-function hasStopButton(stopSelectors: string[]): boolean {
-  return stopSelectors.some((sel) => {
-    for (const el of document.querySelectorAll<HTMLElement>(sel)) {
-      if (isVisible(el)) return true;
-    }
-    return false;
-  });
+/** Whether the composer shows the site's stop button (the AI is generating). */
+function hasStopButton(config: SiteConfig): boolean {
+  return composerButtons(config, config.stopSelectors).length > 0;
 }
+
+/**
+ * How long a complete TL;DW block (closing marker included) must stay
+ * unchanged before it is accepted even while a stop button still shows: the
+ * answer itself is the stronger signal, so a stop control TL;DW misreads can't
+ * hold a finished summary back until the deadline.
+ */
+const COMPLETE_BLOCK_STABLE_MS = 8000;
 
 /**
  * After the prompt is submitted, wait for the AI to finish generating, then
@@ -773,7 +836,7 @@ async function waitForResponseAndSend(
   const startDeadline = Date.now() + 15_000;
   let sawStop = false;
   while (Date.now() < startDeadline) {
-    if (hasStopButton(config.stopSelectors)) { sawStop = true; break; }
+    if (hasStopButton(config)) { sawStop = true; break; }
     await sleep(500);
   }
   log(sawStop ? "generation started (stop button seen)" : "no stop button seen in 15s — reading anyway");
@@ -792,12 +855,14 @@ async function waitForResponseAndSend(
   let stableSince = Date.now();
   let hidden = false;
   while (Date.now() < deadline) {
-    const generating = hasStopButton(config.stopSelectors);
+    const generating = hasStopButton(config);
     const read = readResponse(config.responseSelectors);
     if (read.text !== previous) { previous = read.text; stableSince = Date.now(); }
     lastText = read.text;
     hidden = read.hidden;
-    const settled = !generating && Date.now() - stableSince >= 600;
+    const stableFor = Date.now() - stableSince;
+    const complete = !!read.tldw && /END\s+TLDW/i.test(read.text);
+    const settled = (!generating && stableFor >= 600) || (complete && stableFor >= COMPLETE_BLOCK_STABLE_MS);
     if (read.tldw && settled) { tldw = read.tldw; break; }
     if (!generating && !read.tldw && lastText && Date.now() - stableSince >= 25_000) break;
     await sleep(700);
@@ -1116,7 +1181,7 @@ async function run(): Promise<void> {
 
   // Give React/Angular a moment to process the input event and enable the send button.
   await sleep(400);
-  const btn = await findEnabledSendButton(config.sendSelectors, 6000);
+  const btn = await findEnabledSendButton(config, 6000);
   if (btn) {
     btn.click();
   } else {

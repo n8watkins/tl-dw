@@ -199,6 +199,19 @@ Every automated test passed, because Playwright's default launch and any CDP ses
 - Check real background-tab behavior with `scripts/live-background-tab.mjs` (`npm run test:live-background-tab -- <videoId>`): plain Chromium under `xvfb-run`, driven only through the extension's service worker, attaching to no page until the run ends.
   Compare with `--front` as the control.
 
+## 19. Scope button lookups to the composer, and match whole labels
+
+v1.1.1 looked for Gemini's stop button anywhere on the page with `button[aria-label*="Stop" i]`.
+Signed in, Gemini, ChatGPT and Claude list recent chats in a sidebar, each with a menu button labeled "More options for <chat title>", so the owner's chat "Cannot Stop Paused Timer" made TL;DW think Gemini was still generating, and every send waited out the three-minute deadline.
+The send-button lookup had the same flaw: a chat called "Send email to Bob" could be clicked instead of Send.
+Signed-out tests never saw it, because a signed-out page has no sidebar.
+
+- Find the send and stop buttons inside the composer around the editor (`composerRoot()` in `src/content/inject.ts`), and match whole labels or test ids, never substrings.
+- Prefer completion signals tied to the answer itself: a complete TL;DW block that stops changing is accepted even if a stop button seems to linger.
+- Test with the signed-in page shape too: the e2e chat-site stand-ins have an account button and a chat-history sidebar with "Stop", "Cancel" and "Send" in its titles.
+- Don't exclude "sidebar" areas by guessing their tag names: Gemini wraps its whole app, composer included, in `side-navigation-v2`, and the first version of this fix excluded it and so never found the Send button (caught only by the live background-tab runner).
+  The Gemini stand-in now copies that nesting.
+
 ---
 
 ### How to add to this file
