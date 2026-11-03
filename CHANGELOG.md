@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1 - 2026-11-02
+
+### Fixed
+
+- No-key summaries come back from a background Gemini tab, labeled with how they were made ([#21](https://github.com/n8watkins/tl-dw/pull/21))
+
 ## 1.1.0 - 2026-11-02
 
 TL;DW works out of the box with Gemini in a tab, and a free Gemini key gets you summaries on the page in seconds; long and uncaptioned videos now get summarized too.
