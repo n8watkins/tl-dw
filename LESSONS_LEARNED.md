@@ -212,6 +212,15 @@ Signed-out tests never saw it, because a signed-out page has no sidebar.
 - Don't exclude "sidebar" areas by guessing their tag names: Gemini wraps its whole app, composer included, in `side-navigation-v2`, and the first version of this fix excluded it and so never found the Send button (caught only by the live background-tab runner).
   The Gemini stand-in now copies that nesting.
 
+## 20. When the site's own button fails, ask for the data it would have shown
+
+YouTube's "Show transcript" button calls the legacy `get_transcript` for some videos, and YouTube answers 400 FAILED_PRECONDITION, so its own panel stays empty and TL;DW had nothing to read.
+The modern transcript panel (`get_panel`) still served those videos; only the button chose the broken endpoint, and which one it chose varied by account and experiment.
+
+- Capture the request the working path sends (here a two-field protobuf in `params`), and make it yourself from the page's MAIN world, where the site's config (`ytcfg`) lives.
+- Pin the request format with a unit test against captured values, and keep the old path as the fallback for when the format changes.
+- A cache should only hold what you know is good: TL;DW cached its raw-text fallback and answers the page had already given up on, and served a broken summary back later.
+
 ---
 
 ### How to add to this file

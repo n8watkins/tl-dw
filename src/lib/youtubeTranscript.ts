@@ -152,3 +152,14 @@ export function joinSegments(lines: string[]): string | null {
   if (kept.length === 0) return null;
   return kept.join(" ");
 }
+
+/**
+ * The InnerTube get_panel `params` for a video's modern transcript panel: the
+ * protobuf message { 149: { 1: videoId, 3: 2 } }, base64-encoded, as YouTube's
+ * web client sends it (seen 2026-11-02).
+ */
+export function transcriptPanelParams(videoId: string): string {
+  const id = [...new TextEncoder().encode(videoId)];
+  const inner = [0x0a, id.length, ...id, 0x18, 0x02];
+  return btoa(String.fromCharCode(0xaa, 0x09, inner.length, ...inner));
+}

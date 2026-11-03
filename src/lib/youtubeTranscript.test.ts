@@ -5,6 +5,7 @@ import {
   extractFromTimedText,
   joinSegments,
   stripSegmentTimeLabels,
+  transcriptPanelParams,
 } from "./youtubeTranscript";
 
 /** One segment as YouTube's get_panel response shaped it on 2026-11-02. */
@@ -116,5 +117,13 @@ describe("joinSegments", () => {
   it("joins non-empty segments with single spaces", () => {
     expect(joinSegments([" a ", "", "b\nc"])).toBe("a b c");
     expect(joinSegments(["", " "])).toBeNull();
+  });
+});
+
+describe("transcriptPanelParams", () => {
+  it("matches what YouTube's web client sends for the transcript panel", () => {
+    // Captured from youtube.com on 2026-11-02.
+    expect(transcriptPanelParams("dQw4w9WgXcQ")).toBe("qgkPCgtkUXc0dzlXZ1hjURgC");
+    expect(transcriptPanelParams("aircAruvnKk")).toBe("qgkPCgthaXJjQXJ1dm5LaxgC");
   });
 });

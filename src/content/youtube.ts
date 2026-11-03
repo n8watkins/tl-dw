@@ -390,8 +390,65 @@ async function waitForTranscriptButton(vid: string): Promise<HTMLElement | null>
   }
 }
 
-/** Fetch the transcript for `vid` by opening YouTube's panel, or null. */
+/** How long to wait for the transcript panel TL;DW asks YouTube for itself. */
+const DIRECT_PANEL_TIMEOUT_MS = 8000;
+/** How long the relayed transcript may trail the bridge's "done" event. */
+const RELAY_GRACE_MS = 1500;
+
+/**
+ * Ask YouTube for this video's modern transcript panel directly (through the
+ * MAIN-world bridge in youtube-intercept.ts), without touching the page. Its
+ * response is relayed like YouTube's own, so this resolves to the captured
+ * transcript, or null when YouTube had none or the page can't make the request
+ * (then TL;DW opens the panel as before).
+ */
+function requestTranscriptPanel(vid: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener("tldw:transcript-panel-done", onDone);
+      window.clearTimeout(timer);
+      resolve(currentVideoId() === vid ? cachedForCurrentVideo() : null);
+    };
+    const onDone = (event: Event) => {
+      let detail: { videoId?: string; ok?: boolean } = {};
+      try {
+        detail = JSON.parse(String((event as CustomEvent<unknown>).detail)) as typeof detail;
+      } catch { /* not ours */ }
+      if (detail.videoId !== vid) return;
+      if (!detail.ok) { finish(); return; }
+      // The transcript itself arrives by postMessage, a moment after this
+      // synchronous event: wait for it briefly.
+      const until = Date.now() + RELAY_GRACE_MS;
+      const poll = () => {
+        if (settled) return;
+        if (cachedForCurrentVideo() || Date.now() >= until || currentVideoId() !== vid) finish();
+        else window.setTimeout(poll, 50);
+      };
+      poll();
+    };
+    const timer = window.setTimeout(finish, DIRECT_PANEL_TIMEOUT_MS);
+    document.addEventListener("tldw:transcript-panel-done", onDone);
+    document.dispatchEvent(new CustomEvent("tldw:transcript-panel-request", { detail: vid }));
+  });
+}
+
+/**
+ * Fetch the transcript for `vid`: first by asking YouTube for its transcript
+ * panel directly, then by opening YouTube's panel, or null.
+ */
 async function fetchTranscript(vid: string): Promise<string | null> {
+  const info = playerInfoForCurrentVideo();
+  if (!info || info.hasCaptions) {
+    const direct = await requestTranscriptPanel(vid);
+    if (direct) {
+      log("transcript fetched from YouTube's transcript panel:", direct.length, "chars");
+      return direct;
+    }
+    if (currentVideoId() !== vid) return null;
+  }
   const button = await waitForTranscriptButton(vid);
   if (!button || currentVideoId() !== vid) {
     log("no 'Show transcript' button for this video");

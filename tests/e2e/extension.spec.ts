@@ -1550,6 +1550,43 @@ test("when YouTube fails to load a transcript, TL;DW stops waiting at once", asy
   }
 });
 
+/** YouTube's client config, which TL;DW's own transcript-panel request reads. */
+const ytcfgScript = `<script>
+  window.ytcfg = { get: (key) => ({
+    INNERTUBE_CONTEXT: { client: { clientName: "WEB", clientVersion: "2.20261030.02.00" } },
+    INNERTUBE_CONTEXT_CLIENT_NAME: 1,
+    INNERTUBE_CLIENT_VERSION: "2.20261030.02.00",
+    VISITOR_DATA: "fixture-visitor",
+  })[key] };
+</script>`;
+
+test("a video whose Show transcript YouTube refuses is read from the transcript panel TL;DW asks for", async () => {
+  // Seen 2026-11-02 on chaptered videos (3Blue1Brown) and, signed in, on a
+  // 2.5-hour podcast: YouTube's button calls get_transcript, which answers 400
+  // FAILED_PRECONDITION, while the modern get_panel still serves the transcript.
+  const session = await launchExtension();
+  try {
+    const panelRequests: Array<{ body: Record<string, unknown>; credentials: string | null }> = [];
+    await routeYouTube(session.context, failingTranscriptFixture.replace("<body>", `<body>${ytcfgScript}`));
+    await routeFailingTranscript(session.context);
+    await session.context.route("https://www.youtube.com/youtubei/v1/get_panel**", async (route) => {
+      panelRequests.push({ body: route.request().postDataJSON() as Record<string, unknown>, credentials: await route.request().headerValue("cookie") });
+      await route.fulfill({ status: 200, contentType: "application/json", body: getPanelBody("fixture-refused") });
+    });
+    const page = await openVideo(session.context, "fixture-refused");
+    const { transcript } = await transcriptFromPage(session, page);
+    expect(transcript).toBe("Intercepted panel text arrives from the network. Nothing here is scraped from the page.");
+    // Asked for the right panel of the right video, without the user's cookies,
+    // and without clicking anything on the page.
+    expect(panelRequests).toHaveLength(1);
+    expect(panelRequests[0].body).toMatchObject({ panelId: "PAmodern_transcript_view", params: "qgkTCg9maXh0dXJlLXJlZnVzZWQYAg==" });
+    expect(panelRequests[0].credentials).toBeNull();
+    expect(await page.evaluate(() => (window as unknown as { __clicks?: number }).__clicks ?? 0)).toBe(0);
+  } finally {
+    await session.close();
+  }
+});
+
 test("no transcript with a key: Gemini watches the video, and a private one is refused clearly", async () => {
   const session = await launchExtension();
   try {

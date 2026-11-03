@@ -12,6 +12,8 @@
  * have no chrome.* APIs, hence the postMessage hand-off.
  */
 
+import { transcriptPanelParams } from "../lib/youtubeTranscript";
+
 const PANEL_PATH = "/youtubei/v1/get_panel";
 const TRANSCRIPT_PATH = "/youtubei/v1/get_transcript";
 const TIMEDTEXT_PATH = "/api/timedtext";
@@ -87,6 +89,51 @@ function readPlayerInfo(): string {
 
 document.addEventListener(PLAYER_INFO_REQUEST, () => {
   document.dispatchEvent(new CustomEvent(PLAYER_INFO_REPLY, { detail: readPlayerInfo() }));
+});
+
+// --- transcript-panel request bridge --------------------------------------
+// YouTube's own "Show transcript" button calls the legacy get_transcript for
+// some videos (seen for chaptered ones, and varying by account and experiment),
+// which YouTube refuses with 400 FAILED_PRECONDITION, leaving its own panel
+// empty. The modern transcript panel (get_panel) still serves those videos, so
+// the content script can ask here for that panel directly. Its response goes
+// through the fetch wrapper below and is relayed like YouTube's own; the reply
+// event only says the request finished (detail: JSON {videoId, ok}).
+const PANEL_REQUEST = "tldw:transcript-panel-request";
+const PANEL_REQUEST_DONE = "tldw:transcript-panel-done";
+
+type YtCfg = { get?: (key: string) => unknown };
+
+async function requestTranscriptPanel(videoId: string): Promise<boolean> {
+  const cfg = (window as unknown as { ytcfg?: YtCfg }).ytcfg;
+  const context = cfg?.get?.("INNERTUBE_CONTEXT");
+  if (!context) return false;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const clientName = cfg?.get?.("INNERTUBE_CONTEXT_CLIENT_NAME");
+  const clientVersion = cfg?.get?.("INNERTUBE_CLIENT_VERSION");
+  const visitor = cfg?.get?.("VISITOR_DATA");
+  if (clientName !== undefined) headers["X-Youtube-Client-Name"] = String(clientName);
+  if (typeof clientVersion === "string") headers["X-Youtube-Client-Version"] = clientVersion;
+  if (typeof visitor === "string") headers["X-Goog-Visitor-Id"] = visitor;
+  // Without the user's cookies: a transcript is public, and a signed-in request
+  // would need YouTube's own authorization header besides the cookies.
+  const res = await window.fetch(`${PANEL_PATH}?prettyPrint=false`, {
+    method: "POST",
+    credentials: "omit",
+    headers,
+    body: JSON.stringify({ context, panelId: "PAmodern_transcript_view", params: transcriptPanelParams(videoId) }),
+  });
+  // Wait for the body, so the wrapper's relay has been posted before "done".
+  const text = await res.clone().text();
+  return res.ok && text.includes(PANEL_TRANSCRIPT_MARKER);
+}
+
+document.addEventListener(PANEL_REQUEST, (event) => {
+  const videoId = (event as CustomEvent<unknown>).detail;
+  if (typeof videoId !== "string" || !/^[\w-]{1,64}$/.test(videoId)) return;
+  const done = (ok: boolean) =>
+    document.dispatchEvent(new CustomEvent(PANEL_REQUEST_DONE, { detail: JSON.stringify({ videoId, ok }) }));
+  requestTranscriptPanel(videoId).then(done, () => done(false));
 });
 
 const originalFetch = window.fetch;

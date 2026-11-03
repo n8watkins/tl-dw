@@ -12,6 +12,7 @@ It is not live in the Chrome Web Store yet: the Unlisted submission still needs 
 
 ### Status as of today
 
+- Version 1.1.3 reads transcripts YouTube's own button can't load (open problem 2), and caches only a parsed summary the page was still waiting for: an unparsed answer or one that came after the page gave up is shown but never cached.
 - Version 1.1.2 fixes signed-in sends that waited out the three-minute deadline: TL;DW looked for the stop button anywhere on the page, and a sidebar chat titled with "Stop" or "Cancel" matched; buttons are now found only inside the composer, by whole label (LESSONS_LEARNED.md lesson 19).
 - Version 1.1.1 fixes a v1.1.0 regression: every no-key send to the background Gemini tab timed out (0 of 9 in a live test), because a hidden Gemini tab keeps its answer's paragraphs `display: none` and TL;DW read only rendered text.
   The reader now falls back to the DOM tree and waits until the answer stops changing; see LESSONS_LEARNED.md lesson 18.
@@ -37,12 +38,14 @@ It is not live in the Chrome Web Store yet: the Unlisted submission still needs 
    On 2026-11-02, with TL;DW loaded alone in Playwright Chromium against live YouTube, the comments panel followed each Short across three scrolls, both before and after that change.
    In TubeVault the main suspect is its Shorts button, which inserts a React root into YouTube's recycled `reel-action-bar-view-model` (see TubeVault's `docs/HANDOFF.md`).
    Next: reproduce with TubeVault alone, fix it there, and add a Playwright regression test that scrolls between Shorts and asserts the comments panel follows the active Short.
-2. **Some captioned videos give TL;DW no transcript (HIGH, partly outside TL;DW; see also problem 6).**
-   On 2026-11-02, in Playwright Chromium (headless and headed, signed out), 3Blue1Brown's `aircAruvnKk` and `IHZwWFHWa-w` (both with chapters) opened YouTube's legacy transcript panel, whose `get_transcript` request YouTube answered with 400 FAILED_PRECONDITION; YouTube's own panel stayed empty.
-   Videos without chapters (e.g. `dQw4w9WgXcQ`) use the modern `get_panel` path, which works.
-   The caption track URLs carry `exp=xpe` and return empty bodies without a PO token, so they are no fallback either.
-   TL;DW stops waiting as soon as that request fails; with a key the Gemini API then watches the video (video input); without one the Gemini tab gets the link and can only summarize public info about the video (labeled so), and ChatGPT or Claude offer a free key or "Send the link to Gemini (public info only)".
-   Next: check the same videos in the owner's signed-in Chrome; if they work there, the failure is specific to signed-out automation.
+2. **Some captioned videos gave TL;DW no transcript (fixed in 1.1.3; watch for regressions).**
+   Cause: for some videos YouTube's own "Show transcript" button calls the legacy `get_transcript`, which YouTube answers with 400 FAILED_PRECONDITION, so its own panel stays empty.
+   It happens for chaptered videos (3Blue1Brown's `aircAruvnKk`, `IHZwWFHWa-w`) signed out, and varies by account and experiment: signed in, the 2h24m Lex Fridman #367 (`L_Guz73e6fw`) failed in 4 of 5 runs, while signed out it went through the modern panel.
+   The modern transcript panel (`get_panel`, `panelId: "PAmodern_transcript_view"`, `params` = base64 of the protobuf `{149: {1: videoId, 3: 2}}`) still serves every one of those videos (checked 2026-11-02: 3Blue1Brown 18,430 and 20,163 characters, Lex 129,690).
+   Since 1.1.3 TL;DW asks for that panel itself first, from the page's MAIN world without the user's cookies (`requestTranscriptPanel()` in `src/content/youtube-intercept.ts` and `src/content/youtube.ts`), and only opens YouTube's panel when that fails.
+   The caption track URLs carry `exp=xpe` and return empty bodies without a PO token, so they are no fallback.
+   If YouTube changes the `params` format, the direct request returns nothing and TL;DW falls back to the button; `transcriptPanelParams()` has a unit test pinned to captured values.
+   Next: the signed-in tester confirms the Lex video reads its transcript signed in.
 3. **Local `npm ci` fails on npm 12.**
    npm 12 defaults `allow-git` to `none`, and release-kit is a `github:` dev dependency, so `npm ci` stops with `EALLOWGIT` and leaves `node_modules` empty.
    Use `npm ci --allow-git=all` locally until the dependency source changes; CI's `npm ci` still succeeds (its runner uses an older npm).
@@ -58,10 +61,8 @@ It is not live in the Chrome Web Store yet: the Unlisted submission still needs 
    The Quality gate now fails on any advisory in production dependencies (`npm audit --omit=dev`) and on high or critical ones across the whole tree (`npm audit --audit-level=high`).
    Go back to a plain `npm audit` once eslint ships on minimatch 11.
 
-6. **Most videos give no transcript in signed-out automation (HIGH for testing, see problem 2).**
-   On 2026-11-02, in signed-out headless Chromium, only videos without chapters on the modern `get_panel` path (for example `dQw4w9WgXcQ`) returned a transcript; 3Blue1Brown, MIT, Stanford and TED videos all came back empty.
-   With a key those videos are still summarized (the API watches the video), but from video rather than the cheaper transcript; without a key the summary comes only from public info about the video.
-   Check in the owner's signed-in Chrome before deciding whether the transcript reader needs work.
+6. **Most videos gave no transcript in signed-out automation (fixed in 1.1.3, see problem 2).**
+   The same `get_transcript` refusal; the direct transcript-panel request reads them now.
 
 ### Blocked on the owner
 
