@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.2 - 2026-11-02
+
+### Fixed
+
+- Signed-in sends no longer wait 3 minutes when a chat title contains "Stop" or "Cancel" ([#24](https://github.com/n8watkins/tl-dw/pull/24))
+
 ## 1.1.1 - 2026-11-02
 
 ### Fixed
