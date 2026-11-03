@@ -51,9 +51,11 @@ async function runOnce(videoId, label) {
   const t0 = Date.now();
   const log = (...a) => logFile.write(`[${((Date.now() - t0) / 1000).toFixed(1)}s] ${a.join(" ")}\n`);
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "tldw-live-"));
-  const port = 9300 + Math.floor(Math.random() * 500);
+  // Port 0 lets Chromium pick a free port and write it to DevToolsActivePort,
+  // so parallel runs never share (and drive) one browser.
+  let port = 0;
   const proc = spawn(chromium.executablePath(), [
-    `--user-data-dir=${profile}`, `--remote-debugging-port=${port}`, "--no-first-run", "--no-default-browser-check",
+    `--user-data-dir=${profile}`, "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check",
     `--disable-extensions-except=${ext}`, `--load-extension=${ext}`, "--mute-audio",
     "--autoplay-policy=user-gesture-required", "--window-size=1280,900", "about:blank",
   ], { stdio: "ignore", env: { ...process.env, PULSE_SERVER: "unix:/nonexistent" } });
@@ -63,6 +65,10 @@ async function runOnce(videoId, label) {
     let sw;
     for (let i = 0; i < 60 && !sw; i++) {
       await sleep(500);
+      if (!port) {
+        try { port = Number(fs.readFileSync(path.join(profile, "DevToolsActivePort"), "utf8").split("\n")[0]) || 0; } catch { /* not yet */ }
+        if (!port) continue;
+      }
       const list = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json()).catch(() => []);
       sw = list.find((t) => t.type === "service_worker" && t.url.endsWith("/service-worker-loader.js"));
     }

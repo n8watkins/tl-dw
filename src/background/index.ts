@@ -36,7 +36,7 @@ import {
   localDateKey,
   STORAGE_KEYS,
 } from "../lib/constants";
-import { cacheContextForScrape, findOpenSearchForVideo } from "../lib/openSearchMatch";
+import { cacheContextForScrape, findOpenSearchForVideo, shouldCacheScrape, type SetSummaryReply } from "../lib/openSearchMatch";
 import {
   accessNeededMessage,
   destinationOrigins,
@@ -1048,16 +1048,8 @@ chrome.runtime.onMessage.addListener(
           // tab), and never one whose prompt carried another video's transcript.
           const label = message.signedIn && ownSearch?.signedInLabel ? ownSearch.signedInLabel : match?.summaryLabel;
           if (label) tldw = { ...tldw, label };
-          const cacheContext = cacheContextForScrape(ownSearch);
-          if (cacheContext) {
-            await setCachedSummary({
-              ...cacheContext,
-              tldw,
-              createdAt: new Date().toISOString(),
-            });
-          }
         } catch { /* best effort — fall back to no guard */ }
-        void chrome.tabs
+        const reply = (await chrome.tabs
           .sendMessage(srcTabId, {
             type: "SET_SUMMARY",
             tldw,
@@ -1065,7 +1057,15 @@ chrome.runtime.onMessage.addListener(
             sourceKind: "tab",
             videoId,
           })
-          .catch(() => {});
+          .catch(() => undefined)) as SetSummaryReply | undefined;
+        // Cache only what the page showed for its own video and wasn't late
+        // for, and only a real parsed summary from this tab's own request.
+        try {
+          const cacheContext = shouldCacheScrape(message.parsed, reply) ? cacheContextForScrape(match?.tabId === destTabId ? match : undefined) : undefined;
+          if (cacheContext) {
+            await setCachedSummary({ ...cacheContext, tldw, createdAt: new Date().toISOString() });
+          }
+        } catch { /* best effort: a failed cache write never hides the summary */ }
       })();
       // Bump lifetime stats: summary completed (tab-scrape / AI_SUMMARY path).
       const today = localDateKey();

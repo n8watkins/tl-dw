@@ -390,8 +390,65 @@ async function waitForTranscriptButton(vid: string): Promise<HTMLElement | null>
   }
 }
 
-/** Fetch the transcript for `vid` by opening YouTube's panel, or null. */
+/** How long to wait for the transcript panel TL;DW asks YouTube for itself. */
+const DIRECT_PANEL_TIMEOUT_MS = 8000;
+/** How long the relayed transcript may trail the bridge's "done" event. */
+const RELAY_GRACE_MS = 1500;
+
+/**
+ * Ask YouTube for this video's modern transcript panel directly (through the
+ * MAIN-world bridge in youtube-intercept.ts), without touching the page. Its
+ * response is relayed like YouTube's own, so this resolves to the captured
+ * transcript, or null when YouTube had none or the page can't make the request
+ * (then TL;DW opens the panel as before).
+ */
+function requestTranscriptPanel(vid: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener("tldw:transcript-panel-done", onDone);
+      window.clearTimeout(timer);
+      resolve(currentVideoId() === vid ? cachedForCurrentVideo() : null);
+    };
+    const onDone = (event: Event) => {
+      let detail: { videoId?: string; ok?: boolean } = {};
+      try {
+        detail = JSON.parse(String((event as CustomEvent<unknown>).detail)) as typeof detail;
+      } catch { /* not ours */ }
+      if (detail.videoId !== vid) return;
+      if (!detail.ok) { finish(); return; }
+      // The transcript itself arrives by postMessage, a moment after this
+      // synchronous event: wait for it briefly.
+      const until = Date.now() + RELAY_GRACE_MS;
+      const poll = () => {
+        if (settled) return;
+        if (cachedForCurrentVideo() || Date.now() >= until || currentVideoId() !== vid) finish();
+        else window.setTimeout(poll, 50);
+      };
+      poll();
+    };
+    const timer = window.setTimeout(finish, DIRECT_PANEL_TIMEOUT_MS);
+    document.addEventListener("tldw:transcript-panel-done", onDone);
+    document.dispatchEvent(new CustomEvent("tldw:transcript-panel-request", { detail: vid }));
+  });
+}
+
+/**
+ * Fetch the transcript for `vid`: first by asking YouTube for its transcript
+ * panel directly, then by opening YouTube's panel, or null.
+ */
 async function fetchTranscript(vid: string): Promise<string | null> {
+  const info = playerInfoForCurrentVideo();
+  if (!info || info.hasCaptions) {
+    const direct = await requestTranscriptPanel(vid);
+    if (direct) {
+      log("transcript fetched from YouTube's transcript panel:", direct.length, "chars");
+      return direct;
+    }
+    if (currentVideoId() !== vid) return null;
+  }
   const button = await waitForTranscriptButton(vid);
   if (!button || currentVideoId() !== vid) {
     log("no 'Show transcript' button for this video");
@@ -850,6 +907,11 @@ let summaryPanelKind: "summary" | "idle" | "progress" | "notice" | null = null;
 // error, timeout, navigation) so the button never sticks on "Analyzing…".
 let runInFlight = false;
 
+// The video whose page run last ran out of time. An answer for it that arrives
+// afterwards is still shown, but the worker is told it came late, so it isn't
+// cached: the page had given up on it, and a slow answer is often a broken one.
+let timedOutVideoId: string | null = null;
+
 // The current "run a summary" action, captured so the loading-timeout error
 // panel can offer a one-click Retry. Set whenever a run flow is armed.
 let currentSummarizeAction: (() => Promise<void>) | null = null;
@@ -859,7 +921,8 @@ let loadingTimeoutTimer: number | undefined;
 // How long to wait for a result before showing the retry panel. Tab-mode
 // scrapes (open destination, wait for generation, scrape) can be slow, so this
 // is generous; a real result that arrives later still replaces the panel.
-const LOADING_TIMEOUT_MS = 180_000;
+// (The e2e build shortens it to test a late answer.)
+const LOADING_TIMEOUT_MS = Number(import.meta.env.VITE_PAGE_RUN_TIMEOUT_MS) || 180_000;
 
 function clearLoadingTimeout(): void {
   if (loadingTimeoutTimer !== undefined) {
@@ -1452,6 +1515,7 @@ function startRunInFlight(): void {
   // while a fresh run is analyzing; the real summary will re-inject on SET_SUMMARY.
   removeSummaryPanel();
   runInFlight = true;
+  timedOutVideoId = null;
   // Make sure the button is mounted before flagging it: setWatchButtonState is a
   // no-op when the button isn't in the DOM yet (the owner row can render late on
   // a cold page load), which would leave an auto/cold run with no on-page cue.
@@ -1470,6 +1534,7 @@ function startRunInFlight(): void {
   loadingTimeoutTimer = window.setTimeout(() => {
     if (runInFlight && currentVideoId() === loadingVid) {
       endRunInFlight();
+      timedOutVideoId = loadingVid;
       showSummaryErrorPanel();
     }
   }, LOADING_TIMEOUT_MS);
@@ -2911,10 +2976,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       // caching it under the current id would permanently poison that video's
       // cache. Fall back to current behavior only when no videoId was provided.
       if (msg.videoId && msg.videoId !== cur) {
-        sendResponse({ ok: true });
+        sendResponse({ ok: true, shown: false });
         return false;
       }
       const vid = msg.videoId ?? cur;
+      // A page run that already gave up on this video: show the answer, but say
+      // it came late so the worker doesn't cache it.
+      const late = !runInFlight && !!vid && vid === timedOutVideoId;
       // The result for the on-screen video has arrived — end the in-flight state
       // here, unconditionally. showSummaryPanel's render can still bail if the
       // panel host is transiently missing (YouTube re-rendering #below), but the
@@ -2922,8 +2990,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       // strand the button on "Analyzing…" and fire a bogus 90s timeout error.
       endRunInFlight();
       showSummaryPanel({ ...tldw, source: msg.source, sourceKind: msg.sourceKind, note: msg.note }, vid);
+      sendResponse({ ok: true, shown: true, late });
+      return false;
     }
-    sendResponse({ ok: true });
+    sendResponse({ ok: true, shown: false });
     return false;
   }
   if (type === "SET_RUN_PROGRESS") {

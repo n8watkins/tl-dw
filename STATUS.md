@@ -1,6 +1,6 @@
 # TL;DW Extension Status
 
-**Version:** 1.1.2
+**Version:** 1.1.3
 **Last updated:** November 2, 2026
 
 TL;DW 1.0 is being prepared as an Unlisted Chrome Web Store soft launch centered on bring-your-own-key Gemini access.
