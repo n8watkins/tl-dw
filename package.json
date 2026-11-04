@@ -27,15 +27,15 @@
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
-    "@tanstack/react-virtual": "^3.14.3",
+    "@tanstack/react-virtual": "^3.14.25",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "2.7.1",
     "@eslint/js": "9.39.5",
-    "@playwright/test": "1.61.1",
-    "@types/chrome": "^0.0.287",
+    "@playwright/test": "1.64.1",
+    "@types/chrome": "^0.3.7",
     "@types/node": "^24.19.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
@@ -43,10 +43,10 @@
     "eslint": "9.39.5",
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
-    "eslint-plugin-react-refresh": "0.5.3",
+    "eslint-plugin-react-refresh": "0.5.7",
     "release-kit": "github:n8watkins/release-kit#v2.8.1",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.65.0",
+    "typescript-eslint": "8.72.1",
     "vite": "7.3.7",
     "vitest": "4.1.12"
   }
