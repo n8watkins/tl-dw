@@ -84,7 +84,8 @@ const MENU_ROOT = "tldw-root";
  * as a suggested-video thumbnail ("link"). The page/link entries are scoped to
  * youtube.com so they don't clutter right-clicks elsewhere.
  */
-const MENU_CONTEXTS: chrome.contextMenus.ContextType[] = [
+type MenuContext = `${chrome.contextMenus.ContextType}`;
+const MENU_CONTEXTS: [MenuContext, ...MenuContext[]] = [
   "action",
   "page",
   "link",
