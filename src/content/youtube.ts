@@ -899,6 +899,22 @@ let summaryPanel: HTMLElement | null = null;
 // skeleton panel. The inline TL;DW button is the sole loading indicator; the
 // `runInFlight` flag below tracks that state.
 let summaryPanelKind: "summary" | "idle" | "progress" | "notice" | null = null;
+// The video the injected panel belongs to. YouTube keeps #below across an
+// in-page navigation, so a panel outlives its video until TL;DW notices the
+// change: nothing may treat it as the current video's panel unless this matches.
+let summaryPanelVideoId: string | null = null;
+
+/** Put `panel` on the page as the one TL;DW panel, owned by the current video. */
+function mountPanel(host: Element, panel: HTMLElement): void {
+  summaryPanel = panel;
+  summaryPanelVideoId = currentVideoId();
+  host.prepend(panel);
+}
+
+/** The panel, only when it belongs to the video in the URL. */
+function currentVideoPanel(): HTMLElement | null {
+  return summaryPanel && summaryPanelVideoId === currentVideoId() ? summaryPanel : null;
+}
 
 // True while a summary run is in flight (request sent, no SET_SUMMARY /
 // SET_SUMMARY_ERROR / timeout yet). The inline TL;DW button shows the
@@ -951,6 +967,7 @@ function removeSummaryPanel(): void {
   summaryPanel?.remove();
   summaryPanel = null;
   summaryPanelKind = null;
+  summaryPanelVideoId = null;
   setWatchButtonState("idle");
 }
 
@@ -1087,9 +1104,14 @@ function ensureWatchButton(): void {
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
     if (!extensionContextAlive()) { tearDownOrphanedScript(); return; }
-    // A panel already up (cached / summary): jump to it, don't re-run.
-    if (summaryPanel && summaryPanelKind !== "notice") {
-      summaryPanel.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Catch up with an in-page navigation TL;DW hasn't handled yet (the URL
+    // changes before YouTube's events and the poll), so the press is for the
+    // video in the URL and the previous video's panel is gone first.
+    onNavigate();
+    // This video's panel already up (cached / summary): jump to it, don't re-run.
+    const existing = currentVideoPanel();
+    if (existing && summaryPanelKind !== "notice") {
+      existing.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
     // Already analyzing (loading lives in the button now): a second click must
@@ -1739,9 +1761,8 @@ function showSummaryErrorPanel(reason?: string, actionUrl?: string, opts: ErrorP
     }
     panel.append(row);
   }
-  summaryPanel = panel;
+  mountPanel(host, panel);
   summaryPanelKind = "idle";
-  host.prepend(panel);
   fitPanelToViewport();
   log("summary error panel shown:", reason ?? "loading timed out");
   refreshSponsorPanel();
@@ -1791,7 +1812,7 @@ function showProgress(step: string | undefined, notice?: string): void {
   const kind = runInFlight ? "progress" : "notice";
   if (!runInFlight && !notice) return;
   const t = theme();
-  let panel = summaryPanel;
+  let panel = currentVideoPanel();
   if (!panel || (summaryPanelKind !== "progress" && summaryPanelKind !== "notice")) {
     removeSummaryPanel();
     panel = document.createElement("div");
@@ -1808,8 +1829,7 @@ function showProgress(step: string | undefined, notice?: string): void {
     noticeEl.dataset.tldwNotice = "1";
     Object.assign(noticeEl.style, { fontSize: "13px", lineHeight: "1.5", color: t.text, marginTop: "6px" });
     panel.append(head, stepEl, noticeEl);
-    summaryPanel = panel;
-    host.prepend(panel);
+    mountPanel(host, panel);
     fitPanelToViewport();
     if (runInFlight) setWatchButtonState("analyzing");
   }
@@ -2438,15 +2458,16 @@ function showSummaryPanel(
   if (!host) return;
 
   const vid = videoId ?? currentVideoId();
+  // Never put a summary on another video's page.
+  if (!vid || vid !== currentVideoId()) return;
   removeSummaryPanel();
   // A result landed — the run is no longer in flight (clears the timeout +
   // the inline button's "Analyzing…" cue, which setWatchButtonState("ready")
   // below replaces).
   endRunInFlight();
   const panel = buildSummaryPanel(tldw, vid);
-  summaryPanel = panel;
+  mountPanel(host, panel);
   summaryPanelKind = "summary";
-  host.prepend(summaryPanel);
   fitPanelToViewport();
   setWatchButtonState("ready");
   log("summary panel injected");
@@ -2776,7 +2797,10 @@ async function maybeStartDirectApiRun(
   // via forceRun and runs the configured backend (headless Gemini or tab-scrape).
   // Clear any in-flight state (this is a terminal, non-running outcome) so the
   // button doesn't sit on "Analyzing…".
-  endRunInFlight();
+  // A press that landed while this passive check was awaiting (the click
+  // handler runs onNavigate, which starts this check, then its own forced run)
+  // owns the in-flight state: leave it alone.
+  if (runInFlight) return;
   setWatchButtonState("idle");
 }
 
@@ -2849,6 +2873,8 @@ function tearDownOrphanedScript(): void {
   if (navPollTimer !== undefined) window.clearInterval(navPollTimer);
   navPollTimer = undefined;
   window.removeEventListener("yt-navigate-finish", onNavigate);
+  document.removeEventListener("tldw:location-change", onNavigate);
+  window.removeEventListener("popstate", onNavigate);
   navEpoch++;
   runInFlight = false;
   clearLoadingTimeout();
@@ -2936,6 +2962,10 @@ function onNavigate(): void {
 // subsequent SPA navigations without any delay.
 setTimeout(onNavigate, 1000);
 window.addEventListener("yt-navigate-finish", onNavigate);
+// The URL changes the moment a navigation starts; youtube-intercept.ts reports
+// every history change, so the previous video's panel goes at once.
+document.addEventListener("tldw:location-change", onNavigate);
+window.addEventListener("popstate", onNavigate);
 navPollTimer = window.setInterval(onNavigate, 500);
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -2974,11 +3004,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       // one on screen, drop it — rendering it would show the wrong summary AND
       // caching it under the current id would permanently poison that video's
       // cache. Fall back to current behavior only when no videoId was provided.
-      if (msg.videoId && msg.videoId !== cur) {
+      if (!msg.videoId || msg.videoId !== cur) {
         sendResponse({ ok: true, shown: false });
         return false;
       }
-      const vid = msg.videoId ?? cur;
+      const vid = msg.videoId;
       // A page run that already gave up on this video: show the answer, but say
       // it came late so the worker doesn't cache it.
       const late = !runInFlight && !!vid && vid === timedOutVideoId;
