@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { LifetimeStats, GeminiUsage, Tag, SearchHistoryEntry } from "../../types";
 import { getLifetimeStats, getGeminiUsage, getHistory, getTags } from "../../lib/storage";
 import { computeChannelStats, isSummaryEntry, type ChannelStats } from "../../lib/history";
@@ -255,7 +255,19 @@ function UsageBar({ label, count, total, color }: { label: string; count: number
 // Main component
 // ---------------------------------------------------------------------------
 
+/**
+ * The heatmap ends today, so when the year is wider than the card it opens
+ * scrolled to its right end: today's column is visible, older weeks scroll in.
+ * Stable, so a stats refresh doesn't snap back a scroll the user made.
+ */
+function useScrollToEnd(): (el: HTMLDivElement | null) => void {
+  return useCallback((el: HTMLDivElement | null) => {
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, []);
+}
+
 export function StatsSection() {
+  const heatmapScrollRef = useScrollToEnd();
   const [stats, setStats] = useState<LifetimeStats | null>(null);
   const [usage, setUsage] = useState<GeminiUsage | null>(null);
   const [topChannels, setTopChannels] = useState<ChannelStats[]>([]);
@@ -383,7 +395,7 @@ export function StatsSection() {
         {yearTotal === 0 ? (
           <div className="stat-empty">No summary activity yet — summarize a video to start your streak.</div>
         ) : (
-          <div style={{ overflowX: "auto", paddingBottom: 4 }}>
+          <div ref={heatmapScrollRef} data-testid="stat-heatmap-scroll" style={{ overflowX: "auto", paddingBottom: 4 }}>
             {/* Month strip — labels positioned over their first column */}
             <div style={{ position: "relative", height: 14, marginTop: 10, minWidth: weeks.length * COL }}>
               {monthLabels.map((m) => (

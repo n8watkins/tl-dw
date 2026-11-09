@@ -31,7 +31,7 @@ On the free tier, Google may use what you send to improve its products ([Gemini 
 
 The Gemini key stays in `chrome.storage.local` and is sent only to Google's Gemini API, in the `x-goog-api-key` header.
 The full transcript is never persisted.
-History stores a transcript-free prompt and video metadata.
+History stores the prompt that was sent, with the transcript replaced by a note of its length, and video metadata.
 The summary cache keeps parsed summaries, prompt fingerprints, profile metadata and timestamps for up to seven days.
 Direct API call logs store video URL, title, time, profile and outcome by default; full prompt and response bodies only when full call logging is on.
 

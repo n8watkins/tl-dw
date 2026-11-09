@@ -54,6 +54,8 @@ export type OpenSearch = {
   summaryLabel?: string;
   /** The label instead, when the tab sent its signed-in prompt (Gemini read the captions). */
   signedInLabel?: string;
+  /** The video's length, counted in the "content distilled" stat once the answer comes back. */
+  videoDurationSeconds?: number;
 };
 
 /**
