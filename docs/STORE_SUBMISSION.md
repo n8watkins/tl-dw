@@ -27,7 +27,7 @@ TL;DW: YouTube Summaries with Gemini
 At least six store items are already called TLDW or TL;DW, so the listing name says what it does.
 Everywhere inside the extension it is still TL;DW.
 
-### Summary (comes from the manifest description, 107 of 132 characters)
+### Summary (comes from the manifest description, 112 of 132 characters)
 
 ```
 Too Long; Didn't Watch: summarize any YouTube video right on the page with Gemini, with or without your own key.
