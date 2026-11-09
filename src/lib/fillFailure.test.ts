@@ -14,16 +14,16 @@ describe("fillFailureMessage", () => {
   });
 
   it("says plainly that a missing message box may mean being signed out, without nested parentheses", () => {
-    const message = fillFailureMessage({ site: "Claude", reason: COMPOSER_MISSING_REASON, copied: true });
+    const message = fillFailureMessage({ site: "Gemini", reason: COMPOSER_MISSING_REASON, copied: true });
     expect(message).toBe(
-      "TL;DW couldn't fill the Claude tab. Claude never showed its message box. " +
+      "TL;DW couldn't fill the Gemini tab. Gemini never showed its message box. " +
         "If you're signed out, sign in there first. " +
-        "The full prompt is on your clipboard: paste it into the Claude tab.",
+        "The full prompt is on your clipboard: paste it into the Gemini tab.",
     );
     expect(message).not.toMatch(/\([^)]*\(/);
   });
 
   it("still reads as sentences with no reason or copy result", () => {
-    expect(fillFailureMessage({ site: "ChatGPT" })).toBe("TL;DW couldn't fill the ChatGPT tab.");
+    expect(fillFailureMessage({ site: "Gemini" })).toBe("TL;DW couldn't fill the Gemini tab.");
   });
 });

@@ -1,16 +1,10 @@
 import { defineManifest } from "@crxjs/vite-plugin";
 import pkg from "../package.json";
 
-// The chat sites other than Gemini, and SponsorBlock, are optional host
-// permissions: TL;DW asks for them when the user picks that feature. The e2e
-// build (TLDW_E2E=1) grants them up front, because a headless test can't click
-// Chrome's permission prompt.
-const OPTIONAL_HOSTS = [
-  "https://chatgpt.com/*",
-  "https://claude.ai/*",
-  "https://notebooklm.google.com/*",
-  "https://sponsor.ajay.app/*",
-];
+// SponsorBlock is the one optional host permission: TL;DW asks for it when the
+// user turns SponsorBlock on. The e2e build (TLDW_E2E=1) grants it up front,
+// because a headless test can't click Chrome's permission prompt.
+const OPTIONAL_HOSTS = ["https://sponsor.ajay.app/*"];
 const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const grantOptionalHosts = env.TLDW_E2E === "1";
 
@@ -25,7 +19,7 @@ export default defineManifest({
   // permission) needs Chrome 116; `world: "MAIN"` content scripts need 111.
   minimum_chrome_version: "116",
   description:
-    "Too Long; Didn't Watch: summarize any YouTube video right on the page with Gemini, or send it to ChatGPT, Claude or NotebookLM.",
+    "Too Long; Didn't Watch: summarize any YouTube video right on the page with Gemini, with or without your own key.",
   icons: {
     16: "icons/tl-dw-16.png",
     32: "icons/tl-dw-32.png",
@@ -52,8 +46,6 @@ export default defineManifest({
   },
   content_scripts: [
     {
-      // The other chat sites get the same script, registered at runtime once
-      // the user allows that site (see syncInjectorRegistration).
       matches: ["https://gemini.google.com/*"],
       js: ["src/content/inject.ts"],
       run_at: "document_idle",
@@ -90,7 +82,7 @@ export default defineManifest({
       matches: ["https://www.youtube.com/*"],
     },
   ],
-  permissions: ["storage", "contextMenus", "clipboardWrite", "scripting"],
+  permissions: ["storage", "contextMenus", "clipboardWrite"],
   host_permissions: [
     "https://www.youtube.com/*",
     "https://gemini.google.com/*",

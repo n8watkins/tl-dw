@@ -10,7 +10,6 @@ Use a Gemini key from a project with no unrelated production access.
 - [ ] Load the production extension in Chrome.
 - [ ] On a fresh profile, confirm the welcome page opens on install, "Skip, use without a key" works, and a pasted key is verified and turns Direct API on.
 - [ ] Open the popup once and confirm the "Works without a key" tip appears and can be dismissed.
-- [ ] Pick ChatGPT, Claude and NotebookLM as destinations and confirm Chrome asks for each site once, and a send works after allowing it.
 - [ ] Turn on SponsorBlock and confirm Chrome asks for sponsor.ajay.app; turn it off and confirm no more requests go there.
 - [ ] Open every options section and confirm there are no visible layout defects or console errors.
 
@@ -83,9 +82,6 @@ Use a Gemini key from a project with no unrelated production access.
 External destination DOM structures are volatile, so these remain manual.
 
 - [ ] Gemini open-in-a-tab auto-fill and response scrape work.
-- [ ] ChatGPT auto-fill and response scrape work.
-- [ ] Claude auto-fill and response scrape work.
-- [ ] NotebookLM YouTube-source insertion works.
 - [ ] Clipboard fallback provides a usable prompt when a destination selector fails.
 - [ ] Right-click profile selection and `Alt+Shift+G` still work.
 

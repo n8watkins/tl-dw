@@ -6,7 +6,7 @@
 
 /**
  * Why the fill failed when the site's message box never appeared. Like every
- * fill-failure reason it reads after the site's name ("Claude never showed..."),
+ * fill-failure reason it reads after the site's name ("Gemini never showed..."),
  * as the popup shows it.
  */
 export const COMPOSER_MISSING_REASON = "never showed its message box. If you're signed out, sign in there first";

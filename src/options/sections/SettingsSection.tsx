@@ -1,33 +1,16 @@
 import { useEffect, useState } from "react";
 import type { Settings } from "../../types";
-import {
-  DEFAULT_SETTINGS,
-  DESTINATIONS,
-  STORAGE_KEYS,
-} from "../../lib/constants";
+import { DEFAULT_SETTINGS, STORAGE_KEYS } from "../../lib/constants";
 import { getSettings, setSettings } from "../../lib/storage";
-import {
-  destinationOrigins,
-  hasDestinationAccess,
-  hasSponsorBlockAccess,
-  requestDestinationAccess,
-  requestSponsorBlockAccess,
-} from "../../lib/permissions";
+import { hasSponsorBlockAccess, requestSponsorBlockAccess } from "../../lib/permissions";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { DestinationIcon, Icon } from "../components/Icons";
+import { Icon } from "../components/Icons";
 
 export function SettingsSection() {
   const [settings, setLocal] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [cacheCount, setCacheCount] = useState(0);
-  const [destNotice, setDestNotice] = useState("");
-  const [allowed, setAllowed] = useState<Record<string, boolean>>({});
-
-  function refreshAllowed() {
-    void Promise.all(DESTINATIONS.map(async (d) => [d.id, await hasDestinationAccess(d.id)] as const))
-      .then((entries) => setAllowed(Object.fromEntries(entries)));
-  }
 
   function refreshCacheCount() {
     void chrome.runtime.sendMessage({ type: "CACHE_COUNT" }).then((result) => {
@@ -54,11 +37,6 @@ export function SettingsSection() {
       }
     })();
     refreshCacheCount();
-    refreshAllowed();
-    // (The bundled chrome types omit removeListener on these two events.)
-    const permissionEvents = [chrome.permissions.onAdded, chrome.permissions.onRemoved] as unknown as
-      chrome.events.Event<() => void>[];
-    for (const event of permissionEvents) event.addListener(refreshAllowed);
 
     const handleChange = (changes: Record<string, chrome.storage.StorageChange>) => {
       if (changes[STORAGE_KEYS.settings]?.newValue) {
@@ -69,7 +47,6 @@ export function SettingsSection() {
     chrome.storage.onChanged.addListener(handleChange);
     return () => {
       chrome.storage.onChanged.removeListener(handleChange);
-      for (const event of permissionEvents) event.removeListener(refreshAllowed);
     };
   }, []);
 
@@ -90,19 +67,6 @@ export function SettingsSection() {
     }
     const granted = await requestSponsorBlockAccess();
     await update({ skipSponsors: granted });
-  }
-
-  /** Picking ChatGPT, Claude or NotebookLM asks Chrome for access to that site (it needs the click). */
-  async function chooseDestination(id: string, label: string) {
-    setDestNotice("");
-    // Call request straight away: Chrome needs it inside the click, and it
-    // resolves true at once for a site that is already allowed.
-    const granted = await requestDestinationAccess(id);
-    if (!granted) {
-      setDestNotice(`${label} needs your permission so TL;DW can open it and type the prompt. Pick it again to allow it.`);
-      return;
-    }
-    await update({ destinationId: id });
   }
 
   async function resetAll() {
@@ -130,7 +94,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label" id="settings-autosubmit">Auto-submit</div>
             <div className="setting-sub">
-              Press Send automatically. Off lets you review the prompt first.
+              Without a key, press Send in the Gemini tab automatically. Off lets you review the prompt first.
             </div>
           </div>
           <div className="setting-control">
@@ -150,9 +114,9 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label" id="settings-focus">Switch to the new tab</div>
             <div className="setting-sub">
-              Bring the destination tab to the front when you send from the popup, the keyboard
-              shortcut or the right-click menu. Sends from the YouTube page always open it in the
-              background, so the video keeps playing in front.
+              Without a key, bring the Gemini tab to the front when you send from the popup, the
+              keyboard shortcut or the right-click menu. Sends from the YouTube page always open it in
+              the background, so the video keeps playing in front.
             </div>
           </div>
           <div className="setting-control">
@@ -252,8 +216,7 @@ export function SettingsSection() {
           <div className="setting-info">
             <div className="setting-label" id="settings-temporary">Temporary chats</div>
             <div className="setting-sub">
-              Open in incognito mode — chats won't be saved to the AI's history.
-              Works on Claude, ChatGPT, and Gemini.
+              Without a key, open Gemini in a temporary chat, so it isn't saved to your Gemini history.
             </div>
           </div>
           <div className="setting-control">
@@ -294,32 +257,6 @@ export function SettingsSection() {
             </select>
           </div>
         </div>
-      </div>
-
-      <div className="settings-group">
-        <div className="settings-group-title"><Icon name="send" /> Default destination</div>
-        <div className="setting-sub" style={{ marginBottom: 12 }}>
-          Where the keyboard shortcut, the right-click menu and (without a Gemini key) the TL;DW
-          button send. You can pick another one for a single send in the popup. ChatGPT, Claude
-          and NotebookLM ask for permission to open their site the first time you pick them.
-        </div>
-        <div className="dest-card-grid">
-          {DESTINATIONS.map((d) => (
-            <button
-              key={d.id}
-              className={`dest-card${settings.destinationId === d.id ? " dest-card-active" : ""}`}
-              onClick={() => void chooseDestination(d.id, d.label)}
-              aria-pressed={settings.destinationId === d.id}
-            >
-              <DestinationIcon id={d.id} size={36} />
-              <span className="dest-card-label">{d.label}</span>
-              {destinationOrigins(d.id).length > 0 && allowed[d.id] === false && (
-                <span className="dest-card-note">Asks for access</span>
-              )}
-            </button>
-          ))}
-        </div>
-        {destNotice && <p className="dest-notice" role="alert">{destNotice}</p>}
       </div>
 
       <div className="settings-group">

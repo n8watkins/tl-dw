@@ -1710,67 +1710,6 @@ test("no transcript with a key: Gemini watches the video, and a private one is r
   }
 });
 
-for (const destination of ["chatgpt", "chatgpt by shortcut"] as const) {
-  test(`no transcript for a site that can't watch YouTube offers Gemini instead (${destination})`, async () => {
-    const session = await launchExtension();
-    try {
-      const prompts: string[] = [];
-      await routeYouTube(session.context, failingTranscriptFixture);
-      await routeFailingTranscript(session.context);
-      await mockGemini(session.context, prompts);
-      const settings = { ...directSettings(), useDirectApi: false, destinationId: "chatgpt", focusGeminiTab: true };
-      await setStorage(session, { profiles: profiles(), settings });
-      const page = await openVideo(session.context, "fixture-no-transcript");
-      const pagesBefore = session.context.pages().length;
-      if (destination === "chatgpt by shortcut") {
-        // What the keyboard shortcut sends, from an extension page.
-        const tabId = await tabIdFor(session, page.url());
-        const helper = await session.context.newPage();
-        await helper.goto(`chrome-extension://${session.extensionId}/src/popup/index.html`);
-        await helper.evaluate(async (sourceTabId) => {
-          await chrome.runtime.sendMessage({ type: "ASK", source: "command", sourceTabId });
-        }, tabId);
-        await helper.close();
-      } else {
-        await page.locator("#tldw-watch-btn").click();
-      }
-      const panel = page.locator("#tldw-summary");
-      await expect(panel).toContainText("ChatGPT can't watch YouTube videos");
-      await expect(panel).not.toContainText("Couldn't get the summary");
-      await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
-      expect(prompts).toHaveLength(0);
-      expect(session.context.pages().length).toBe(pagesBefore);
-      expect(await session.worker.evaluate(() => chrome.action.getBadgeText({}))).toBe("N/A");
-      await expect(panel.getByRole("button", { name: "Add a free key" })).toBeVisible();
-
-      // "Send the link to Gemini" opens Gemini in the background with the link
-      // (no title-only prompt, no transcript), and the video keeps the focus.
-      await session.worker.evaluate(() => {
-        const create = chrome.tabs.create.bind(chrome.tabs);
-        (globalThis as unknown as { __created: chrome.tabs.CreateProperties[] }).__created = [];
-        chrome.tabs.create = ((props: chrome.tabs.CreateProperties) => {
-          (globalThis as unknown as { __created: chrome.tabs.CreateProperties[] }).__created.push(props);
-          return create({ ...props, url: "about:blank" });
-        }) as typeof chrome.tabs.create;
-      });
-      await expect(panel).toContainText("Without an API key, Gemini can't watch it either");
-      await panel.getByRole("button", { name: "Send the link to Gemini (public info only)" }).click();
-      await expect.poll(() => session.worker.evaluate(() =>
-        (globalThis as unknown as { __created: chrome.tabs.CreateProperties[] }).__created)).toHaveLength(1);
-      const created = await session.worker.evaluate(() =>
-        (globalThis as unknown as { __created: chrome.tabs.CreateProperties[] }).__created[0]);
-      expect(created.url).toBe("https://gemini.google.com/app");
-      expect(created.active).toBe(false);
-      const pending = await session.worker.evaluate(async () => JSON.stringify(await chrome.storage.session.get("pendingPrompts")));
-      expect(pending).toContain("watch?v=fixture-no-transcript");
-      expect(pending).not.toContain("TRANSCRIPT START");
-      await expect(panel).toContainText("Signed in, Gemini reads the captions through YouTube; signed out, it can only summarize public info about the video.");
-    } finally {
-      await session.close();
-    }
-  });
-}
-
 /** A watch page whose rendered transcript is about `chars` characters long. */
 function longTranscriptFixture(chars: number): string {
   const line = "This lecture keeps going with careful detail about the topic at hand and more. ";
@@ -1793,15 +1732,7 @@ async function recordTabCreates(session: ExtensionSession): Promise<() => Promis
   return () => session.worker.evaluate(() => (globalThis as unknown as { __created: chrome.tabs.CreateProperties[] }).__created);
 }
 
-async function pendingPrompt(session: ExtensionSession): Promise<string> {
-  return session.worker.evaluate(async () => {
-    const r = await chrome.storage.session.get("pendingPrompts");
-    const all = Object.values((r.pendingPrompts ?? {}) as Record<string, { prompt: string }>);
-    return all.at(-1)?.prompt ?? "";
-  });
-}
-
-type ChatSite = "gemini" | "chatgpt" | "claude";
+type ChatSite = "gemini";
 
 /**
  * The markup each chat site's stand-in uses: the composer around the editor,
@@ -1831,27 +1762,11 @@ const CHAT_SITES: Record<ChatSite, {
     stop: '<button class="send-button stop" aria-label="Stop response">Stop</button>',
     response: ["<model-response><h2>Gemini said</h2><div class=\"markdown\">", "</div></model-response>"],
   },
-  chatgpt: {
-    composer: ["<form>", "</form>"],
-    layout: ["<div>", "</div><main>", "</main>"],
-    editor: '<div id="prompt-textarea" class="ProseMirror" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>',
-    send: '<button id="composer-submit-button" data-testid="send-button" aria-label="Send prompt" type="button">Send</button>',
-    stop: '<button id="composer-submit-button" data-testid="stop-button" aria-label="Stop streaming" type="button">Stop</button>',
-    response: ['<div data-message-author-role="assistant"><div class="markdown">', "</div></div>"],
-  },
-  claude: {
-    composer: ["<fieldset>", "</fieldset>"],
-    layout: ["<div>", "</div><main>", "</main>"],
-    editor: '<div class="ProseMirror" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>',
-    send: '<button aria-label="Send message" type="button">Send</button>',
-    stop: '<button aria-label="Stop response" type="button">Stop</button>',
-    response: ['<div data-testid="assistant-message"><div>', "</div></div>"],
-  },
 };
 
 /**
  * A signed-in sidebar of recent chats, each with a menu button named after its
- * chat, as Gemini, ChatGPT and Claude show it: titles with "Stop", "Cancel" or
+ * chat, as Gemini shows it: titles with "Stop", "Cancel" or
  * "Send" in them once kept TL;DW waiting for a stop button that never left.
  */
 const chatHistorySidebar = `<nav aria-label="Recent chats">
@@ -2018,12 +1933,12 @@ for (const { kind, signedIn } of geminiTabCases) {
   });
 }
 
-for (const site of ["gemini", "chatgpt", "claude"] as const) {
+for (const site of ["gemini"] as const) {
   test(`a chat-history sidebar with "Stop" and "Cancel" in its chat titles doesn't hold the answer back (${site})`, async () => {
     const session = await launchExtension();
     try {
       await routeYouTube(session.context);
-      const origin = { gemini: "https://gemini.google.com", chatgpt: "https://chatgpt.com", claude: "https://claude.ai" }[site];
+      const origin = "https://gemini.google.com";
       await session.context.route(`${origin}/**`, async (route) => {
         await route.fulfill({ status: 200, contentType: "text/html", body: chatSiteFixture(site, true) });
       });
@@ -2031,7 +1946,6 @@ for (const site of ["gemini", "chatgpt", "claude"] as const) {
         profiles: profiles(),
         settings: {
           ...directSettings(), geminiApiKey: "", useDirectApi: false, temporaryChats: false, focusGeminiTab: false,
-          destinationId: site,
         },
       });
       const page = await openVideo(session.context, `fixture-sidebar-${site}`);
@@ -2102,30 +2016,22 @@ for (const kind of ["parsed", "unparsed", "late"] as const) {
   });
 }
 
-test("a transcript too long for ChatGPT asks first, and sends part of it, labeled, when chosen", async () => {
+// The migration itself (ChatGPT, Claude or NotebookLM default -> Gemini, with
+// the site's name kept for this note) is unit-tested in migrations.test.ts.
+test("a user whose default was ChatGPT is told once in the popup that TL;DW is Gemini-only", async () => {
   const session = await launchExtension();
   try {
-    await routeYouTube(session.context, longTranscriptFixture(70_000));
     await setStorage(session, {
       profiles: profiles(),
-      settings: { ...directSettings(), geminiApiKey: "", useDirectApi: false, destinationId: "chatgpt", temporaryChats: false },
+      settings: { defaultProfileId: "global", destinationId: "gemini", retiredDestinationNotice: "ChatGPT", firstRunNoticeSeen: true },
     });
-    const page = await openVideo(session.context, "fixture-long-chatgpt");
-    const created = await recordTabCreates(session);
-    await page.locator("#tldw-watch-btn").click();
-    const panel = page.locator("#tldw-summary");
-    await expect(panel).toContainText("too long for ChatGPT's message box");
-    await expect(panel.getByRole("button", { name: "Add a free key" })).toBeVisible();
-    // Gemini's message box is smaller than ChatGPT's, so it isn't offered here.
-    await expect(panel.getByRole("button", { name: /Gemini/ })).toHaveCount(0);
-    expect(await created()).toHaveLength(0);
-    await panel.getByRole("button", { name: "Send part of the transcript" }).click();
-    await expect.poll(async () => (await created()).length).toBe(1);
-    expect((await created())[0]).toMatchObject({ url: "https://chatgpt.com/", active: false });
-    const prompt = await pendingPrompt(session);
-    expect(prompt).toContain("its middle is left out where marked");
-    expect(prompt.length).toBeLessThanOrEqual(50_000);
-    await expect(panel).toContainText("This video is long, so ChatGPT gets part of the transcript (its start and end).");
+    const popup = await popupFor(session, { id: 1, url: "chrome://newtab/", title: "New Tab" });
+    const note = popup.getByRole("note");
+    await expect(note).toContainText("TL;DW now works with Gemini only, so your summaries go to Gemini instead of ChatGPT.");
+    await note.getByRole("button", { name: "Dismiss this note" }).click();
+    await expect.poll(async () => (await getStorage<Record<string, unknown>>(session, "settings"))?.retiredDestinationNotice).toBeUndefined();
+    await popup.reload();
+    await expect(popup.getByText("TL;DW now works with Gemini only")).toHaveCount(0);
   } finally {
     await session.close();
   }

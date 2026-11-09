@@ -23,30 +23,15 @@ const dest = (over: Partial<Destination>): Destination => ({
 });
 
 describe("buildDestinationPrompt", () => {
-  it("link payload returns just the video URL", () => {
-    const out = buildDestinationPrompt(profile, video, dest({ payload: "link" }), "TRANSCRIPT");
-    expect(out).toBe(video.url);
-  });
-
-  it("source payload returns the transcript when present", () => {
-    const out = buildDestinationPrompt(profile, video, dest({ payload: "source" }), "TRANSCRIPT");
-    expect(out).toBe("TRANSCRIPT");
-  });
-
-  it("source payload falls back to the URL when there's no transcript", () => {
-    const out = buildDestinationPrompt(profile, video, dest({ payload: "source" }), null);
-    expect(out).toBe(video.url);
-  });
-
   it("substitutes template variables for a chat prompt", () => {
-    const out = buildDestinationPrompt(profile, video, dest({ payload: "prompt", canWatch: true }));
+    const out = buildDestinationPrompt(profile, video, dest({ canWatch: true }));
     // The substituted template leads; the structured TL;DW block is appended after.
     expect(out.startsWith("Summarize My Video at https://youtube.com/watch?v=abc")).toBe(true);
     expect(out).toContain("---TLDW---");
   });
 
   it("instructs the model to drop meta-framing (state substance directly) — F5", () => {
-    const out = buildDestinationPrompt(profile, video, dest({ payload: "prompt", canWatch: true }));
+    const out = buildDestinationPrompt(profile, video, dest({ canWatch: true }));
     expect(out).toContain("Do NOT describe the video");
     // names the filler phrasings to avoid
     expect(out).toMatch(/provides \/ covers \/ explains/);
@@ -58,7 +43,7 @@ describe("buildDestinationPrompt", () => {
       { id: "t2", label: "Tutorial", prompt: "Frame the takeaways as step-by-step instructions." },
     ];
     const out = buildDestinationPrompt(
-      profile, video, dest({ payload: "prompt", canWatch: true }), null, null, tags,
+      profile, video, dest({ canWatch: true }), null, null, tags,
     );
     expect(out).toContain("Include the sources the video relies on.");
     expect(out).toContain("Frame the takeaways as step-by-step instructions.");
@@ -67,8 +52,8 @@ describe("buildDestinationPrompt", () => {
   });
 
   it("no-ops with no tags", () => {
-    const withNone = buildDestinationPrompt(profile, video, dest({ payload: "prompt", canWatch: true }), null, null, []);
-    const baseline = buildDestinationPrompt(profile, video, dest({ payload: "prompt", canWatch: true }));
+    const withNone = buildDestinationPrompt(profile, video, dest({ canWatch: true }), null, null, []);
+    const baseline = buildDestinationPrompt(profile, video, dest({ canWatch: true }));
     expect(withNone).toBe(baseline);
   });
 
@@ -76,7 +61,7 @@ describe("buildDestinationPrompt", () => {
     const out = buildDestinationPrompt(
       profile,
       video,
-      dest({ payload: "prompt", canWatch: true }),
+      dest({ canWatch: true }),
       "TRANSCRIPT",
     );
     expect(out).not.toContain("TRANSCRIPT");
@@ -86,7 +71,7 @@ describe("buildDestinationPrompt", () => {
     const out = buildDestinationPrompt(
       profile,
       video,
-      dest({ payload: "prompt", canWatch: false }),
+      dest({ canWatch: false }),
       "TRANSCRIPT",
     );
     expect(out).toContain("<<<TRANSCRIPT START>>>");
@@ -105,7 +90,7 @@ describe("buildDestinationPrompt", () => {
     const out = buildDestinationPrompt(
       profile,
       video,
-      dest({ payload: "prompt", canWatch: false, maxPromptChars: 30_000 }),
+      dest({ canWatch: false, maxPromptChars: 30_000 }),
       transcript,
     );
     expect(out.length).toBeLessThanOrEqual(30_000);
@@ -125,7 +110,7 @@ describe("buildDestinationPrompt", () => {
     const out = buildDestinationPrompt(
       profile,
       video,
-      dest({ payload: "prompt", canWatch: false, maxPromptChars: 30_000 }),
+      dest({ canWatch: false, maxPromptChars: 30_000 }),
       transcript,
       null,
       null,
@@ -139,7 +124,7 @@ describe("buildDestinationPrompt", () => {
     const out = buildDestinationPrompt(
       profile,
       video,
-      dest({ payload: "prompt", canWatch: false, maxPromptChars: 30_000 }),
+      dest({ canWatch: false, maxPromptChars: 30_000 }),
       "Short transcript.",
     );
     expect(out).toContain("Short transcript.");
@@ -150,7 +135,7 @@ describe("buildDestinationPrompt", () => {
     const out = buildDestinationPrompt(
       profile,
       video,
-      dest({ payload: "prompt", canWatch: false }),
+      dest({ canWatch: false }),
       null,
     );
     expect(out).not.toContain("<<<TRANSCRIPT START>>>");
@@ -161,7 +146,7 @@ describe("buildDestinationPrompt", () => {
     const out = buildDestinationPrompt(
       withVar,
       video,
-      dest({ payload: "prompt", canWatch: true }),
+      dest({ canWatch: true }),
       null,
       "what about pricing?",
     );
@@ -173,7 +158,7 @@ describe("buildDestinationPrompt", () => {
     const out = buildDestinationPrompt(
       profile, // template is "Summarize {{title}} at {{url}}" — no curiosity var
       video,
-      dest({ payload: "prompt", canWatch: true }),
+      dest({ canWatch: true }),
       null,
       "what about pricing?",
     );
@@ -184,7 +169,7 @@ describe("buildDestinationPrompt", () => {
     const out = buildDestinationPrompt(
       profile,
       video,
-      dest({ payload: "prompt", canWatch: true }),
+      dest({ canWatch: true }),
       null,
       "   ",
     );

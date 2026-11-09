@@ -232,17 +232,6 @@ export function buildDestinationPromptInfo(
   tags?: Tag[] | null,
   options: DestinationPromptOptions = {},
 ): DestinationPrompt {
-  // Link-style destinations get just the video URL (e.g. NotebookLM ingesting
-  // the YouTube link directly via its "Websites" source).
-  if (destination.payload === "link") {
-    return { prompt: video.url, truncated: false };
-  }
-  // Source-style destinations (NotebookLM) ingest raw material, not a prompt:
-  // hand them the transcript to add as a source. Fall back to the link if we
-  // couldn't capture a transcript.
-  if (destination.payload === "source") {
-    return { prompt: transcript ?? video.url, truncated: false };
-  }
   const curiosity = userCuriosity?.trim() || undefined;
   // Hand the curiosity to {{userCuriosity}} so the template author controls
   // where it lands.

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   DeliveryStatus,
   OpenSearch,
@@ -9,16 +9,12 @@ import type {
 import {
   AI_STUDIO_LINKS,
   DEFAULT_SETTINGS,
-  DESTINATIONS,
-  destinationVerb,
-  getDestination,
+  destinationLabel,
   isYouTubeVideoUrl,
   isYouTubeShortUrl,
   STORAGE_KEYS,
 } from "../lib/constants";
-import { requestDestinationAccess } from "../lib/permissions";
 import { useSummarizeShortcut } from "../lib/useShortcut";
-import { DestinationIcon } from "../lib/DestinationIcon";
 import {
   clearDeliveryStatuses,
   getDeliveryStatuses,
@@ -89,8 +85,6 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string>("");
   const [tab, setTab] = useState<chrome.tabs.Tab | null>(null);
   const [ready, setReady] = useState(false);
-  const [copyStatus, setCopyStatus] = useState("");
-  const [destinationId, setDestinationId] = useState("gemini");
   const [curiosity, setCuriosity] = useState("");
   // The optional "ask something specific" field starts collapsed to keep the
   // popup short; expands on demand (or if it already holds text).
@@ -103,10 +97,6 @@ export function App() {
   // unavailable video has nothing to summarize, so the popup says so.
   const [pageMeta, setPageMeta] = useState<VideoMeta | null>(null);
   const shortcut = useSummarizeShortcut();
-  // Whether the user has made an in-popup choice this session. Once they have,
-  // a settings write (e.g. ticking Direct API) must NOT revert it back to the
-  // saved default via the storage.onChanged listener below.
-  const destOverridden = useRef(false);
 
   useEffect(() => {
     void (async () => {
@@ -124,7 +114,6 @@ export function App() {
       const activeTab = tabs[0] ?? null;
       setTab(activeTab);
       setSelectedId(s.defaultProfileId ?? p[0]?.id ?? "");
-      setDestinationId(s.destinationId ?? "gemini");
       setOpenSearches(open);
       setHistory(hist);
       setStatuses(stat);
@@ -140,20 +129,13 @@ export function App() {
 
   // Keep settings in sync if the options page (or any other tab) writes them
   // while the popup is open. Re-read the fresh value and update the derived
-  // state that drives the Direct API indicator and key presence. The destination
-  // is a session-local override — only updated when the user hasn't made an
-  // in-popup choice yet (i.e. still at default).
+  // state that drives the Direct API indicator and key presence.
   useEffect(() => {
     const handleChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
       if (area !== "local") return;
       if (changes[STORAGE_KEYS.settings]?.newValue) {
         const fresh: Settings = { ...DEFAULT_SETTINGS, ...(changes[STORAGE_KEYS.settings].newValue as Settings) };
         setSettings(fresh);
-        // Only sync destination from storage if the user hasn't overridden it in
-        // this popup session — otherwise ticking "Direct API" (which writes
-        // settings, firing this listener) would silently reset their just-picked
-        // destination.
-        if (!destOverridden.current) setDestinationId(fresh.destinationId ?? "gemini");
       }
     };
     chrome.storage.onChanged.addListener(handleChange);
@@ -184,49 +166,23 @@ export function App() {
   const unavailable = onWatchPage && !!pageMeta?.current && !!pageMeta.unavailable;
   const onVideo = onWatchPage && !liveNow && !unavailable;
   const onShort = isYouTubeShortUrl(tab?.url);
-  // When Direct API is configured + enabled and Gemini is the destination, the
-  // popup can summarize inline on the page (no tab), matching the on-page button.
-  const canInline = !!(
-    settings?.geminiApiKey?.trim() &&
-    settings?.useDirectApi &&
-    destinationId === "gemini"
-  );
+  // With a Gemini key in use, the popup summarizes on the page (no tab),
+  // matching the on-page button.
+  const canInline = !!(settings?.geminiApiKey?.trim() && settings?.useDirectApi);
   // If the current tab is a destination tab TL;DW opened, link it back to source.
   const linkedSearch = openSearches.find((s) => s.tabId === tab?.id);
 
-  // Per-session override only: changing the destination here does NOT touch the
-  // saved default (set in Settings). Reopening the popup reverts to the default.
-  function changeDestination(id: string) {
-    setCopyStatus("");
-    // ChatGPT, Claude and NotebookLM need the user's permission for their site;
-    // ask now, inside the click (it resolves at once when already allowed).
-    void requestDestinationAccess(id).then((granted) => {
-      if (!granted) {
-        setCopyStatus(`${getDestination(id).label} needs your permission so TL;DW can open it and type the prompt.`);
-        return;
-      }
-      destOverridden.current = true;
-      setDestinationId(id);
-    });
-  }
-
   function send() {
-    const dest = getDestination(destinationId);
-    // Hand off to the background worker's auto-fill flow, passing the session
-    // destination so it routes here even if the saved default differs. Fire
-    // and forget, then close: the worker runs independently of the popup, so
-    // we don't block the window open while it scrapes the transcript (which
-    // can take several seconds for non-Gemini destinations).
+    // Hand off to the background worker and close: the worker runs
+    // independently of the popup, so the window doesn't wait while it reads
+    // the transcript.
     void chrome.runtime.sendMessage({
       type: "ASK",
       sourceTabId: tab?.id,
       profileId: selectedId,
-      destinationId: dest.id,
       userCuriosity: curiosity.trim() || undefined,
-      // In Direct-API + Gemini mode, "popup-inline" summarizes on the page with
-      // no tab (like the on-page button). Otherwise "popup" is an explicit
-      // request to open that destination, so it opens a tab even with Direct
-      // API enabled (unlike auto-runs).
+      // With a key, "popup-inline" summarizes on the page with no tab (like
+      // the on-page button). Without one, "popup" opens the Gemini tab.
       source: canInline ? "popup-inline" : "popup",
     });
     window.close();
@@ -260,6 +216,14 @@ export function App() {
   function openExample() {
     void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "example" });
     window.close();
+  }
+
+  function dismissRetiredNotice() {
+    if (!settings) return;
+    const next = { ...settings };
+    delete next.retiredDestinationNotice;
+    setSettings(next);
+    void saveSettings(next);
   }
 
   function dismissFirstRun() {
@@ -329,6 +293,24 @@ export function App() {
           </svg>
         </button>
       </header>
+
+      {settings?.retiredDestinationNotice && (
+        <div className="first-run-notice" role="note">
+          <p>
+            TL;DW now works with Gemini only, so your summaries go to Gemini instead of{" "}
+            {settings.retiredDestinationNotice}.
+          </p>
+          <button
+            type="button"
+            className="first-run-dismiss"
+            aria-label="Dismiss this note"
+            title="Dismiss"
+            onClick={dismissRetiredNotice}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {settings && !settings.firstRunNoticeSeen && !settings.geminiApiKey && (
         <div className="first-run-notice" role="note">
@@ -409,21 +391,6 @@ export function App() {
 
       {onVideo && (
         <>
-          <div className="dest-grid">
-            {DESTINATIONS.map((d) => (
-              <button
-                key={d.id}
-                className={`dest-btn${destinationId === d.id ? " dest-btn-active" : ""}`}
-                onClick={() => changeDestination(d.id)}
-                aria-pressed={destinationId === d.id}
-                title={d.label}
-              >
-                <DestinationIcon id={d.id} size={26} />
-                <span>{d.label}</span>
-              </button>
-            ))}
-          </div>
-
           {profiles.length === 0 ? (
             <p className="empty">
               No prompt profiles found. Open Settings to restore or create one.
@@ -453,10 +420,8 @@ export function App() {
                     </>
                   ) : (
                     <>
-                      <span>{destinationVerb(getDestination(destinationId))} {getDestination(destinationId).label}</span>
-                      {shortcut && destinationId === settings?.destinationId && (
-                        <span className="ask-btn-shortcut">{shortcut}</span>
-                      )}
+                      <span>Ask Gemini</span>
+                      {shortcut && <span className="ask-btn-shortcut">{shortcut}</span>}
                     </>
                   )}
                 </span>
@@ -497,9 +462,7 @@ export function App() {
             </div>
           )}
 
-          {getDestination(destinationId).payload !== "link" &&
-            getDestination(destinationId).payload !== "source" &&
-            (showCuriosity || curiosity ? (
+          {(showCuriosity || curiosity ? (
               <label className="field">
                 <span>Ask something specific (optional)</span>
                 <textarea
@@ -520,11 +483,9 @@ export function App() {
               </button>
             ))}
 
-          {copyStatus && <p className="copy-status">{copyStatus}</p>}
         </>
       )}
 
-      {!onVideo && !linkedSearch && copyStatus && <p className="copy-status">{copyStatus}</p>}
 
       {openSearches.filter((s) => s.tabId !== tab?.id).length > 0 && (
         <div className="pop-section">
@@ -569,7 +530,7 @@ export function App() {
                   {h.videoTitle ?? "YouTube video"}
                 </span>
                 <span className="search-item-meta">
-                  {h.profileName} · {getDestination(h.destinationId).label} ·{" "}
+                  {h.profileName} · {destinationLabel(h.destinationId)} ·{" "}
                   {timeAgo(h.createdAt)}
                 </span>
               </button>

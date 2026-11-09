@@ -67,66 +67,41 @@ export function geminiModelLabel(id: string | undefined): string {
 }
 
 /**
- * Where summaries can be sent. Each destination is auto-filled by its content
- * script (the injector types the prompt into the site's composer); only Gemini
- * can watch the YouTube URL itself, so the rest get the transcript included.
- */
-/**
  * Prompt size limits. The Gemini web app kept only the first ~32,000 characters
- * of a 175,000-character prompt when signed out (2026-11-02), so tab-flow
- * prompts stay under each site's limit and long transcripts are shortened with a
- * marker. The Direct API model takes far more (a million-token context).
+ * of a 175,000-character prompt when signed out (2026-11-02), so a prompt for
+ * the Gemini tab stays under that limit. The Gemini API takes far more (a
+ * million-token context).
  */
 export const GEMINI_WEB_MAX_PROMPT_CHARS = 30_000;
 export const DIRECT_API_MAX_PROMPT_CHARS = 1_000_000;
 
-export const DESTINATIONS: Destination[] = [
-  {
-    id: "gemini",
-    label: "Gemini",
-    url: GEMINI_URL,
-    canWatch: true,
-    maxPromptChars: GEMINI_WEB_MAX_PROMPT_CHARS,
-    // Gemini temporary chat has no URL param — content script clicks the button.
-  },
-  {
-    id: "chatgpt",
-    label: "ChatGPT",
-    url: "https://chatgpt.com/",
-    incognitoUrl: "https://chatgpt.com/?temporary-chat=true",
-    // Free ChatGPT plans have a small context window; stay well inside it.
-    maxPromptChars: 50_000,
-  },
-  {
-    id: "claude",
-    label: "Claude",
-    url: "https://claude.ai/new",
-    incognitoUrl: "https://claude.ai/new?incognito=true",
-    maxPromptChars: 100_000,
-  },
-  {
-    id: "notebooklm",
-    label: "NotebookLM",
-    url: "https://notebooklm.google.com/",
-    // NotebookLM is a sources tool, not a chat box. Currently in link mode: the
-    // injector drives its "Websites" source with the YouTube URL. Switch to
-    // "source" to paste the transcript via "Copied text" instead.
-    payload: "link",
-    // NotebookLM has no temporary/incognito mode.
-  },
-];
-
-export function getDestination(id: string | undefined): Destination {
-  return DESTINATIONS.find((d) => d.id === id) ?? DESTINATIONS[0];
-}
+/**
+ * TL;DW works with Gemini only (owner decision, 2026-11-09; see
+ * docs/DECISIONS.md): the Gemini API with the user's own key, or the Gemini web
+ * app in a tab without one.
+ */
+export const GEMINI_DESTINATION: Destination = {
+  id: "gemini",
+  label: "Gemini",
+  url: GEMINI_URL,
+  canWatch: true,
+  maxPromptChars: GEMINI_WEB_MAX_PROMPT_CHARS,
+  // Gemini's temporary chat has no URL parameter: the injector clicks its button.
+};
 
 /**
- * The call-to-action verb for a destination. Source/link tools (NotebookLM)
- * ingest material rather than answer a prompt, so "Add to" reads right; chat
- * destinations get "Ask".
+ * Names of the chat sites TL;DW sent to before it became Gemini-only, so
+ * History and Stats still name where an older summary went.
  */
-export function destinationVerb(dest: Destination): string {
-  return dest.payload === "source" || dest.payload === "link" ? "Add to" : "Ask";
+const RETIRED_DESTINATION_LABELS: Record<string, string> = {
+  chatgpt: "ChatGPT",
+  claude: "Claude",
+  notebooklm: "NotebookLM",
+};
+
+/** Where a summary went, by the id History recorded ("Gemini" for none). */
+export function destinationLabel(id: string | undefined): string {
+  return (id && RETIRED_DESTINATION_LABELS[id]) || GEMINI_DESTINATION.label;
 }
 
 /** The ages the history auto-expiry offers (single source of truth). */

@@ -4,7 +4,7 @@ import { getLifetimeStats, getGeminiUsage, getHistory, getTags } from "../../lib
 import { computeChannelStats, isSummaryEntry, type ChannelStats } from "../../lib/history";
 import {
   CHANNEL_TAGS_KEY,
-  DESTINATIONS,
+  destinationLabel,
   GEMINI_USAGE_KEY,
   localDateKey,
   STORAGE_KEYS,
@@ -202,9 +202,8 @@ function computeProfileUsage(summaries: SearchHistoryEntry[], limit: number): Di
     .slice(0, limit);
 }
 
-/** Destination usage by summary count; ids → DESTINATIONS labels, no id → Direct API. */
+/** Destination usage by summary count; ids → their labels, no id → Direct API. */
 function computeDestinationUsage(summaries: SearchHistoryEntry[]): Distribution[] {
-  const labelById = new Map(DESTINATIONS.map((d) => [d.id, d.label]));
   const DIRECT = "__direct__";
   const counts = new Map<string, number>();
   for (const e of summaries) {
@@ -214,7 +213,7 @@ function computeDestinationUsage(summaries: SearchHistoryEntry[]): Distribution[
   return [...counts.entries()]
     .map(([key, count]) => ({
       key,
-      label: key === DIRECT ? "Direct API / other" : labelById.get(key) ?? key,
+      label: key === DIRECT ? "Direct API / other" : destinationLabel(key),
       count,
     }))
     .sort((a, b) => b.count - a.count);

@@ -11,6 +11,7 @@ guidance — the current state of the project lives in
 | [`NEXT_STEPS.md`](NEXT_STEPS.md) | v0.1.47 code-review snapshot | Superseded by `STATUS.md` |
 | [`F7_DASHBOARDS.md`](F7_DASHBOARDS.md) | F7 epic plan (dashboards + paid analytics) | Phase 1 shipped; Phase 2 still open |
 | [`F7_PHASE1_PLAN.md`](F7_PHASE1_PLAN.md) | F7 Phase 1 plan + monetization decision record | Phase 1 merged (PR #2); kept for the §0 decision record |
+| [`VERIFY_CHECKLIST.md`](VERIFY_CHECKLIST.md) | A manual in-Chrome checklist from an early session | Superseded by `docs/SMOKE_TEST.md` and the e2e suite |
 | [`agents/`](agents/) | Parallel 2-agent / worktree sprint briefs (Phase 0, A, B) | Sprint merged (PR #1) |
 
 The one genuinely open item carried over from these docs is **F7 Phase 2 — paid /
