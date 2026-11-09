@@ -601,6 +601,59 @@ test("SPA navigation drops a late summary for the previous video", async () => {
   }
 });
 
+// The owner's report (2026-11-09): on a new video, pressing TL;DW showed the
+// previous video's summary. YouTube changes the URL the moment an in-page
+// navigation starts, but TL;DW noticed only on its next poll, up to half a
+// second later; a press in between "jumped to" the old panel instead of
+// summarizing the new video, and the run never started.
+test("pressing TL;DW right after an in-page navigation summarizes the new video, never shows the old summary", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context);
+    const prompts: string[] = [];
+    await mockGemini(session.context, prompts);
+    await setStorage(session, {
+      profiles: profiles(),
+      settings: directSettings(),
+      tldwSummaryCache: {
+        version: 2,
+        entries: [{
+          videoId: "fixture-a",
+          promptFingerprint: "fixture-a-print",
+          tldw: { summary: "Video A's cached summary." },
+          profileId: "global",
+          profileName: "Global Profile",
+          modelOrDestination: "gemini-3.5-flash-lite",
+          createdAt: new Date().toISOString(),
+        }],
+      },
+    });
+    const page = await openVideo(session.context, "fixture-a");
+    await expect(page.locator("#tldw-summary")).toContainText("Video A's cached summary.");
+    // YouTube's own order: the URL changes first, yt-navigate-finish comes later.
+    // History.prototype's pushState skips TL;DW's history hook, so this is the
+    // moment before TL;DW has noticed the navigation at all.
+    await page.evaluate(() => {
+      History.prototype.pushState.call(history, {}, "", "/watch?v=fixture-b");
+      document.dispatchEvent(new Event("yt-navigate-start"));
+    });
+    await page.locator("#tldw-watch-btn").click();
+    // Checked at once, not retried: the old summary must not be on screen even briefly.
+    expect(await page.evaluate(() => document.body.innerText.includes("Video A's cached summary."))).toBe(false);
+    await expect.poll(() => prompts.length).toBe(1);
+    expect(prompts[0]).toContain("fixture-b");
+    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+    // A normal in-page navigation removes the panel in the same task, not on the next poll.
+    const panelRightAfter = await page.evaluate(() => {
+      history.pushState({}, "", "/watch?v=fixture-c");
+      return !!document.getElementById("tldw-summary");
+    });
+    expect(panelRightAfter).toBe(false);
+  } finally {
+    await session.close();
+  }
+});
+
 test("malformed model output ends loading with a retry", async () => {
   const session = await launchExtension();
   try {

@@ -1049,8 +1049,11 @@ chrome.runtime.onMessage.addListener(
         let durSec = 0;
         try {
           const searches = await getOpenSearches();
+          // Only this tab's own request says which video the answer is for.
+          // (Falling back to any search from the same YouTube tab could name
+          // the video that tab plays NOW, putting an old answer on a new video.)
           const ownSearch = searches.find((s) => destTabId !== undefined && s.tabId === destTabId);
-          match = ownSearch ?? searches.find((s) => s.sourceTabId === srcTabId);
+          match = ownSearch;
           // Count the length only of the video this tab's own request was for.
           durSec = ownSearch?.videoDurationSeconds ?? 0;
           if (match?.videoUrl) videoId = extractVideoId(match.videoUrl) ?? undefined;
@@ -1058,7 +1061,10 @@ chrome.runtime.onMessage.addListener(
           // tab), and never one whose prompt carried another video's transcript.
           const label = message.signedIn && ownSearch?.signedInLabel ? ownSearch.signedInLabel : match?.summaryLabel;
           if (label) tldw = { ...tldw, label };
-        } catch { /* best effort — fall back to no guard */ }
+        } catch { /* best effort */ }
+        // An answer TL;DW can't tie to a video is never shown: the page shows
+        // only a summary that names the video it is for.
+        if (!videoId) return;
         const reply = (await chrome.tabs
           .sendMessage(srcTabId, {
             type: "SET_SUMMARY",

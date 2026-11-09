@@ -136,6 +136,24 @@ document.addEventListener(PANEL_REQUEST, (event) => {
   requestTranscriptPanel(videoId).then(done, () => done(false));
 });
 
+// --- location changes -------------------------------------------------------
+// YouTube changes the URL with history.pushState the moment an in-page
+// navigation starts, before any of its own events. The isolated content script
+// can't see pushState, so announce every change; it then drops the previous
+// video's panel at once instead of on its next poll.
+for (const method of ["pushState", "replaceState"] as const) {
+  const original = history[method];
+  history[method] = function patchedHistory(this: History, ...args: Parameters<History["pushState"]>) {
+    const result = original.apply(this, args);
+    try {
+      document.dispatchEvent(new CustomEvent("tldw:location-change"));
+    } catch {
+      // Never let instrumentation break the page's navigation.
+    }
+    return result;
+  };
+}
+
 const originalFetch = window.fetch;
 window.fetch = function patchedFetch(
   this: unknown,
