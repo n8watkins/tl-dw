@@ -916,12 +916,18 @@ test("a first install opens the welcome page; a verified key turns Direct API on
     const welcome = session.context.pages().find((p) => p.url().endsWith("#welcome"))!;
     await expect(welcome.getByRole("heading", { name: "Two ways it works" })).toBeVisible();
     await expect(welcome.getByRole("link", { name: "Google AI Studio ↗" })).toHaveAttribute("href", "https://aistudio.google.com/apikey");
-    await welcome.getByRole("button", { name: "Skip, use without a key" }).click();
-    await expect(welcome.getByRole("status")).toContainText("TL;DW will use Gemini in a tab");
-    await welcome.getByRole("button", { name: "Add a key after all" }).click();
+    // No key: try it on a real video right away.
+    await expect(welcome.getByRole("link", { name: "Try it ↗" })).toHaveAttribute("href", "https://www.youtube.com/watch?v=UF8uR6Z6KLc");
+    // The page fits one desktop screen, with the fine print folded away.
+    await welcome.setViewportSize({ width: 1280, height: 800 });
+    expect(await welcome.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(800);
+    await expect(welcome.getByText("The free tier needs no billing", { exact: false })).toBeHidden();
+    await welcome.getByText("More details").click();
+    await expect(welcome.getByText("The free tier needs no billing", { exact: false })).toBeVisible();
+
     await welcome.getByLabel("Gemini API key").fill("fixture-key");
     await welcome.getByRole("button", { name: "Save key" }).click();
-    await expect(welcome.getByRole("status")).toContainText("You're set: Direct API is on.");
+    await expect(welcome.getByRole("status")).toContainText("You're set: your key is on.");
     expect((await getStorage<{ useDirectApi?: boolean }>(session, "settings"))?.useDirectApi).toBe(true);
   } finally {
     await session.close();

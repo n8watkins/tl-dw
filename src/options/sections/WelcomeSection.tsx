@@ -4,25 +4,19 @@ import { AI_STUDIO_LINKS, DEFAULT_SETTINGS, STORAGE_KEYS } from "../../lib/const
 import { getSettings } from "../../lib/storage";
 import { shortcutKeys, useSummarizeShortcut } from "../../lib/useShortcut";
 import { GeminiKeyForm } from "../components/GeminiKeyForm";
+import { EXAMPLE_SUMMARY } from "../../lib/exampleSummary";
 
 const ICON_URL = chrome.runtime.getURL("icons/tl-dw-128.png");
-
-/** Close this tab (it was opened by TL;DW on install). */
-function closeTab() {
-  void chrome.tabs.getCurrent().then((tab) => {
-    if (tab?.id !== undefined) void chrome.tabs.remove(tab.id);
-    else window.close();
-  });
-}
+/** A video to try TL;DW on: the one the bundled example summary is made from. */
+const TRY_VIDEO_URL = `https://www.youtube.com/watch?v=${EXAMPLE_SUMMARY.videoId}`;
 
 /**
- * First-install page (options#welcome): what the two ways of summarizing are,
- * and how to get a free Gemini API key in about two minutes, or skip it and
- * use TL;DW without one.
+ * First-install page (options#welcome), one desktop screen: the two ways TL;DW
+ * works as two cards (no key: try it now; a free Gemini key: three steps and
+ * the field to paste it), with the fine print behind "More details".
  */
 export function WelcomeSection({ onDone }: { onDone: () => void }) {
   const [settings, setLocal] = useState<Settings | null>(null);
-  const [skipped, setSkipped] = useState(false);
   const shortcut = useSummarizeShortcut();
 
   useEffect(() => {
@@ -39,11 +33,9 @@ export function WelcomeSection({ onDone }: { onDone: () => void }) {
   if (!settings) return <p className="text-muted welcome-loading">Loading…</p>;
 
   const keyReady = settings.geminiKeyValidation.status === "valid" && settings.useDirectApi;
-  const how = shortcut
-    ? <>press the blue <strong>TL;DW</strong> button under it, or {shortcutKeys(shortcut).map((k, i) => (
-        <span key={i}>{i > 0 && "+"}<kbd>{k}</kbd></span>
-      ))}</>
-    : <>press the blue <strong>TL;DW</strong> button under it</>;
+  const keys = shortcut
+    ? <>, or {shortcutKeys(shortcut).map((k, i) => <span key={i}>{i > 0 && "+"}<kbd>{k}</kbd></span>)}</>
+    : null;
 
   return (
     <div className="welcome">
@@ -51,99 +43,75 @@ export function WelcomeSection({ onDone }: { onDone: () => void }) {
         <img className="welcome-icon" src={ICON_URL} alt="" />
         <div>
           <p className="welcome-kicker">TL;DW is installed</p>
-          <h1 className="welcome-title">Summarize any YouTube video, right where you watch it.</h1>
-          <p className="welcome-lede">Open a video and {how}.</p>
+          <h1 className="welcome-title">Summarize any YouTube video</h1>
+          <p className="welcome-lede">Open a video and press the blue <strong>TL;DW</strong> button under it{keys}.</p>
         </div>
       </header>
 
-      <section aria-labelledby="welcome-modes" className="welcome-section">
+      <section aria-labelledby="welcome-modes">
         <h2 id="welcome-modes" className="welcome-h2">Two ways it works</h2>
         <div className="welcome-modes">
           <div className="welcome-mode">
-            <div className="welcome-mode-tag">Works now, no key</div>
-            <h3>Gemini in a background tab</h3>
-            <p>
-              TL;DW opens Gemini in a tab behind the video, using the Google account you're signed in
-              with, and puts Gemini's answer on the YouTube page. Signed in, Gemini reads even a long
-              video's transcript through YouTube; signed out, a long video's summary comes from part
-              of its transcript. Without a key Gemini doesn't watch videos, so for one with no
-              captions it can only summarize public info about it.
-            </p>
+            <div className="welcome-mode-tag">Works now</div>
+            <h3>No key</h3>
+            <p>TL;DW asks Gemini in a tab behind the video and puts the answer on the YouTube page.</p>
+            <div className="welcome-mode-actions">
+              <a className="btn btn-ghost" href={TRY_VIDEO_URL} target="_blank" rel="noreferrer">Try it ↗</a>
+              <span className="welcome-mode-link"><a href="#example">See an example summary</a></span>
+            </div>
           </div>
+
           <div className="welcome-mode welcome-mode-recommended">
             <div className="welcome-mode-tag">Recommended · free</div>
-            <h3>Your own Gemini API key</h3>
-            <p>
-              The summary appears on the page in seconds, with no tab. Long videos are summarized
-              from the full transcript, and Gemini watches videos that have no captions.
-            </p>
+            <h3>Your free Gemini key</h3>
+            <p>Summaries in seconds, right on the page, with no extra tab.</p>
+            {keyReady ? (
+              <div className="welcome-done" role="status">
+                <strong>You're set: your key is on.</strong> Open any video and press <strong>TL;DW</strong>.
+                <div className="welcome-mode-actions">
+                  <a className="btn btn-primary" href={TRY_VIDEO_URL} target="_blank" rel="noreferrer">Try it ↗</a>
+                </div>
+              </div>
+            ) : (
+              <ol className="welcome-steps">
+                <li>
+                  Open <a href={AI_STUDIO_LINKS.apiKeys} target="_blank" rel="noreferrer">Google AI Studio ↗</a> and sign in.
+                </li>
+                <li>Click <strong>Create API key</strong> and copy it.</li>
+                <li>
+                  Paste it here:
+                  <div className="welcome-form">
+                    <GeminiKeyForm settings={settings} idPrefix="welcome-key" compact />
+                  </div>
+                </li>
+              </ol>
+            )}
           </div>
         </div>
-        {!keyReady && (
-          <p className="welcome-fine welcome-example-link">
-            Want to see one first? <a href="#example">See an example summary</a>, no key needed.
-          </p>
-        )}
       </section>
 
-      {keyReady ? (
-        <section className="welcome-section welcome-done" role="status">
-          <h2 className="welcome-h2">You're set: Direct API is on.</h2>
-          <p>Open any YouTube video and {how}. The summary appears right under the video.</p>
-          <div className="welcome-actions">
-            <a className="btn btn-primary" href="https://www.youtube.com/" target="_blank" rel="noreferrer">
-              Open YouTube
-            </a>
-            <button className="btn btn-ghost" onClick={onDone}>See all settings</button>
-          </div>
-        </section>
-      ) : skipped ? (
-        <section className="welcome-section welcome-done" role="status">
-          <h2 className="welcome-h2">You're set: TL;DW will use Gemini in a tab.</h2>
-          <p>
-            Open any YouTube video and {how}. You can add a free key any time in TL;DW settings,
-            under Direct API.
-          </p>
-          <div className="welcome-actions">
-            <a className="btn btn-primary" href="https://www.youtube.com/" target="_blank" rel="noreferrer">
-              Open YouTube
-            </a>
-            <button className="btn btn-ghost" onClick={() => setSkipped(false)}>Add a key after all</button>
-            <button className="btn btn-ghost" onClick={closeTab}>Close this tab</button>
-          </div>
-        </section>
-      ) : (
-        <section aria-labelledby="welcome-key" className="welcome-section welcome-key">
-          <h2 id="welcome-key" className="welcome-h2">Get your free Gemini key (about 2 minutes)</h2>
-          <ol className="welcome-steps">
-            <li>
-              Open{" "}
-              <a href={AI_STUDIO_LINKS.apiKeys} target="_blank" rel="noreferrer">Google AI Studio ↗</a>{" "}
-              and sign in with your Google account.
-            </li>
-            <li>
-              Click <strong>Create API key</strong>. If it asks for a project, pick or create one
-              (a project just for TL;DW is optional).
-            </li>
-            <li>Copy the key and paste it here. TL;DW checks it with Google and turns Direct API on.</li>
-          </ol>
-          <div className="welcome-form">
-            <GeminiKeyForm settings={settings} idPrefix="welcome-key" />
-          </div>
-          <p className="welcome-fine">
-            The key stays in this browser and is sent only to Google's Gemini API. The free tier needs no
-            billing; on it, Google may use what you send to improve its products (
-            <a href={AI_STUDIO_LINKS.terms} target="_blank" rel="noreferrer">Gemini API terms ↗</a>
-            ). Limits depend on the model:{" "}
-            <a href={AI_STUDIO_LINKS.rateLimitDocs} target="_blank" rel="noreferrer">rate limits ↗</a>.
-          </p>
-          <div className="welcome-actions">
-            <button className="btn btn-ghost" onClick={() => setSkipped(true)}>
-              Skip, use without a key
-            </button>
-          </div>
-        </section>
-      )}
+      <div className="welcome-footer">
+      <details className="welcome-more">
+        <summary>More details</summary>
+        <p>
+          <strong>No key:</strong> Gemini runs with the Google account you're signed in with. Signed in, it
+          reads even a long video's transcript through YouTube; signed out, a long video is summarized from
+          part of its transcript. Without a key Gemini doesn't watch videos, so for one with no captions it
+          can only summarize public info about it.
+        </p>
+        <p>
+          <strong>Your key:</strong> long videos are summarized from the full transcript, and Gemini watches
+          videos that have no captions. If AI Studio asks for a project, pick or create one. The key stays in
+          this browser and is sent only to Google's Gemini API. The free tier needs no billing; on it, Google
+          may use what you send to improve its products (
+          <a href={AI_STUDIO_LINKS.terms} target="_blank" rel="noreferrer">Gemini API terms ↗</a>
+          ). Limits depend on the model:{" "}
+          <a href={AI_STUDIO_LINKS.rateLimitDocs} target="_blank" rel="noreferrer">rate limits ↗</a>.
+          You can add, check or remove the key any time in TL;DW settings, under Direct API.
+        </p>
+      </details>
+      <button className="welcome-settings-link" onClick={onDone}>All settings</button>
+      </div>
     </div>
   );
 }
