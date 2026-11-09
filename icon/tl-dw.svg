@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="TL;DW">
+  <defs>
+    <linearGradient id="tl-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0b24"/>
+      <stop offset="1" stop-color="#2a1a7a"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#tl-bg)"/>
+  <!-- A video (the play button) becomes a few lines of summary. -->
+  <rect x="9" y="19" width="22" height="26" rx="6" fill="#fff"/>
+  <path d="M17 26.5v11l8.5-5.5z" fill="#2a1a7a" stroke="#2a1a7a" stroke-width="1.5" stroke-linejoin="round"/>
+  <g stroke-linecap="round" stroke-width="4">
+    <path d="M37 23h18" stroke="#ffffff"/>
+    <path d="M37 32h14" stroke="#a5b4fc"/>
+    <path d="M37 41h9" stroke="#818cf8"/>
+  </g>
+</svg>

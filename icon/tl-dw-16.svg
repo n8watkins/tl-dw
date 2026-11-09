@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" role="img" aria-label="TL;DW">
+  <!-- tl-dw.svg redrawn on the 16-pixel grid: whole-pixel shapes, a bigger play
+       triangle and fewer, thicker lines, so the toolbar icon reads. -->
+  <defs>
+    <linearGradient id="tl-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0b24"/>
+      <stop offset="1" stop-color="#2a1a7a"/>
+    </linearGradient>
+  </defs>
+  <rect width="16" height="16" rx="3.5" fill="url(#tl-bg)"/>
+  <rect x="1.5" y="3.5" width="7" height="9" rx="1.75" fill="#fff"/>
+  <path d="M3.75 5.5v5l4-2.5z" fill="#2a1a7a"/>
+  <g shape-rendering="crispEdges">
+    <rect x="10" y="4" width="4" height="2" fill="#ffffff"/>
+    <rect x="10" y="7" width="3" height="2" fill="#a5b4fc"/>
+    <rect x="10" y="10" width="2" height="2" fill="#818cf8"/>
+  </g>
+</svg>

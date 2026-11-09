@@ -928,6 +928,36 @@ test("a first install opens the welcome page; a verified key turns Direct API on
   }
 });
 
+test("the example summary works with no key and sends nothing", async () => {
+  const session = await launchExtension();
+  try {
+    await expect.poll(() => session.context.pages().some((p) => p.url().endsWith("#welcome"))).toBe(true);
+    const welcome = session.context.pages().find((p) => p.url().endsWith("#welcome"))!;
+    const requests: string[] = [];
+    session.context.on("request", (r) => {
+      if (!r.url().startsWith("chrome-extension://")) requests.push(r.url());
+    });
+    await welcome.getByRole("link", { name: "See an example summary" }).click();
+    await expect(welcome.getByRole("heading", { name: "This is what TL;DW puts under a video." })).toBeVisible();
+    const panel = welcome.getByRole("article", { name: "Example summary" });
+    await expect(panel).toContainText("Trust your intuition");
+    await panel.getByRole("button", { name: "Show details ▾" }).click();
+    await expect(panel).toContainText("death is life's ultimate change agent");
+    await expect(welcome.getByRole("link", { name: "Watch it on YouTube ↗" }))
+      .toHaveAttribute("href", "https://www.youtube.com/watch?v=UF8uR6Z6KLc");
+    await welcome.getByRole("button", { name: "Back" }).click();
+    await expect(welcome.getByRole("heading", { name: "Two ways it works" })).toBeVisible();
+    expect(requests).toEqual([]);
+
+    // The popup offers it too while no key is set.
+    const popup = await session.context.newPage();
+    await popup.goto(`chrome-extension://${session.extensionId}/src/popup/index.html`);
+    await expect(popup.getByRole("button", { name: "See an example summary" })).toBeVisible();
+  } finally {
+    await session.close();
+  }
+});
+
 async function transcriptFromPage(session: ExtensionSession, page: Page): Promise<{ transcript: string | null; ms: number }> {
   const tabId = await tabIdFor(session, page.url());
   const started = Date.now();
