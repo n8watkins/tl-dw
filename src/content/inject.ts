@@ -1,5 +1,5 @@
 /**
- * Auto-fill injector for chat destinations (Gemini, ChatGPT, Claude, NotebookLM). On load
+ * Auto-fill injector for the Gemini web app (no-key mode). On load
  * it asks the background worker whether this tab has a pending prompt; if so it
  * types the prompt into the site's composer and (optionally) submits. If the
  * composer can't be found or filled, it falls back to copying the prompt to the
@@ -63,58 +63,6 @@ function configForHost(host: string): SiteConfig | null {
         "model-response",
         ".response-container",
         "[data-response-index]",
-      ],
-    };
-  }
-  if (host.endsWith("chatgpt.com")) {
-    return {
-      name: "ChatGPT",
-      editorSelectors: [
-        "div.ProseMirror#prompt-textarea",
-        'div[contenteditable="true"]#prompt-textarea',
-        "#prompt-textarea",
-        "div.ProseMirror",
-        'div[contenteditable="true"]',
-      ],
-      composerSelectors: ["form", '[data-testid="composer"]', "#thread-bottom"],
-      sendSelectors: [
-        'button[data-testid="send-button"]',
-        '#composer-submit-button:not([data-testid="stop-button"])',
-        'button[aria-label="Send prompt" i]',
-        'button[aria-label="Send message" i]',
-        'button[type="submit"]:not([data-testid="stop-button"])',
-      ],
-      stopSelectors: [
-        'button[data-testid="stop-button"]',
-        'button[aria-label="Stop streaming" i]',
-        'button[aria-label="Stop generating" i]',
-      ],
-      responseSelectors: [
-        '[data-message-author-role="assistant"]',
-      ],
-    };
-  }
-  if (host.endsWith("claude.ai")) {
-    return {
-      name: "Claude",
-      editorSelectors: [
-        'div[contenteditable="true"].ProseMirror',
-        'div[aria-label*="prompt" i][contenteditable="true"]',
-        'fieldset div[contenteditable="true"]',
-        'div[contenteditable="true"]',
-      ],
-      composerSelectors: ["fieldset", '[data-testid="chat-input"]', "form"],
-      sendSelectors: [
-        'button[aria-label="Send message" i]',
-        'button[aria-label="Send" i]',
-      ],
-      stopSelectors: [
-        'button[aria-label="Stop response" i]',
-        'button[aria-label="Stop" i]',
-      ],
-      responseSelectors: [
-        '[data-testid="assistant-message"]',
-        ".font-claude-message",
       ],
     };
   }
@@ -419,36 +367,6 @@ async function fallbackToClipboard(prompt: string, site: string, problem?: strin
   return false;
 }
 
-/** Find a clickable element by its visible text (case-insensitive contains). */
-function findClickableByText(texts: string[]): HTMLElement | null {
-  const wanted = texts.map((t) => t.toLowerCase());
-  const els = document.querySelectorAll<HTMLElement>(
-    'button, [role="button"], [role="menuitem"], a',
-  );
-  for (const el of els) {
-    if ((el as HTMLButtonElement).disabled) continue;
-    const label = (el.getAttribute("aria-label") ?? el.textContent ?? "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .toLowerCase();
-    if (label && wanted.some((t) => label.includes(t))) return el;
-  }
-  return null;
-}
-
-async function waitForClickableByText(
-  texts: string[],
-  timeoutMs: number,
-): Promise<HTMLElement | null> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const el = findClickableByText(texts);
-    if (el) return el;
-    await sleep(150);
-  }
-  return null;
-}
-
 /**
  * Whether an element is actually on-screen and interactable. Lets the generic
  * fallback selectors (e.g. a bare contenteditable) skip hidden/off-screen
@@ -463,227 +381,7 @@ function isVisible(el: Element): boolean {
   return style.visibility !== "hidden" && style.display !== "none";
 }
 
-const nlog = (...args: unknown[]) => console.log("[TL;DW NotebookLM]", ...args);
 const log = (...args: unknown[]) => console.log("[TL;DW inject]", ...args);
-
-function editorLabel(el: HTMLElement): string {
-  return [
-    el.getAttribute("aria-label"),
-    el.getAttribute("placeholder"),
-    el.getAttribute("formcontrolname"),
-  ]
-    .join(" ")
-    .toLowerCase();
-}
-
-/** Boxes on the page that are NOT the paste box (search + the ask composer). */
-function isNotPasteBox(el: HTMLElement): boolean {
-  const hay = editorLabel(el);
-  return (
-    hay.includes("search the web") ||
-    hay.includes("discover sources") ||
-    hay.includes("discoversources") ||
-    hay.includes("ask a question") ||
-    hay.includes("ask anything") ||
-    hay.includes("create some") ||
-    hay.includes("notebook title") ||
-    hay.includes("untitled") ||
-    hay.includes("name your")
-  );
-}
-
-function editorIsEmpty(el: HTMLElement): boolean {
-  const v =
-    el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement
-      ? el.value
-      : el.textContent;
-  return !(v ?? "").trim();
-}
-
-/**
- * Find the input box in an "add source" panel: a visible, empty field that
- * isn't the search box or the "ask" composer. Prefers a box whose label matches
- * one of `prefer` (e.g. "paste", "url"); otherwise the largest dialog-scoped
- * candidate.
- */
-const TEXTY_INPUT_TYPES = new Set(["text", "url", "search", "email", ""]);
-
-function findSourceBox(prefer: string[]): HTMLElement | null {
-  const all = Array.from(
-    document.querySelectorAll<HTMLElement>(
-      "textarea, input, div[contenteditable=\"true\"]",
-    ),
-  ).filter((el) => {
-    if (!isVisible(el) || isNotPasteBox(el)) return false;
-    if (el instanceof HTMLInputElement) {
-      return TEXTY_INPUT_TYPES.has(el.getAttribute("type") ?? "");
-    }
-    return true;
-  });
-
-  nlog(
-    "source-input candidates:",
-    all.map((el) => `${el.tagName.toLowerCase()}[${editorLabel(el).trim()}]`),
-  );
-
-  const labelled = all.filter((el) =>
-    prefer.some((k) => editorLabel(el).includes(k)),
-  );
-  if (labelled[0]) return labelled[0];
-
-  const inDialog = all.filter((el) =>
-    el.closest('[role="dialog"], mat-dialog-container'),
-  );
-  const pool = inDialog.length ? inDialog : all;
-  const empty = pool.filter(editorIsEmpty);
-  const choose = empty.length ? empty : pool;
-
-  choose.sort((a, b) => {
-    const ra = a.getBoundingClientRect();
-    const rb = b.getBoundingClientRect();
-    return rb.width * rb.height - ra.width * ra.height;
-  });
-  return choose[0] ?? null;
-}
-
-async function waitForSourceBox(
-  selectors: string[],
-  prefer: string[],
-  timeoutMs: number,
-): Promise<HTMLElement | null> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    // Exact selectors first (known fields). When exact selectors are given we
-    // wait for them ONLY — the heuristic would otherwise grab whatever field
-    // loads first (e.g. the notebook-name input) before the real box appears.
-    for (const sel of selectors) {
-      const el = document.querySelector<HTMLElement>(sel);
-      if (el && isVisible(el)) return el;
-    }
-    if (selectors.length === 0) {
-      const box = findSourceBox(prefer);
-      if (box) return box;
-    }
-    await sleep(200);
-  }
-  return null;
-}
-
-/**
- * Click the dialog's "Insert" submit button — waiting for it to become enabled,
- * since it stays disabled until the paste box registers content. Logs the
- * available buttons if it never enables, so a miss is diagnosable.
- */
-async function clickInsert(timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  let everSeen = false;
-  while (Date.now() < deadline) {
-    const btns = Array.from(
-      document.querySelectorAll<HTMLElement>('button, [role="button"]'),
-    );
-    const match = btns.find((b) => {
-      const label = (b.getAttribute("aria-label") ?? b.textContent ?? "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .toLowerCase();
-      return label === "insert" || label.startsWith("insert");
-    });
-    if (match) {
-      everSeen = true;
-      const disabled =
-        (match as HTMLButtonElement).disabled ||
-        match.getAttribute("aria-disabled") === "true";
-      if (!disabled) {
-        match.click();
-        return true;
-      }
-    }
-    await sleep(250);
-  }
-  if (everSeen) nlog("Insert button stayed disabled");
-  else
-    nlog(
-      "no Insert button; buttons seen:",
-      Array.from(document.querySelectorAll("button"))
-        .map((b) => (b.textContent ?? "").replace(/\s+/g, " ").trim())
-        .filter(Boolean)
-        .slice(0, 25),
-    );
-  return false;
-}
-
-/**
- * NotebookLM has no chat composer — sources are added through a dialog. Drive
- * it: open "Copied text", fill the paste box with the transcript, and submit.
- * Each step falls back to the clipboard if its element can't be found, so the
- * worst case is the pre-v0.1.17 manual behavior.
- */
-const URL_RE = /^https?:\/\/\S+$/;
-
-function boxValue(el: HTMLElement): string {
-  return el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement
-    ? el.value
-    : (el.textContent ?? "");
-}
-
-function setNativeValue(el: HTMLElement, text: string): void {
-  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
-    const proto =
-      el instanceof HTMLTextAreaElement
-        ? HTMLTextAreaElement.prototype
-        : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-    setter?.call(el, text);
-  } else {
-    el.textContent = text;
-  }
-}
-
-/**
- * Robustly fill a (possibly framework-controlled) field, trying several
- * techniques and verifying the value took after each: execCommand, then
- * native-setter + InputEvent, then a synthetic paste. Returns whether it stuck.
- */
-async function fillBox(el: HTMLElement, text: string): Promise<boolean> {
-  const took = () => boxValue(el).includes(text.slice(0, 20));
-
-  el.scrollIntoView?.({ block: "center" });
-  el.click?.();
-  el.focus();
-  await sleep(120); // let the field's value accessor initialise
-
-  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
-    el.select();
-  }
-  try {
-    document.execCommand("insertText", false, text);
-  } catch {
-    /* deprecated in some contexts */
-  }
-  if (took()) return true;
-
-  setNativeValue(el, text);
-  el.dispatchEvent(
-    new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }),
-  );
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-  if (took()) return true;
-
-  try {
-    const dt = new DataTransfer();
-    dt.setData("text/plain", text);
-    el.dispatchEvent(
-      new ClipboardEvent("paste", {
-        bubbles: true,
-        cancelable: true,
-        clipboardData: dt,
-      }),
-    );
-  } catch {
-    /* DataTransfer/ClipboardEvent unsupported */
-  }
-  return took();
-}
 
 /**
  * An element's rendered text with its list items marked ("- item", "1. item"):
@@ -933,80 +631,6 @@ async function reportOutcome(site: string, outcome: Outcome): Promise<void> {
   }
 }
 
-async function runNotebookLM(content: string): Promise<Outcome> {
-  nlog("start");
-  // 0. On the home page, create a new notebook. No fixed sleep — the next step
-  //    polls for the dialog and fires the instant it's ready.
-  const createBtn = await waitForClickableByText(
-    ["create new notebook", "create new"],
-    10000,
-  );
-  if (createBtn) {
-    nlog("clicking Create new");
-    createBtn.click();
-  } else {
-    nlog("no Create button — assuming a notebook is already open");
-  }
-
-  // A bare URL → add it via "Websites"; anything else → paste via "Copied text".
-  const isLink = URL_RE.test(content.trim());
-  const sourceBtnTexts = isLink ? ["websites", "website"] : ["copied text", "paste text"];
-  const boxSelectors = isLink
-    ? [
-        'textarea[formcontrolname="urls"]',
-        'textarea[aria-label="Enter URLs"]',
-        'textarea[placeholder*="Paste any links" i]',
-      ]
-    : [];
-  const boxPrefer = isLink ? ["url", "link", "website", "paste"] : ["paste"];
-  nlog(isLink ? "link mode (Websites)" : "transcript mode (Copied text)");
-
-  // 1. Open the chosen source type once the dialog appears.
-  const sourceBtn = await waitForClickableByText(sourceBtnTexts, 12000);
-  if (!sourceBtn) {
-    nlog("source button not found:", sourceBtnTexts);
-    const copied = await fallbackToClipboard(content, "NotebookLM");
-    return { ok: false, reason: `didn't show the "${sourceBtnTexts[0]}" source button`, copied };
-  }
-  nlog("clicking source button");
-  sourceBtn.click();
-
-  // 2. Fill the input that appears (the visible, empty field in the dialog that
-  //    isn't the "search the web" box).
-  const box = await waitForSourceBox(boxSelectors, boxPrefer, 20000);
-  if (!box) {
-    nlog("source input not found");
-    const copied = await fallbackToClipboard(content, "NotebookLM");
-    return { ok: false, reason: "didn't show the source input box", copied };
-  }
-  nlog(
-    "filling source input; length:",
-    content.length,
-    "snippet:",
-    JSON.stringify(content.slice(0, 80)),
-  );
-  // Retry: the field is often in the DOM a beat before its value accessor is
-  // ready, so a single fill can silently no-op.
-  let filled = false;
-  for (let attempt = 1; attempt <= 6 && !filled; attempt++) {
-    if (attempt > 1) await sleep(400);
-    filled = await fillBox(box, content);
-    nlog(`fill attempt ${attempt}: ${filled ? "stuck" : "empty"}`);
-  }
-  if (!filled) {
-    const copied = await fallbackToClipboard(content, "NotebookLM");
-    return { ok: false, reason: "wouldn't take the text TL;DW typed into the source box", copied };
-  }
-
-  // 3. Submit the source — wait for "Insert" to enable after the fill registers.
-  if (await clickInsert(8000)) {
-    nlog("clicked Insert");
-    return { ok: true };
-  }
-  showToast('TL;DW: source filled in — click "Insert" to add it.');
-  return { ok: false, reason: 'didn\'t enable "Insert" after TL;DW filled the source box' };
-}
-
 /**
  * Insert text via a synthetic paste ClipboardEvent. React (and most frameworks)
  * handle paste events through their own synthetic event system and will update
@@ -1042,9 +666,8 @@ async function pasteIntoEditor(editor: HTMLElement, text: string): Promise<boole
 }
 
 /**
- * Activate the temporary/incognito chat mode for destinations that require a
- * UI click rather than a URL parameter. Claude and ChatGPT use incognito URLs
- * (handled by the background); Gemini needs a button click here.
+ * Turn on Gemini's temporary chat (it has no URL parameter, so this clicks its
+ * button), so the chat isn't saved to the user's Gemini history.
  */
 async function activateTemporaryMode(host: string): Promise<void> {
   if (host.endsWith("gemini.google.com")) {
@@ -1091,16 +714,6 @@ async function geminiSignedIn(timeoutMs = 4000): Promise<boolean> {
 }
 
 async function run(): Promise<void> {
-  if (location.hostname.endsWith("notebooklm.google.com")) {
-    const res = (await chrome.runtime.sendMessage({ type: "GET_PENDING" })) as {
-      prompt: string | null;
-    } | null;
-    if (!res?.prompt) return;
-    const outcome = await runNotebookLM(res.prompt);
-    await reportOutcome("NotebookLM", outcome);
-    return;
-  }
-
   const config = configForHost(location.hostname);
   if (!config) return;
 
@@ -1123,7 +736,7 @@ async function run(): Promise<void> {
     await activateTemporaryMode(location.hostname);
   }
 
-  // Generous ceiling: chat apps (ChatGPT/Claude) can render a splash and only
+  // Generous ceiling: the chat app can render a splash and only
   // mount the composer after their client-side router resolves, which on a cold
   // load can land well past document_idle.
   const editor = await waitFor<HTMLElement>(config.editorSelectors, 20000);

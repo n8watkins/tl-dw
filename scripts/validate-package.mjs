@@ -44,13 +44,15 @@ const hosts = manifest.host_permissions ?? [];
 if (JSON.stringify([...hosts].sort()) !== JSON.stringify([...BASE_HOSTS].sort())) {
   throw new Error(`Unexpected host_permissions (an e2e build?): ${hosts.join(", ")}`);
 }
-if ((manifest.permissions ?? []).includes("tabs")) {
-  throw new Error('The "tabs" permission is not needed and must not ship');
+// TL;DW is Gemini-only: SponsorBlock is the one optional host, and nothing
+// registers scripts at runtime.
+const OPTIONAL_HOSTS = ["https://sponsor.ajay.app/*"];
+if (JSON.stringify(manifest.optional_host_permissions ?? []) !== JSON.stringify(OPTIONAL_HOSTS)) {
+  throw new Error(`optional_host_permissions must be exactly ${OPTIONAL_HOSTS.join(", ")}`);
 }
-for (const host of ["https://chatgpt.com/*", "https://claude.ai/*", "https://sponsor.ajay.app/*"]) {
-  if (!(manifest.optional_host_permissions ?? []).includes(host)) {
-    throw new Error(`${host} must be an optional host permission`);
-  }
+const EXPECTED_PERMISSIONS = ["clipboardWrite", "contextMenus", "storage"];
+if (JSON.stringify([...(manifest.permissions ?? [])].sort()) !== JSON.stringify(EXPECTED_PERMISSIONS)) {
+  throw new Error(`permissions must be exactly ${EXPECTED_PERMISSIONS.join(", ")}`);
 }
 const contentScriptHosts = (manifest.content_scripts ?? []).flatMap((script) => script.matches ?? []);
 const extraHosts = contentScriptHosts.filter((m) => !BASE_HOSTS.includes(m));

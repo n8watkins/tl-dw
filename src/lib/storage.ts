@@ -37,6 +37,7 @@ import {
   recordUsageAttempt,
   recordUsageOutcome,
 } from "./geminiUsage";
+import { migrateToGeminiOnly } from "./migrations";
 import {
   findCachedVariant,
   normalizeSummaryCache,
@@ -137,8 +138,10 @@ export async function getState(): Promise<StorageState> {
   return { profiles, history, settings };
 }
 
-/** Seed defaults on first install without clobbering existing data. */
+/** Seed defaults on first install without clobbering existing data, and bring older data up to date. */
 export async function ensureSeeded(): Promise<void> {
+  const migrated = migrateToGeminiOnly(await getSettings());
+  if (migrated) await setSettings(migrated);
   const profiles = await getProfiles();
   if (profiles.length === 0) {
     const defaults = createDefaultProfiles();

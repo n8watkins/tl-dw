@@ -93,15 +93,14 @@ export function SetupSection() {
           </div>
           <div className="mode-card-tag">No key · works now</div>
           <div className="card-desc">
-            TL;DW opens your chosen AI (Gemini by default, or ChatGPT, Claude or NotebookLM) in a
-            background tab, with the prompt typed and sent, then reads the finished answer and puts the
-            summary on the YouTube page. It uses the account you're already signed in with.
+            TL;DW opens Gemini in a background tab, with the prompt typed and sent, then reads the
+            finished answer and puts the summary on the YouTube page. It uses the account you're already signed in with.
           </div>
           <div className="mode-card-note">
             Long videos: signed in, Gemini reads the transcript through YouTube; signed out, it gets
-            part of the transcript, labeled so. ChatGPT and Claude ask you first. Without a key Gemini
+            part of the transcript, labeled so. Without a key Gemini
             doesn't watch videos, so for one with no captions it can only summarize public info about it.
-            Reading the answer depends on each site's layout, so it's a little more fragile than Direct API.
+            Reading the answer depends on Gemini's page layout, so it's a little more fragile than Direct API.
           </div>
         </div>
 

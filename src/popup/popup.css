@@ -211,42 +211,6 @@ select:disabled { opacity: 0.4; cursor: default; }
 
 /* ── Destination picker ──────────────────────────────── */
 
-.dest-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-}
-
-.dest-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  padding: 9px 4px 8px;
-  background: #1e293b;
-  border: 2px solid #334155;
-  border-radius: 10px;
-  cursor: pointer;
-  color: #94a3b8;
-  font-size: 10px;
-  font-weight: 500;
-  text-align: center;
-  line-height: 1.2;
-  transition: border-color 0.12s, background 0.12s, color 0.12s;
-}
-
-.dest-btn:hover {
-  border-color: #7c3aed;
-  background: #1e1035;
-  color: #c4b5fd;
-}
-
-.dest-btn-active {
-  border-color: #7c3aed;
-  background: #1e1035;
-  color: #e9d5ff;
-}
-
 /* ── Send row (profile + ask button side by side) ───── */
 
 .send-row {

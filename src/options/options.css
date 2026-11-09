@@ -377,7 +377,6 @@ kbd {
   color: var(--text);
 }
 
-
 /* ── Profiles ────────────────────────────────────────── */
 
 .profiles-toolbar {
@@ -451,7 +450,6 @@ kbd {
 
 .badge-default { background: rgba(124,58,237,0.2); color: var(--accent); }
 .badge-custom  { background: rgba(34,197,94,0.15); color: var(--success); }
-
 
 .chevron {
   color: var(--faint);
@@ -1018,45 +1016,6 @@ textarea { min-height: 176px; font-family: "JetBrains Mono", "Fira Code", ui-mon
 
 /* ── Destination card picker ─────────────────────────── */
 
-.dest-card-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
-}
-
-.dest-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 8px;
-  background: var(--surface);
-  border: 2px solid var(--border);
-  border-radius: 12px;
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 500;
-  text-align: center;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
-}
-
-.dest-card:hover {
-  border-color: var(--accent);
-  background: var(--surface2);
-  color: var(--text);
-}
-
-.dest-card-active {
-  border-color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
-  color: var(--text);
-}
-
-.dest-card-label {
-  line-height: 1.2;
-}
-
 /* ── Support ─────────────────────────────────────────── */
 
 .support-grid {
@@ -1328,26 +1287,6 @@ textarea { min-height: 176px; font-family: "JetBrains Mono", "Fira Code", ui-mon
 }
 
 .about-kbd-plus { color: var(--faint); font-size: 18px; font-weight: 300; }
-
-.about-dest-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-top: 2px;
-}
-
-.about-dest-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 4px 10px 4px 5px;
-  font-size: 11px;
-  color: var(--muted);
-  font-weight: 500;
-}
 
 .about-privacy-note {
   font-size: 12px;
@@ -1771,9 +1710,6 @@ a:not([class]):focus-visible { outline: 2px solid var(--accent); outline-offset:
 
 /* ── Destination access notes ────────────────────────── */
 
-.dest-card-note { font-size: 11px; color: var(--muted); }
-.dest-notice { margin-top: 10px; font-size: 13px; color: #fcd34d; }
-
 /* ── Welcome (first install) ─────────────────────────── */
 
 .welcome-layout {
@@ -1865,7 +1801,7 @@ a.btn { text-decoration: none; }
 @media (max-width: 960px) {
   .about-bento { grid-template-columns: repeat(2, 1fr); }
   .about-card-main, .about-card-wide { grid-column: 1 / -1; grid-row: auto; }
-  .dest-card-grid { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+
 }
 
 @media (max-width: 760px) {

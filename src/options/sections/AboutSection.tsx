@@ -1,6 +1,4 @@
 import { Icon } from "../components/Icons";
-import { DestinationIcon } from "../../lib/DestinationIcon";
-import { DESTINATIONS } from "../../lib/constants";
 import { shortcutKeys, useSummarizeShortcut } from "../../lib/useShortcut";
 
 export function AboutSection() {
@@ -31,9 +29,8 @@ export function AboutSection() {
           Press the TL;DW button under a YouTube video
           {keys.length > 0 && <> (or {keys.map((k, i) => <span key={i}>{i > 0 && "+"}<kbd>{k}</kbd></span>)})</>}.
           TL;DW reads the transcript and puts an AI summary right on the page: from the Gemini API
-          with your own free key, or from Gemini in a background tab with no key at all. You can also
-          send a video to ChatGPT, Claude or NotebookLM. Shape it with reusable profiles and tags,
-          then decide what's worth your time.
+          with your own free key, or from Gemini in a background tab with no key at all. Shape it with
+          reusable profiles and tags, then decide what's worth your time.
         </p>
       </div>
 
@@ -84,24 +81,16 @@ export function AboutSection() {
           </div>
         </div>
 
-        {/* AI destinations — wide */}
+        {/* Gemini, two ways — wide */}
         <div className="about-card about-card-wide" style={{"--ca": "#14b8a6", "--cg": "rgba(20,184,166,0.1)"} as React.CSSProperties}>
           <div className="about-card-icon" style={{background:"rgba(20,184,166,0.12)", color:"#2dd4bf"}}>
             <Icon name="sparkles" />
           </div>
-          <div className="about-card-title">{DESTINATIONS.length} AI destinations</div>
+          <div className="about-card-title">Gemini, with or without a key</div>
           <div className="about-card-desc">
-            Each destination handled the right way: Gemini, ChatGPT and Claude get the transcript when it
-            fits their message box, a longer one is shortened in the middle with a label saying so, and
-            NotebookLM adds the link as a source.
-          </div>
-          <div className="about-dest-row">
-            {DESTINATIONS.map((d) => (
-              <div key={d.id} className="about-dest-chip">
-                <DestinationIcon id={d.id} size={20} />
-                <span>{d.label}</span>
-              </div>
-            ))}
+            With your own free Gemini key, summaries come straight from the Gemini API, right on the page.
+            Without one, TL;DW asks Gemini in a background tab and brings the answer back. Either way Gemini
+            reads the video's transcript first, and gets the link only when there is no transcript.
           </div>
         </div>
 

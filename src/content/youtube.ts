@@ -1597,13 +1597,6 @@ type ErrorPanelOptions = {
   noTranscript?: boolean;
   /** The Gemini error category, which picks the panel's main action. */
   category?: string;
-  /** The page must choose how to send a video the chosen site can't take. */
-  choice?: "long" | "no-transcript";
-  /** That site's name and id (for "send part of the transcript"). */
-  site?: string;
-  destinationId?: string;
-  /** Whether a Gemini key is set up and on, so "Add a free key" isn't offered. */
-  hasKey?: boolean;
 };
 
 type PanelAction = { label: string; title?: string; primary?: boolean; onClick: () => void };
@@ -1632,7 +1625,7 @@ function actionButton(t: ReturnType<typeof theme>, action: PanelAction): HTMLBut
 }
 
 /** Start a page run that sends this video another way (Gemini tab, the API, part of the transcript). */
-function sendInstead(ask: { destinationId?: string; source: "page" | "page-tab"; allowTruncate?: boolean }): void {
+function sendInstead(ask: { source: "page" | "page-tab" }): void {
   const vid = currentVideoId();
   if (!vid) return;
   startRunInFlight();
@@ -1654,53 +1647,8 @@ function errorPanelActions(opts: ErrorPanelOptions): PanelAction[] {
     label: "Send to Gemini instead",
     title: "Open Gemini in a background tab; TL;DW shows its answer here",
     primary: true,
-    onClick: () => sendInstead({ destinationId: "gemini", source: "page-tab" }),
+    onClick: () => sendInstead({ source: "page-tab" }),
   };
-  const keyAction: PanelAction = opts.hasKey
-    ? {
-        label: "Summarize here with the Gemini API",
-        onClick: () => sendInstead({ source: "page" }),
-      }
-    : {
-        label: "Add a free key",
-        title: "Set up a free Gemini API key (about 2 minutes) to summarize any video right here",
-        onClick: openKeySetup,
-      };
-  if (opts.choice === "long") {
-    return [
-      {
-        label: "Send part of the transcript",
-        title: `Send ${opts.site ?? "the site"} the start and end of the transcript that fit; the middle is left out, and the summary says so`,
-        primary: true,
-        onClick: () => sendInstead({ destinationId: opts.destinationId, source: "page-tab", allowTruncate: true }),
-      },
-      keyAction,
-    ];
-  }
-  if (opts.choice === "no-transcript") {
-    // With a key, the API watches the video: that's the answer. Without one,
-    // Gemini's web app can only look up public info about it from the link.
-    if (opts.hasKey) return [{ ...keyAction, primary: true }];
-    return [
-      { ...keyAction, primary: true },
-      {
-        ...geminiTab,
-        primary: false,
-        label: "Send the link to Gemini (public info only)",
-        title: "Without a key Gemini can't watch the video: it summarizes public info about it from the link",
-      },
-    ];
-  }
-  if (opts.category === "permission") {
-    return [
-      {
-        label: `Allow ${opts.site ?? "the site"} in TL;DW settings`,
-        primary: true,
-        onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "settings" }),
-      },
-      { ...geminiTab, primary: false, label: "Send to Gemini instead" },
-    ];
-  }
   if (opts.category === "unauthorized") {
     return [{ label: "Replace key in TL;DW settings", primary: true, onClick: openKeySetup }, retry];
   }
@@ -1735,7 +1683,7 @@ function showSummaryErrorPanel(reason?: string, actionUrl?: string, opts: ErrorP
   const msg = document.createElement("div");
   // A specific reason from the worker (an API error, no transcript, a choice);
   // without one, the run timed out.
-  msg.textContent = reason && (opts.noTranscript || opts.choice || opts.category === "permission")
+  msg.textContent = reason && opts.noTranscript
     ? reason
     : reason
     ? `Couldn't get the summary: ${reason}`
@@ -2645,10 +2593,6 @@ function handleAskReply(vid: string, reply: unknown): void {
   showSummaryErrorPanel(res.error, res.actionUrl, {
     noTranscript: res.noTranscript,
     category: res.category,
-    choice: res.choice,
-    site: res.site,
-    destinationId: res.destinationId,
-    hasKey: res.hasKey,
   });
 }
 
@@ -3048,10 +2992,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         showSummaryErrorPanel(msg.reason, msg.actionUrl, {
           noTranscript: msg.noTranscript,
           category: msg.category,
-          choice: msg.choice,
-          site: msg.site,
-          destinationId: msg.destinationId,
-          hasKey: msg.hasKey,
         });
       }
     }

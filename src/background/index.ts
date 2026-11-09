@@ -1,7 +1,4 @@
-// The injector for the optional chat sites, built as a standalone script so it
-// can be registered at runtime once the user allows that site.
-import injectScript from "../content/inject-optional.ts?script&iife";
-import { buildDestinationPrompt, buildDestinationPromptInfo, promptForHistory, transcriptPlaceholder } from "../lib/promptBuilder";
+import { buildDestinationPrompt, buildDestinationPromptInfo, promptForHistory } from "../lib/promptBuilder";
 import { parseTldwBlock } from "../lib/tldw";
 import { selectSummaryProfile } from "../lib/summaryProfile";
 import { fingerprintPrompt } from "../lib/summaryCache";
@@ -14,8 +11,6 @@ import {
   excerptLabel,
   excerptNotice,
   geminiLongNotice,
-  longTranscriptChoiceMessage,
-  noTranscriptChoiceMessage,
   noTranscriptLinkNotice,
   NOT_WATCHABLE_MESSAGE,
   planSend,
@@ -30,20 +25,14 @@ import {
   GEMINI_URL,
   resolveGeminiModelId,
   extractVideoId,
-  getDestination,
+  GEMINI_DESTINATION,
   isYouTubeShortUrl,
   isYouTubeVideoUrl,
   localDateKey,
   STORAGE_KEYS,
 } from "../lib/constants";
 import { cacheContextForScrape, findOpenSearchForVideo, shouldCacheScrape, type SetSummaryReply } from "../lib/openSearchMatch";
-import {
-  accessNeededMessage,
-  destinationOrigins,
-  hasDestinationAccess,
-  hasSponsorBlockAccess,
-  OPTIONAL_DESTINATION_ORIGINS,
-} from "../lib/permissions";
+import { hasSponsorBlockAccess } from "../lib/permissions";
 import { cachedSourceLabel } from "../lib/summarySource";
 import { fillFailureMessage } from "../lib/fillFailure";
 import { addHistoryEntry, expireOldEntries, trimToLimit } from "../lib/history";
@@ -100,14 +89,12 @@ const VIDEO_LINK_PATTERNS = ["*://*.youtube.com/watch*"];
 async function rebuildContextMenu(): Promise<void> {
   await chrome.contextMenus.removeAll();
 
-  const [profiles, settings] = await Promise.all([getProfiles(), getSettings()]);
+  const profiles = await getProfiles();
   if (profiles.length === 0) return;
-
-  const destination = getDestination(settings.destinationId);
 
   chrome.contextMenus.create({
     id: MENU_ROOT,
-    title: `Send to ${destination.label} with...`,
+    title: "Summarize with Gemini as...",
     contexts: MENU_CONTEXTS,
     documentUrlPatterns: YOUTUBE_DOC_PATTERNS,
     targetUrlPatterns: VIDEO_LINK_PATTERNS,
@@ -151,47 +138,9 @@ async function startupStorageSweep(): Promise<void> {
   }
 }
 
-const INJECTOR_ID = "tldw-optional-destinations";
-
-/**
- * Register the destination injector on exactly the optional chat sites the user
- * has allowed (Gemini's is in the manifest). Runs on install, on startup and
- * whenever a permission is granted or removed, so the registration always
- * matches the granted origins.
- */
-async function syncInjectorRegistration(): Promise<void> {
-  try {
-    const granted: string[] = [];
-    for (const origins of Object.values(OPTIONAL_DESTINATION_ORIGINS)) {
-      if (await chrome.permissions.contains({ origins: [...origins] })) granted.push(...origins);
-    }
-    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [INJECTOR_ID] });
-    if (existing.length > 0) await chrome.scripting.unregisterContentScripts({ ids: [INJECTOR_ID] });
-    if (granted.length === 0) return;
-    await chrome.scripting.registerContentScripts([{
-      id: INJECTOR_ID,
-      matches: granted,
-      js: [injectScript],
-      runAt: "document_idle",
-      persistAcrossSessions: true,
-    }]);
-  } catch (error) {
-    console.warn("[TL;DW] couldn't register the destination injector", error);
-  }
-}
-
-/** Whether the injector is registered for `destinationId`'s site (Gemini's always is). */
-async function injectorReady(destinationId: string): Promise<boolean> {
-  const origins = destinationOrigins(destinationId);
-  if (origins.length === 0) return true;
-  const [script] = await chrome.scripting.getRegisteredContentScripts({ ids: [INJECTOR_ID] }).catch(() => []);
-  return !!script?.matches && origins.every((o) => script.matches!.includes(o));
-}
-
 chrome.runtime.onInstalled.addListener((details) => {
   void ensureSeeded().then(() => rebuildContextMenu());
   void startupStorageSweep();
-  void syncInjectorRegistration();
   // A first install opens the welcome page: what the two modes are and how to
   // get a free Gemini key (or skip and use TL;DW without one).
   if (details.reason === "install") {
@@ -201,11 +150,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 
 chrome.runtime.onStartup.addListener(() => {
   void startupStorageSweep();
-  void syncInjectorRegistration();
 });
-
-chrome.permissions.onAdded.addListener(() => void syncInjectorRegistration());
-chrome.permissions.onRemoved.addListener(() => void syncInjectorRegistration());
 
 function optionsPagePath(): string {
   return chrome.runtime.getManifest().options_ui?.page ?? "src/options/index.html";
@@ -286,10 +231,12 @@ async function getTranscriptFromTab(
   }
 }
 
-/** How a summary run ended, for the ASK reply: a refusal or failure carries the reason. */
-/** A failure can carry a link to where the user can fix it (AI Studio). */
-/** `noTranscript` marks the refusal to summarize a video whose transcript couldn't be read. */
-/** `choice` asks the page to offer what to do instead (a transcript too long for the site, or none). */
+/**
+ * How a summary run ended, for the ASK reply: a refusal or failure carries the
+ * reason, and can carry a link to where the user can fix it (AI Studio).
+ * `noTranscript` marks the refusal to summarize a video whose transcript
+ * couldn't be read.
+ */
 type RunOutcome =
   | { ok: true; notice?: string }
   | {
@@ -298,10 +245,6 @@ type RunOutcome =
       actionUrl?: string;
       noTranscript?: true;
       category?: string;
-      choice?: "long" | "no-transcript";
-      site?: string;
-      destinationId?: string;
-      hasKey?: boolean;
     };
 
 /**
@@ -411,8 +354,7 @@ async function verifySavedGeminiKey(enableOnSuccess = false) {
 /**
  * The core motion: read the target YouTube video, build the prompt from the
  * chosen (or default) profile, then open the destination tab and hand the
- * prompt to its injector to auto-fill and submit. `destinationOverride` lets
- * the popup pick a destination for one send without touching the saved default.
+ * prompt to its injector to auto-fill and submit.
  *
  * `senderTabId` is passed when the request comes from a content script (auto-run
  * or in-page "Ask" button). Using the sender's tab ID directly avoids the
@@ -431,14 +373,11 @@ async function verifySavedGeminiKey(enableOnSuccess = false) {
 type RunOptions = {
   profileId?: string;
   linkUrl?: string;
-  destinationOverride?: string;
   userCuriosity?: string;
   senderTabId?: number;
   source?: SummarySource;
   forceFocusTab?: boolean;
   bypassCache?: boolean;
-  /** The user chose "send part of the transcript" of one too long for the site. */
-  allowTruncate?: boolean;
 };
 
 async function runSummary(opts: RunOptions = {}): Promise<RunOutcome> {
@@ -453,13 +392,11 @@ async function runSummary(opts: RunOptions = {}): Promise<RunOutcome> {
 async function prepareAndSend({
   profileId,
   linkUrl,
-  destinationOverride,
   userCuriosity,
   senderTabId,
   source = "auto",
   forceFocusTab = false,
   bypassCache = false,
-  allowTruncate = false,
 }: RunOptions): Promise<RunOutcome> {
   // A right-clicked video link (a thumbnail) wins over the active tab, so a
   // suggested video gets summarized rather than the page you're sitting on.
@@ -514,7 +451,7 @@ async function prepareAndSend({
   }
 
   const [settings, profiles] = await Promise.all([getSettings(), getProfiles()]);
-  const destination = getDestination(destinationOverride ?? settings.destinationId);
+  const destination = GEMINI_DESTINATION;
   const video: VideoContext = { url, title };
 
   // Pause the video you're on (not a suggested thumbnail) before we hand off.
@@ -522,7 +459,7 @@ async function prepareAndSend({
     void chrome.tabs.sendMessage(activeTab.id, { type: "PAUSE_VIDEO" }).catch(() => {});
   }
 
-  const isPromptDest = destination.payload !== "link" && destination.payload !== "source";
+  const isPromptDest = true;
   const videoId = extractVideoId(url);
   const pageTabId = !isThumbnail ? activeTab?.id : undefined;
   // Explicit "open this destination" gestures (the right-click menu, the popup's
@@ -547,7 +484,7 @@ async function prepareAndSend({
   // Read the transcript for every prompt and source destination: TL;DW decides
   // up front, from the transcript and its length, how the video is sent.
   let transcript: string | null = null;
-  if (destination.payload !== "link" && pageTabId !== undefined) {
+  if (pageTabId !== undefined) {
     transcript = await getTranscriptFromTab(pageTabId, videoId);
   }
 
@@ -581,10 +518,8 @@ async function prepareAndSend({
   );
   const plan = planSend({
     useApi: willUseDirectApi,
-    destination,
     hasTranscript: !!transcript,
     transcriptFits: !!transcript && !full.truncated,
-    allowTruncate,
   });
   // The prompt without a transcript: for the call log and history, and what a
   // destination that watches the video itself gets.
@@ -592,48 +527,18 @@ async function prepareAndSend({
     profile, video, { ...destination, canWatch: true }, null, userCuriosity, activeTags,
   );
 
-  // --- the page decides: a chat site that can't watch YouTube ---------------
-  if (plan === "choose-long" || plan === "choose-no-transcript" || plan === "api-too-long") {
+  // --- longer than even the API takes (about 17 hours of speech) ----------
+  if (plan === "api-too-long") {
     await flashBadge("N/A", "muted");
-    const choice = plan === "choose-long" ? "long" as const : plan === "choose-no-transcript" ? "no-transcript" as const : undefined;
-    const error = plan === "choose-long"
-      ? longTranscriptChoiceMessage(destination.label)
-      : plan === "choose-no-transcript"
-        ? noTranscriptChoiceMessage(destination.label, hasApi)
-        : API_TOO_LONG_MESSAGE;
-    const outcome = {
-      ok: false as const,
-      error,
-      choice,
-      site: destination.label,
-      destinationId: destination.id,
-      hasKey: hasApi,
-      noTranscript: plan === "choose-no-transcript" ? (true as const) : undefined,
-    };
-    // Say it on the page too: a send from the popup, the shortcut or the menu
-    // has no run on the page waiting for this reply.
     if (pageTabId !== undefined) {
       void chrome.tabs.sendMessage(pageTabId, {
         type: "SET_SUMMARY_ERROR",
         videoId: videoId ?? undefined,
-        reason: error,
-        choice,
-        site: destination.label,
-        destinationId: destination.id,
-        hasKey: hasApi,
-        noTranscript: outcome.noTranscript,
+        reason: API_TOO_LONG_MESSAGE,
         decision: true,
       }).catch(() => {});
-    } else {
-      // A right-clicked thumbnail: no page shows this video, so the popup says it.
-      void recordDeliveryStatus({
-        site: destination.label,
-        ok: false,
-        reason: `open the video first: ${destination.label} can't watch YouTube, so TL;DW needs the video's transcript.`,
-        at: new Date().toISOString(),
-      });
     }
-    return outcome;
+    return { ok: false, error: API_TOO_LONG_MESSAGE };
   }
 
   // --- headless path: call Gemini API directly (no tab) -------------------
@@ -824,12 +729,10 @@ async function prepareAndSend({
       notice = signedInVariant ? geminiLongNotice(hasApi) : excerptNotice(destination.label, hasApi);
       summaryLabel = excerptLabel(hasApi);
     }
-  } else if (plan === "tab-link") {
+  } else {
     prompt = linkPrompt;
     notice = signedInVariant ? captionsLinkNotice(hasApi) : noTranscriptLinkNotice(hasApi);
     summaryLabel = publicInfoLabel(hasApi);
-  } else {
-    prompt = buildDestinationPrompt(profile, video, destination, transcript, userCuriosity, activeTags);
   }
 
   const tabVideoId = videoId;
@@ -852,41 +755,14 @@ async function prepareAndSend({
     return { ok: true };
   }
 
-  // ChatGPT, Claude and NotebookLM are optional host permissions: without the
-  // user's permission TL;DW can't type into the site, so say so instead.
-  if (!(await hasDestinationAccess(destination.id))) {
-    const error = accessNeededMessage(destination.label, destination.id);
-    await flashBadge("!");
-    if (pageTabId !== undefined) {
-      void chrome.tabs.sendMessage(pageTabId, {
-        type: "SET_SUMMARY_ERROR",
-        videoId: videoId ?? undefined,
-        reason: error,
-        category: "permission",
-        site: destination.label,
-        destinationId: destination.id,
-        decision: true,
-      }).catch(() => {});
-    }
-    void recordDeliveryStatus({ site: destination.label, ok: false, reason: error, at: new Date().toISOString() });
-    return { ok: false, error, category: "permission", site: destination.label, destinationId: destination.id };
-  }
-  if (!(await injectorReady(destination.id))) await syncInjectorRegistration();
 
   if (pageTabId !== undefined && isPromptDest) {
     progress(pageTabId, videoId, `Waiting for ${destination.label}'s answer in its tab…`, notice);
   }
 
-  // Open the destination tab and hand its injector the prompt to auto-fill.
-  // Gemini's URL is fixed (GEMINI_URL); the rest open their configured URL.
-  // When temporary chats are on, prefer the incognito URL if the destination
-  // has one (Claude, ChatGPT). Gemini has no incognito URL —
-  // its content script clicks the temp-chat button instead.
-  const baseUrl = destination.id === "gemini" ? GEMINI_URL : destination.url;
-  const targetUrl =
-    settings.temporaryChats && destination.incognitoUrl
-      ? destination.incognitoUrl
-      : baseUrl;
+  // Open the Gemini tab and hand its injector the prompt to auto-fill. Gemini
+  // has no temporary-chat URL: the injector clicks its button instead.
+  const targetUrl = GEMINI_URL;
   // Sends started on the YouTube page (its button, its panel, an auto-run) open
   // the tab in the background, so the video keeps the focus.
   const fromPage = source === "page" || source === "auto" || source === "page-tab";
@@ -925,9 +801,7 @@ async function prepareAndSend({
     await addHistoryEntry({
       video,
       profile,
-      prompt: destination.payload === "source" && transcript && prompt === transcript
-        ? transcriptPlaceholder(transcript)
-        : promptForHistory(prompt),
+      prompt: promptForHistory(prompt),
       settings,
       destinationId: destination.id,
       channelAvatarUrl: video.avatarUrl,
@@ -987,12 +861,10 @@ chrome.runtime.onMessage.addListener(
       // popup's inline action passes "popup-inline" to run headless (no tab).
       void runSummary({
         profileId: message.profileId,
-        destinationOverride: message.destinationId,
         userCuriosity: message.userCuriosity,
         senderTabId: message.sourceTabId ?? sender.tab?.id,
         source: message.source ?? "auto",
         bypassCache: message.bypassCache ?? false,
-        allowTruncate: message.allowTruncate ?? false,
       }).then(
         (outcome) => sendResponse(outcome),
         // runSummary has awaits outside its inner try (tabs.create, storage

@@ -1,5 +1,3 @@
-import type { Destination } from "../types";
-
 /**
  * How a summary request is carried out, decided before anything is sent:
  * TL;DW knows the transcript and its length up front, so it never cuts a
@@ -8,26 +6,10 @@ import type { Destination } from "../types";
  * - `api-transcript`: the Gemini API reads the whole transcript.
  * - `api-video`: no transcript, so the Gemini API watches the YouTube video
  *   (video input). This is the only path where Gemini sees the video itself.
- * - `tab-transcript`: a chat site gets the prompt with the whole transcript.
- * - `tab-excerpt`: a chat site gets as much of a long transcript as fits (its
- *   start and end, the middle marked as left out), and the summary is labeled
- *   so. The Gemini web app gets this without asking; ChatGPT and Claude only
- *   after the user chose it.
- * - `tab-link`: the Gemini web app gets the link, because there is no
- *   transcript. Without the API, Gemini can't watch YouTube videos: it can only
- *   look up public information about the video, and the summary is labeled so.
- *
- * The Gemini web app behaves differently signed in (tested 2026-11-02): its
- * YouTube tool reads a linked video's captions, even for a 2.5-hour video,
- * though it still doesn't watch the frames. So for a long video, or one whose
- * captions TL;DW couldn't read, the Gemini tab also gets a link prompt that
- * asks for the transcript, and the injector sends it only when the page shows
- * a signed-in account (see `signedInPrompt` in PendingData). Signed out, or
- * when unsure, the plan above stands.
- * - `tab-plain`: a link or source destination (NotebookLM).
- * - `choose-long`: ChatGPT or Claude and a transcript too long for them: ask
- *   the user on the page what to do.
- * - `choose-no-transcript`: the same sites and no transcript at all.
+ * - `tab-transcript`: the Gemini tab gets the prompt with the whole transcript.
+ * - `tab-excerpt`: the Gemini tab gets as much of a long transcript as fits (its
+ *   start and end, the middle marked as left out), and the summary is labeled so.
+ * - `tab-link`: the Gemini tab gets the link, because there is no transcript.
  * - `api-too-long`: longer than even the API budget (about 17 hours of speech).
  */
 export type SendPlanKind =
@@ -36,37 +18,24 @@ export type SendPlanKind =
   | "tab-transcript"
   | "tab-excerpt"
   | "tab-link"
-  | "tab-plain"
-  | "choose-long"
-  | "choose-no-transcript"
   | "api-too-long";
 
 export type SendPlanInput = {
   /** Whether this send goes through the Gemini API. */
   useApi: boolean;
-  destination: Destination;
   /** Whether TL;DW could read the transcript. */
   hasTranscript: boolean;
-  /** Whether the whole transcript fits the destination's (or the API's) limit. */
+  /** Whether the whole transcript fits the Gemini tab's (or the API's) limit. */
   transcriptFits: boolean;
-  /** The user explicitly chose "send part of the transcript". */
-  allowTruncate?: boolean;
 };
 
-export function planSend(input: SendPlanInput): SendPlanKind {
-  const { useApi, destination, hasTranscript, transcriptFits } = input;
-  const isPromptDest = destination.payload !== "link" && destination.payload !== "source";
-  if (!isPromptDest) return "tab-plain";
+export function planSend({ useApi, hasTranscript, transcriptFits }: SendPlanInput): SendPlanKind {
   if (useApi) {
     if (!hasTranscript) return "api-video";
     return transcriptFits ? "api-transcript" : "api-too-long";
   }
-  if (hasTranscript) {
-    if (transcriptFits) return "tab-transcript";
-    // The real transcript, even shortened, beats a link the web app can't watch.
-    return destination.canWatch || input.allowTruncate ? "tab-excerpt" : "choose-long";
-  }
-  return destination.canWatch ? "tab-link" : "choose-no-transcript";
+  if (hasTranscript) return transcriptFits ? "tab-transcript" : "tab-excerpt";
+  return "tab-link";
 }
 
 /** The sentence that points someone without a key at the free API. */
@@ -113,18 +82,6 @@ export function excerptLabel(hasKey: boolean): string {
 export function publicInfoLabel(hasKey: boolean): string {
   return "No transcript, so Gemini summarized from public info about this video, not the video itself." +
     (hasKey ? "" : ` ${ADD_KEY_TO_WATCH}`);
-}
-
-export function longTranscriptChoiceMessage(site: string): string {
-  return `This video's transcript is too long for ${site}'s message box, and ${site} can't watch YouTube videos. ` +
-    "How do you want to summarize it?";
-}
-
-export function noTranscriptChoiceMessage(site: string, hasKey: boolean): string {
-  return `TL;DW couldn't read a transcript for this video, and ${site} can't watch YouTube videos. ` +
-    (hasKey
-      ? "With your API key, Gemini can watch it."
-      : "Without an API key, Gemini can't watch it either: from the link it can only summarize public info about the video.");
 }
 
 export const API_TOO_LONG_MESSAGE =

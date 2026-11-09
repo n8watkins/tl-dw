@@ -32,7 +32,7 @@ Paid users should configure a project budget and billing alerts.
 
 ### Open in a tab
 
-TL;DW opens Gemini, ChatGPT, Claude, or NotebookLM and fills the required prompt or source.
+TL;DW opens Gemini and fills the prompt (Gemini-only since 1.4; see docs/DECISIONS.md).
 For chat destinations, TL;DW can read the completed response and send the parsed summary back to YouTube.
 The background worker caches the parsed result with the original prompt context.
 

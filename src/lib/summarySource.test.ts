@@ -20,9 +20,9 @@ describe("describeSummarySource", () => {
   });
 
   it("labels a tab-flow summary by its destination, not as the Gemini API", () => {
-    const item = describeSummarySource("ChatGPT", "tab");
-    expect(item?.label).toBe("💬 From ChatGPT");
-    expect(item?.title).toMatch(/ChatGPT tab/);
+    const item = describeSummarySource("Gemini", "tab");
+    expect(item?.label).toBe("💬 From Gemini");
+    expect(item?.title).toMatch(/Gemini tab/);
     expect(item?.title).not.toMatch(/straight from the Gemini API/);
     // A tab-flow Gemini summary is not an API summary either.
     expect(describeSummarySource("Gemini", "tab")?.label).toBe("💬 From Gemini");

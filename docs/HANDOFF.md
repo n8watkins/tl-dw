@@ -6,7 +6,7 @@
 
 TL;DW (Too Long; Didn't Watch) is a Manifest V3 Chrome extension for YouTube.
 The TL;DW button under a video puts an AI summary on the page: with no key it opens Gemini in a background tab and reads the answer back (Gemini then works from the transcript, or for a video without one, from public info about it: signed-out Gemini does not watch YouTube videos); with the user's own free Gemini API key (Direct API) the summary comes straight from the API with no tab.
-It can also send a video to ChatGPT, Claude or NotebookLM.
+It works with Gemini only since 1.4 (docs/DECISIONS.md); before that it could also send a video to ChatGPT, Claude or NotebookLM.
 Repo: `n8watkins/tl-dw`, default branch `master`.
 It is not live in the Chrome Web Store yet: the Unlisted submission still needs the owner's publisher account.
 

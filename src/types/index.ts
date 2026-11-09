@@ -65,7 +65,7 @@ export type OpenSearch = {
  * them and know to update them.
  */
 export type DeliveryStatus = {
-  /** Human label of the site we tried to fill ("ChatGPT", "NotebookLM", …). */
+  /** Human label of the site we tried to fill ("Gemini"). */
   site: string;
   ok: boolean;
   /** Why it failed, phrased for the popup alert. */
@@ -200,31 +200,12 @@ export type LifetimeStats = {
   activity: Record<string, number>;
 };
 
-/**
- * What gets handed to a destination. "prompt" (default) sends the analysis
- * prompt, with the transcript appended when the destination can't watch the
- * video itself. "source" sends the raw transcript only — for tools like
- * NotebookLM that ingest source material and do their own questioning, where a
- * prompt would be meaningless. "link" sends just the YouTube URL.
- */
-export type DestinationPayload = "prompt" | "source" | "link";
-
 export type Destination = {
   id: string;
   label: string;
   url: string;
-  payload?: DestinationPayload;
-  /**
-   * True only for destinations that can open the YouTube URL themselves
-   * (Gemini). When false, the transcript is included in the prompt because the
-   * destination can't watch the video — independent of how it's delivered.
-   */
+  /** Whether the destination can be given the YouTube link itself (Gemini can). */
   canWatch?: boolean;
-  /**
-   * URL to open when temporary/incognito mode is enabled. If absent, the
-   * content script handles the toggle (e.g. clicking the temp-chat button).
-   */
-  incognitoUrl?: string;
   /**
    * The longest message (in characters) the destination's composer reliably
    * accepts. Longer transcripts are shortened to fit, with a clear marker, so a
@@ -246,8 +227,13 @@ export type Settings = {
   focusGeminiTab: boolean;
   /** Pause the YouTube video when a summary is sent. */
   autoPauseOnSummarize: boolean;
-  /** Which destination a summary is sent to (see DESTINATIONS). */
+  /** Always "gemini" since 1.4 (TL;DW is Gemini-only); kept for older settings. */
   destinationId: string;
+  /**
+   * The chat site a user had as their default before TL;DW became Gemini-only
+   * ("ChatGPT"...), until the popup has told them once.
+   */
+  retiredDestinationNotice?: string;
   /** Open chats in incognito/temporary mode — not saved to the AI's history. */
   temporaryChats: boolean;
   /** Auto-run TL;DW when opening a video longer than this many minutes (0 = off). */
@@ -327,32 +313,25 @@ export type VideoMeta = {
 /** Message from the Gemini content script asking for its pending prompt. */
 export type GetPendingMessage = { type: "GET_PENDING" };
 
-/**
- * Message from the popup requesting a summary run. `destinationId` lets the
- * popup override the saved default for this one send (a per-session choice that
- * never changes the stored default).
- */
+/** A request for a summary run (from the page, the popup or the worker's own menu). */
 export type AskMessage = {
   type: "ASK";
   /** YouTube tab selected by the popup, when the sender has no tab context. */
   sourceTabId?: number;
   profileId?: string;
-  destinationId?: string;
   /** Optional one-off question to weave into the prompt for this send. */
   userCuriosity?: string;
   /**
    * Where this send originated, so the worker can decide between the headless
-   * Direct API path and opening a destination tab. In-page auto-runs default to
-   * "auto" (headless when Direct API is on); the popup's explicit "Send to X"
-   * button passes "popup" so it opens that destination like the right-click menu,
+   * Direct API path and opening the Gemini tab. In-page auto-runs default to
+   * "auto" (headless when Direct API is on); the popup's "Ask Gemini" button
+   * passes "popup" so it opens the Gemini tab like the right-click menu,
    * while the popup's inline-summarize action passes "popup-inline" to run the
    * Direct API headlessly (no tab) like the on-page button.
    */
   source?: SummarySource;
   /** Skip an exact cache match and replace it after a successful run. */
   bypassCache?: boolean;
-  /** Send part of a transcript too long for the destination (its start and end; an explicit choice). */
-  allowTruncate?: boolean;
 };
 
 /**

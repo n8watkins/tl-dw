@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getDestination } from "./constants";
+import { GEMINI_DESTINATION } from "./constants";
 import { buildDestinationPrompt } from "./promptBuilder";
 import { selectSummaryProfile } from "./summaryProfile";
 import type { PromptProfile, Settings } from "../types";
@@ -21,7 +21,7 @@ describe("selectSummaryProfile", () => {
     const prompt = buildDestinationPrompt(
       profile,
       { url: "https://www.youtube.com/watch?v=abc" },
-      { ...getDestination("gemini"), canWatch: false },
+      { ...GEMINI_DESTINATION, canWatch: false },
       "transcript",
     );
 
