@@ -63,3 +63,10 @@ The large YouTube content script remains a refactoring candidate after the 1.0 l
 - [docs/STORE_SUBMISSION.md](docs/STORE_SUBMISSION.md)
 - [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md)
 - [PRIVACY.md](PRIVACY.md)
+
+## Keys
+
+Checked 2026-11-09 against the secret names on the Worker and in GitHub Actions (names only, no values).
+New values go into the owner's pass-env store and are sent with `pass-env pipe <entry> -- <command>`; never commit or paste a value.
+
+- [ ] `GEMINI_API_KEY` (missing, optional): only `npm run smoke:gemini` uses it. `.env.pass` points at `shared/GEMINI_API_KEY`; once stored, run `pass-env run -- npm run smoke:gemini`.
