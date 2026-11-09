@@ -399,8 +399,8 @@ export function App() {
             <div className="send-row">
               <select
                 className="profile-select"
-                aria-label="Prompt profile"
-                title="Prompt profile"
+                aria-label="Style"
+                title="Style: what the summary shows"
                 value={selectedId}
                 onChange={(e) => setSelectedId(e.target.value)}
               >
@@ -415,8 +415,8 @@ export function App() {
                 <span className="ask-btn-label">
                   {canInline ? (
                     <>
-                      <span>Summarize inline</span>
-                      <span className="ask-btn-shortcut">no new tab</span>
+                      <span>Summarize</span>
+                      {shortcut && <span className="ask-btn-shortcut">{shortcut}</span>}
                     </>
                   ) : (
                     <>
@@ -441,7 +441,7 @@ export function App() {
                     void saveSettings(next);
                   }}
                 />
-                <span>⚡ Direct API (no new tab)</span>
+                <span>Use your Gemini key</span>
               </label>
               {settings.useDirectApi && (
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

@@ -1,25 +1,35 @@
-import { buildDestinationPrompt, buildDestinationPromptInfo, promptForHistory } from "../lib/promptBuilder";
+import {
+  buildLinkPrompt,
+  buildPartPrompts,
+  buildSummaryPrompt,
+  buildWatchPrompt,
+  promptForHistory,
+  type SummaryPromptInput,
+} from "../lib/promptBuilder";
 import { parseTldwBlock } from "../lib/tldw";
 import { selectSummaryProfile } from "../lib/summaryProfile";
 import { fingerprintPrompt } from "../lib/summaryCache";
 import { verifyGeminiKey } from "../lib/geminiKeyValidation";
 import { fallbackNotice, GeminiApiError, normalizeGeminiError, summarizeWithFallback } from "../lib/geminiApi";
 import { geminiQuotaDay } from "../lib/geminiUsage";
+import { checkTimes, layoutOf } from "../lib/summaryFormat";
+import { chunkSegments, isTimed, splitPlainText, timedText } from "../lib/timedTranscript";
+import { type AskGemini, summarizeTranscriptInParts, watchVideo } from "../lib/longVideo";
+import type { TranscriptRead } from "../lib/youtubeTranscript";
 import {
-  API_TOO_LONG_MESSAGE,
-  captionsLinkNotice,
-  excerptLabel,
+  API_PART_CHARS,
+  cannotAccessMessage,
   excerptNotice,
-  geminiLongNotice,
-  noTranscriptLinkNotice,
+  linkNotice,
   NOT_WATCHABLE_MESSAGE,
+  partsNotice,
   planSend,
-  publicInfoLabel,
-  SIGNED_IN_TRANSCRIPT_LABEL,
-  WATCHED_BY_GEMINI_LABEL,
+  SIGN_IN_MESSAGE,
+  TAB_PART_CHARS,
 } from "../lib/sendPlan";
 import {
   DIRECT_API_MAX_PROMPT_CHARS,
+  GEMINI_WEB_MAX_PROMPT_CHARS,
   FALLBACK_GEMINI_MODEL_ID,
   geminiModelLabel,
   GEMINI_URL,
@@ -45,11 +55,13 @@ import {
   getActiveTags,
   getCachedSummary,
   getCachedSummaryCount,
+  getChannelProfiles,
   getHistory,
   getModelFallback,
   getOpenSearches,
   getProfiles,
   getSettings,
+  getTabSegments,
   maintainSummaryCache,
   pruneOpenSearch,
   pruneOrphanVideoTags,
@@ -62,8 +74,9 @@ import {
   setModelFallback,
   setPendingPrompt,
   setSettings,
+  setTabSegments,
 } from "../lib/storage";
-import type { OpenSearch, RuntimeMessage, Settings, SummarySource, VideoContext, VideoMeta } from "../types";
+import type { RuntimeMessage, Settings, SummaryBasis, SummarySource, TldwSummary, VideoContext, VideoMeta } from "../types";
 
 const MENU_ROOT = "tldw-root";
 
@@ -215,17 +228,19 @@ async function flashBadge(
 async function getTranscriptFromTab(
   tabId: number,
   videoId: string | null,
-): Promise<string | null> {
+): Promise<TranscriptRead | null> {
   try {
     const res = (await chrome.tabs.sendMessage(tabId, {
       type: "GET_TRANSCRIPT",
-    })) as { transcript: string | null; videoId?: string | null } | undefined;
+    })) as { transcript: string | null; segments?: TranscriptRead["segments"]; videoId?: string | null } | undefined;
     if (!res?.transcript) return null;
     if (res.videoId !== undefined && res.videoId !== videoId) {
       console.warn("[TL;DW] dropped a transcript for", res.videoId, "while summarizing", videoId);
       return null;
     }
-    return res.transcript;
+    // JSON drops NaN: a line without a time arrives as null, which isTimed refuses.
+    const segments = (res.segments ?? []).map((seg) => ({ start: typeof seg.start === "number" ? seg.start : NaN, text: seg.text }));
+    return { text: res.transcript, segments };
   } catch {
     return null;
   }
@@ -380,6 +395,12 @@ type RunOptions = {
   bypassCache?: boolean;
 };
 
+/** The channel's default style, if the user set one (by channel name, as the Channels page groups). */
+async function channelProfileId(video: VideoContext): Promise<string | undefined> {
+  if (!video.channel) return undefined;
+  return (await getChannelProfiles())[video.channel];
+}
+
 async function runSummary(opts: RunOptions = {}): Promise<RunOutcome> {
   await beginPreparingBadge();
   try {
@@ -451,7 +472,6 @@ async function prepareAndSend({
   }
 
   const [settings, profiles] = await Promise.all([getSettings(), getProfiles()]);
-  const destination = GEMINI_DESTINATION;
   const video: VideoContext = { url, title };
 
   // Pause the video you're on (not a suggested thumbnail) before we hand off.
@@ -459,90 +479,109 @@ async function prepareAndSend({
     void chrome.tabs.sendMessage(activeTab.id, { type: "PAUSE_VIDEO" }).catch(() => {});
   }
 
-  const isPromptDest = true;
   const videoId = extractVideoId(url);
   const pageTabId = !isThumbnail ? activeTab?.id : undefined;
-  // Explicit "open this destination" gestures (the right-click menu, the popup's
-  // Send button, the keyboard shortcut, and the on-page panel's "send to a tab"
-  // buttons) always open the destination tab with the chosen (or default)
-  // profile. The Direct API applies to the in-page run and auto-runs and the
-  // popup's inline action, which fill the TL;DW panel in place.
-  const opensTab = source === "menu" || source === "popup" || source === "command" || source === "page-tab";
+  // "Open in Gemini" (the panel's menu) and a right-clicked thumbnail open the
+  // Gemini tab even with a key; everything else fills the panel on the page,
+  // from the API with a key or from a background Gemini tab without one.
+  const opensTab = source === "page-tab" || isThumbnail;
   const apiKey = settings.geminiApiKey?.trim();
   const hasApi = !!(apiKey && settings.useDirectApi);
-  const willUseDirectApi = hasApi && isPromptDest && !opensTab;
-  const profile = selectSummaryProfile(profiles, settings, source, profileId, willUseDirectApi);
+  const useApi = hasApi && !opensTab;
+
+  // Video metadata (read once above) feeds channel tracking, the length stat,
+  // the number of points, and channel tags.
+  const durationSeconds = meta?.durationSeconds ?? 0;
+  if (meta?.channel) video.channel = meta.channel;
+  if (meta?.channelId) video.channelId = meta.channelId;
+  if (meta?.avatarUrl) video.avatarUrl = meta.avatarUrl;
+
+  const profile = selectSummaryProfile(profiles, settings, profileId, await channelProfileId(video));
   if (!profile) {
     await flashBadge("!");
     return { ok: false, error: "there's no prompt profile. Add one in TL;DW's options." };
   }
+  const layout = layoutOf(profile.layout);
 
-  if (pageTabId !== undefined && isPromptDest) {
-    progress(pageTabId, videoId, "Reading the transcript…");
-  }
+  if (pageTabId !== undefined) progress(pageTabId, videoId, "Reading the transcript…");
 
-  // Read the transcript for every prompt and source destination: TL;DW decides
-  // up front, from the transcript and its length, how the video is sent.
-  let transcript: string | null = null;
-  if (pageTabId !== undefined) {
-    transcript = await getTranscriptFromTab(pageTabId, videoId);
-  }
+  // Transcript first: TL;DW decides up front, from the transcript it read and
+  // its length, how the video is sent. A timed transcript goes as one
+  // "[m:ss] text" line per caption, so the model can cite times TL;DW can check.
+  const read = pageTabId !== undefined ? await getTranscriptFromTab(pageTabId, videoId) : null;
+  const segments = read && isTimed(read.segments) ? read.segments : null;
+  const timed = !!segments;
+  const transcript = read ? (segments ? timedText(segments) : read.text) : null;
 
-  // Video metadata (read once above) feeds channel-tracking stats, the
-  // duration-summarized stat, AND tag resolution on EVERY prompt path (not just
-  // Direct-API), so channel tags resolve even on the plain tab-flow.
-  let videoDurationSeconds = 0;
-  if (isPromptDest && meta) {
-    if (meta?.channel) video.channel = meta.channel;
-    if (meta?.channelId) video.channelId = meta.channelId;
-    if (meta?.avatarUrl) video.avatarUrl = meta.avatarUrl;
-    if (meta?.durationSeconds) videoDurationSeconds = meta.durationSeconds;
-  }
-
-  // Resolve the user's active tags for this video (F6): channel tags ∪ video
-  // tags. Channel tags are matched by id OR name (the widget keys by id with name
-  // fallback). Woven into every prompt build below so tagged asks (e.g. citations)
-  // shape both the Direct-API and tab-flow summaries.
   const activeTags = await getActiveTags({
     channelId: video.channelId,
     channelName: video.channel,
     videoId: videoId ?? undefined,
   });
+  const input: SummaryPromptInput = { profile, video, transcript, timed, durationSeconds, userCuriosity, tags: activeTags };
 
-  // The prompt with the whole transcript, within the API's budget or the site's
-  // message limit. `truncated` says it didn't fit.
-  const transcriptDest = { ...destination, canWatch: false };
-  const full = buildDestinationPromptInfo(
-    profile, video, transcriptDest, transcript, userCuriosity, activeTags,
-    willUseDirectApi ? { maxChars: DIRECT_API_MAX_PROMPT_CHARS } : {},
-  );
-  const plan = planSend({
-    useApi: willUseDirectApi,
-    hasTranscript: !!transcript,
-    transcriptFits: !!transcript && !full.truncated,
-  });
-  // The prompt without a transcript: for the call log and history, and what a
-  // destination that watches the video itself gets.
-  const linkPrompt = buildDestinationPrompt(
-    profile, video, { ...destination, canWatch: true }, null, userCuriosity, activeTags,
-  );
+  const single = buildSummaryPrompt(input);
+  const maxChars = useApi ? DIRECT_API_MAX_PROMPT_CHARS : GEMINI_WEB_MAX_PROMPT_CHARS;
+  const fitsOne = !!transcript && single.prompt.length <= maxChars;
+  const chunksOf = (max: number) => segments
+    ? chunkSegments(segments, max).map(timedText)
+    : splitPlainText(read?.text ?? "", max);
+  const tabChunks = !useApi && transcript && !fitsOne ? chunksOf(TAB_PART_CHARS) : [];
+  const plan = planSend({ useApi, hasTranscript: !!transcript, fitsOne, partsNeeded: tabChunks.length });
+  const basis: SummaryBasis = !transcript ? "video" : plan === "tab-excerpt" ? "excerpt" : "transcript";
+  // What identifies this request in the cache: the whole transcript prompt, or
+  // the link prompt without one, and how it ran.
+  const cachePrompt = transcript ? single.prompt : useApi ? buildWatchPrompt(input) : buildLinkPrompt(input);
 
-  // --- longer than even the API takes (about 17 hours of speech) ----------
-  if (plan === "api-too-long") {
-    await flashBadge("N/A", "muted");
-    if (pageTabId !== undefined) {
-      void chrome.tabs.sendMessage(pageTabId, {
-        type: "SET_SUMMARY_ERROR",
-        videoId: videoId ?? undefined,
-        reason: API_TOO_LONG_MESSAGE,
-        decision: true,
-      }).catch(() => {});
+  /** Put a finished summary on the page, cache it and count it. */
+  const deliver = async (tldw: TldwSummary, extra: { promptFingerprint: string; modelOrDestination: string; note?: string }) => {
+    if (activeTab?.id === undefined) return;
+    void chrome.tabs.sendMessage(activeTab.id, {
+      type: "SET_SUMMARY",
+      tldw,
+      source: tldw.via === "api" ? geminiModelLabel(tldw.model) : "Gemini",
+      sourceKind: tldw.via === "api" ? "api" : "tab",
+      videoId,
+      note: extra.note,
+    }).catch(() => {});
+    if (videoId) {
+      void setCachedSummary({
+        videoId,
+        promptFingerprint: extra.promptFingerprint,
+        tldw,
+        profileId: profile.id,
+        profileName: profile.name,
+        modelOrDestination: extra.modelOrDestination,
+        createdAt: new Date().toISOString(),
+      });
     }
-    return { ok: false, error: API_TOO_LONG_MESSAGE };
-  }
+    const today = localDateKey();
+    void bumpLifetimeStats((s) => {
+      s.summaries += 1;
+      s.activity[today] = (s.activity[today] ?? 0) + 1;
+      if (durationSeconds > 0) s.durationSummarizedSeconds += durationSeconds;
+    });
+  };
 
-  // --- headless path: call Gemini API directly (no tab) -------------------
-  if (willUseDirectApi) {
+  /** Serve an earlier result for exactly this request, if there is one. */
+  const serveCached = async (promptFingerprint: string): Promise<boolean> => {
+    const cached = videoId && !bypassCache ? await getCachedSummary(videoId, promptFingerprint) : null;
+    if (!cached || activeTab?.id === undefined) return false;
+    void chrome.tabs.sendMessage(activeTab.id, {
+      type: "SET_SUMMARY",
+      // A summary saved before 1.4 doesn't name its profile itself.
+      tldw: { ...cached.tldw, profileId: cached.tldw.profileId ?? cached.profileId, profileName: cached.tldw.profileName ?? cached.profileName },
+      source: cachedSourceLabel(cached.profileName),
+      sourceKind: "cache",
+      videoId,
+    }).catch(() => {});
+    void bumpLifetimeStats((s) => { s.cacheHits += 1; });
+    void flashBadge("✓", true);
+    return true;
+  };
+
+  // --- with a key: the Gemini API, no tab ------------------------------------
+  if (useApi) {
     const watch = plan === "api-video";
     if (watch && meta?.watchable === false) {
       await flashBadge("N/A", "muted");
@@ -553,121 +592,81 @@ async function prepareAndSend({
       }
       return { ok: false, error: NOT_WATCHABLE_MESSAGE, noTranscript: true };
     }
-    const prompt = watch ? linkPrompt : full.prompt;
     const model = resolveGeminiModelId(settings.geminiModelId);
-    const promptFingerprint = await fingerprintPrompt(prompt, watch ? `${model}:video` : model);
+    const promptFingerprint = await fingerprintPrompt(cachePrompt, watch ? `${model}:video` : model);
+    if (await serveCached(promptFingerprint)) return { ok: true };
 
-    // --- cache check: serve a previous result instantly, skip the API call ---
-    const cachedSummary = videoId && !bypassCache
-      ? await getCachedSummary(videoId, promptFingerprint)
-      : null;
-    if (cachedSummary && activeTab?.id !== undefined) {
-      void chrome.tabs
-        .sendMessage(activeTab.id, {
-          type: "SET_SUMMARY",
-          tldw: cachedSummary.tldw,
-          source: cachedSourceLabel(cachedSummary.profileName),
-          sourceKind: "cache",
-          videoId,
-        })
-        .catch(() => {});
-      // Bump lifetime stats: cache hit.
-      void bumpLifetimeStats((s) => { s.cacheHits += 1; });
-      void flashBadge("✓", true);
-      return { ok: true };
-    }
+    const step = (text: string) => { if (pageTabId !== undefined) progress(pageTabId, videoId, text); };
+    step(watch ? "Gemini is watching the video (no transcript). This can take a minute…" : `Asking ${geminiModelLabel(model)}…`);
 
-    if (pageTabId !== undefined) {
-      progress(pageTabId, videoId, watch
-        ? "Gemini is watching the video (no transcript). This can take a minute…"
-        : `Asking ${geminiModelLabel(model)}…`);
-    }
-
-    // --- live call: fetch from Gemini, then write to cache ---
     let responseText: string | undefined;
-    let tldw: ReturnType<typeof parseTldwBlock> | undefined;
     let callId: string | undefined;
     try {
-      callId = await beginGeminiCall(video, prompt, profile);
+      callId = await beginGeminiCall(video, promptForHistory(cachePrompt), profile);
       const fallback = await getModelFallback();
-      const result = await summarizeWithFallback(
-        watch ? { prompt, videoUrl: watchUrl(url) } : { prompt },
-        apiKey!,
-        model,
-        {
-          skipDefault: fallback.dailyLimitDay === geminiQuotaDay(),
+      // Every request of a run uses the same model; once the default hits its
+      // limit, the rest of the run goes straight to the fallback.
+      let current = model;
+      let skipDefault = fallback.dailyLimitDay === geminiQuotaDay();
+      let fellBackFrom: string | undefined;
+      const ask: AskGemini = async (request) => {
+        const result = await summarizeWithFallback(request, apiKey!, current, {
+          skipDefault,
           onFallback: async (limitError) => {
             if (limitError.dailyQuota) await setModelFallback({ ...fallback, dailyLimitDay: geminiQuotaDay() });
-            if (pageTabId !== undefined) {
-              progress(pageTabId, videoId, `Asking ${geminiModelLabel(FALLBACK_GEMINI_MODEL_ID)}…`);
-            }
+            step(`Asking ${geminiModelLabel(FALLBACK_GEMINI_MODEL_ID)}…`);
           },
-        },
-      );
-      responseText = result.text;
-      tldw = parseTldwBlock(responseText);
-      if (!tldw) {
-        throw new GeminiApiError("malformed_response");
+        });
+        if (result.fellBackFrom) fellBackFrom = result.fellBackFrom;
+        current = result.model;
+        skipDefault = false;
+        return result.text;
+      };
+
+      let sent: string;
+      if (plan === "api-transcript") {
+        sent = single.prompt;
+        responseText = await ask({ prompt: sent });
+      } else if (plan === "api-transcript-long") {
+        const out = await summarizeTranscriptInParts(ask, input, chunksOf(API_PART_CHARS), timed, step);
+        responseText = out.text;
+        sent = out.prompt;
+      } else {
+        const out = await watchVideo(ask, input, watchUrl(url), durationSeconds, step);
+        responseText = out.text;
+        sent = out.prompt;
       }
-      if (watch) tldw = { ...tldw, label: WATCHED_BY_GEMINI_LABEL };
+      const parsed = parseTldwBlock(responseText, layout);
+      if (!parsed) throw new GeminiApiError("malformed_response");
+      const tldw: TldwSummary = {
+        ...checkTimes(parsed, segments, durationSeconds),
+        basis,
+        via: "api",
+        model: current,
+        profileId: profile.id,
+        profileName: profile.name,
+      };
       await finishGeminiCall(callId, "success", { response: responseText });
       // Tell the user once per quota day that a fallback model answered.
       let note: string | undefined;
-      if (result.fellBackFrom) {
+      if (fellBackFrom) {
         const day = geminiQuotaDay();
         const state = await getModelFallback();
         if (state.notifiedDay !== day) {
-          note = fallbackNotice(result.fellBackFrom, result.model);
+          note = fallbackNotice(fellBackFrom, current);
           await setModelFallback({ ...state, notifiedDay: day });
         }
       }
-
-      // Save history. Wrapped in its own try so a storage error never prevents
-      // the summary from being shown.
       if (settings.saveHistoryOnSearch) {
         try {
           await addHistoryEntry({
-            video, profile, prompt: promptForHistory(prompt), settings,
-            destinationId: destination.id,
+            video, profile, prompt: promptForHistory(sent), settings,
+            destinationId: GEMINI_DESTINATION.id,
             channelAvatarUrl: video.avatarUrl,
           });
         } catch { /* storage failure: skip history, don't block summary */ }
       }
-
-      if (activeTab?.id !== undefined) {
-        void chrome.tabs
-          .sendMessage(activeTab.id, {
-            type: "SET_SUMMARY",
-            tldw,
-            source: geminiModelLabel(result.model),
-            sourceKind: "api",
-            videoId,
-            note,
-          })
-          .catch(() => {});
-
-        // Cache the result so future visits to this video skip the API call.
-        if (videoId) {
-          void setCachedSummary({
-            videoId,
-            promptFingerprint,
-            tldw,
-            profileId: profile.id,
-            profileName: profile.name,
-            modelOrDestination: result.model,
-            createdAt: new Date().toISOString(),
-          });
-        }
-
-        // Bump lifetime stats: summary completed (Direct API path).
-        const today = localDateKey();
-        const durSec = videoDurationSeconds;
-        void bumpLifetimeStats((s) => {
-          s.summaries += 1;
-          s.activity[today] = (s.activity[today] ?? 0) + 1;
-          if (durSec > 0) s.durationSummarizedSeconds += durSec;
-        });
-      }
+      await deliver(tldw, { promptFingerprint, modelOrDestination: current, note });
       void flashBadge("✓", true);
       void recordDeliveryStatus({ site: "Gemini (API)", ok: true, at: new Date().toISOString() });
     } catch (err) {
@@ -681,24 +680,17 @@ async function prepareAndSend({
         });
       }
       void flashBadge("!");
-      void recordDeliveryStatus({
-        site: "Gemini (API)",
-        ok: false,
-        reason,
-        at: new Date().toISOString(),
-      });
+      void recordDeliveryStatus({ site: "Gemini (API)", ok: false, reason, at: new Date().toISOString() });
       // Surface the failure on the page so the run ends at once with the real
       // reason and the action that fixes it, not after the long timeout.
       if (activeTab?.id !== undefined) {
-        void chrome.tabs
-          .sendMessage(activeTab.id, {
-            type: "SET_SUMMARY_ERROR",
-            videoId,
-            reason,
-            actionUrl: apiError.actionUrl,
-            category: apiError.category,
-          })
-          .catch(() => {});
+        void chrome.tabs.sendMessage(activeTab.id, {
+          type: "SET_SUMMARY_ERROR",
+          videoId,
+          reason,
+          actionUrl: apiError.actionUrl,
+          category: apiError.category,
+        }).catch(() => {});
       }
       // The reply carries the link too: whichever of the two reaches the page
       // first ends the run, and the error panel must keep its link either way.
@@ -707,135 +699,85 @@ async function prepareAndSend({
     return { ok: true };
   }
 
-  // --- tab path: open the destination and let its injector fill it ---------
-  // A summary made from less than the whole transcript says so on the panel:
-  // TL;DW never cuts a transcript, or leaves it out, silently.
+  // --- without a key: the Gemini tab ------------------------------------------
   let prompt: string;
+  let parts: string[] | undefined;
   let notice: string | undefined;
-  let summaryLabel: string | undefined;
-  // Signed in, the Gemini web app reads a video's captions from its link, so a
-  // long or unread-but-captioned video gets that prompt too; the injector
-  // sends it only once the page shows a signed-in account.
-  const signedInVariant = destination.id === "gemini" &&
-    (plan === "tab-excerpt" || (plan === "tab-link" && meta?.hasCaptions === true));
-  const signedInPrompt = signedInVariant
-    ? buildDestinationPromptInfo(profile, video, { ...destination, canWatch: true }, null, userCuriosity, activeTags, {
-        linkMode: "transcript",
-      }).prompt
-    : undefined;
-  if (plan === "tab-transcript" || plan === "tab-excerpt") {
-    prompt = full.prompt;
-    if (plan === "tab-excerpt") {
-      notice = signedInVariant ? geminiLongNotice(hasApi) : excerptNotice(destination.label, hasApi);
-      summaryLabel = excerptLabel(hasApi);
-    }
+  if (plan === "tab-transcript") {
+    prompt = single.prompt;
+  } else if (plan === "tab-parts") {
+    const built = buildPartPrompts(input, tabChunks);
+    parts = built.parts;
+    prompt = built.final;
+    notice = partsNotice(parts.length);
+  } else if (plan === "tab-excerpt") {
+    prompt = buildSummaryPrompt(input, GEMINI_WEB_MAX_PROMPT_CHARS).prompt;
+    notice = excerptNotice(hasApi);
   } else {
-    prompt = linkPrompt;
-    notice = signedInVariant ? captionsLinkNotice(hasApi) : noTranscriptLinkNotice(hasApi);
-    summaryLabel = publicInfoLabel(hasApi);
+    prompt = buildLinkPrompt(input);
+    notice = linkNotice(hasApi);
   }
 
-  const tabVideoId = videoId;
-  const tabPromptFingerprint = tabVideoId
-    ? await fingerprintPrompt(prompt, destination.id)
-    : undefined;
-  const tabCachedSummary = tabVideoId && tabPromptFingerprint && !bypassCache
-    ? await getCachedSummary(tabVideoId, tabPromptFingerprint)
-    : null;
-  if (tabCachedSummary && activeTab?.id !== undefined) {
-    void chrome.tabs.sendMessage(activeTab.id, {
-      type: "SET_SUMMARY",
-      tldw: tabCachedSummary.tldw,
-      source: cachedSourceLabel(tabCachedSummary.profileName),
-      sourceKind: "cache",
-      videoId: tabVideoId,
-    }).catch(() => {});
-    void bumpLifetimeStats((stats) => { stats.cacheHits += 1; });
-    void flashBadge("✓", true);
-    return { ok: true };
-  }
+  const promptFingerprint = await fingerprintPrompt(cachePrompt, GEMINI_DESTINATION.id);
+  if (!opensTab && await serveCached(promptFingerprint)) return { ok: true };
 
+  if (pageTabId !== undefined) progress(pageTabId, videoId, "Waiting for Gemini's answer in its tab…", notice);
 
-  if (pageTabId !== undefined && isPromptDest) {
-    progress(pageTabId, videoId, `Waiting for ${destination.label}'s answer in its tab…`, notice);
-  }
-
-  // Open the Gemini tab and hand its injector the prompt to auto-fill. Gemini
-  // has no temporary-chat URL: the injector clicks its button instead.
-  const targetUrl = GEMINI_URL;
-  // Sends started on the YouTube page (its button, its panel, an auto-run) open
-  // the tab in the background, so the video keeps the focus.
-  const fromPage = source === "page" || source === "auto" || source === "page-tab";
+  // Open the Gemini tab and hand its injector the prompt. Sends started on the
+  // YouTube page (its button, its panel, an auto-run) open it in the
+  // background, so the video keeps the focus.
+  const fromPage = source === "page" || source === "auto";
   const injectTab = await chrome.tabs.create({
-    url: targetUrl,
-    active: forceFocusTab || (!fromPage && settings.focusGeminiTab),
+    url: GEMINI_URL,
+    active: forceFocusTab || opensTab || (!fromPage && settings.focusGeminiTab),
   });
   if (injectTab.id !== undefined) {
-    await setPendingPrompt(injectTab.id, { prompt, signedInPrompt, sourceTabId: activeTab?.id });
-    await recordOpenSearch(
-      injectTab.id,
-      video,
-      destination,
-      activeTab?.id,
-      plan === "tab-transcript" || plan === "tab-excerpt" ? (tabVideoId ?? undefined) : undefined,
-      tabVideoId && tabPromptFingerprint
+    await setPendingPrompt(injectTab.id, {
+      prompt,
+      parts,
+      // Without a transcript, only a signed-in Gemini can read the video.
+      requireSignIn: plan === "tab-link",
+      // "Open in Gemini" and a thumbnail leave the answer in the tab.
+      sourceTabId: opensTab ? undefined : activeTab?.id,
+    });
+    if (segments && !opensTab) await setTabSegments(injectTab.id, segments);
+    await addOpenSearch({
+      tabId: injectTab.id,
+      sourceTabId: activeTab?.id,
+      videoUrl: video.url,
+      videoTitle: video.title,
+      destinationId: GEMINI_DESTINATION.id,
+      destinationLabel: GEMINI_DESTINATION.label,
+      createdAt: new Date().toISOString(),
+      transcriptVideoId: transcript ? (videoId ?? undefined) : undefined,
+      videoDurationSeconds: durationSeconds || undefined,
+      layout,
+      basis,
+      profileName: profile.name,
+      hasKey: hasApi,
+      cacheContext: videoId
         ? {
-            videoId: tabVideoId,
-            promptFingerprint: tabPromptFingerprint,
+            videoId,
+            promptFingerprint,
             profileId: profile.id,
             profileName: profile.name,
-            modelOrDestination: destination.id,
+            modelOrDestination: GEMINI_DESTINATION.id,
           }
         : undefined,
-      summaryLabel,
-      signedInPrompt ? SIGNED_IN_TRANSCRIPT_LABEL : undefined,
-      videoDurationSeconds,
-    );
+    });
   }
   if (settings.saveHistoryOnSearch) {
-    // Store the prompt that was sent, with the transcript replaced by a
-    // placeholder: the transcript can be tens to hundreds of KB, and persisting
-    // it per entry would bloat chrome.storage.local toward its ~5 MB quota (and
-    // "Copy prompt" shouldn't quietly drag the whole transcript along). A
-    // source destination gets the bare transcript, so it is replaced whole.
+    // The prompt as sent, with the transcript replaced by a note of its length.
     await addHistoryEntry({
       video,
       profile,
-      prompt: promptForHistory(prompt),
+      prompt: parts ? `${promptForHistory(prompt)}\n\n[The transcript went first, in ${parts.length} messages.]` : promptForHistory(prompt),
       settings,
-      destinationId: destination.id,
+      destinationId: GEMINI_DESTINATION.id,
       channelAvatarUrl: video.avatarUrl,
     });
   }
   return { ok: true, notice };
-}
-
-/** Remember a destination tab we opened, so the popup can offer "jump back". */
-async function recordOpenSearch(
-  tabId: number,
-  video: VideoContext,
-  destination: { id: string; label: string },
-  sourceTabId?: number,
-  transcriptVideoId?: string,
-  cacheContext?: import("../types").OpenSearch["cacheContext"],
-  summaryLabel?: string,
-  signedInLabel?: string,
-  videoDurationSeconds?: number,
-): Promise<void> {
-  await addOpenSearch({
-    summaryLabel,
-    signedInLabel,
-    videoDurationSeconds: videoDurationSeconds || undefined,
-    tabId,
-    sourceTabId,
-    transcriptVideoId,
-    videoUrl: video.url,
-    videoTitle: video.title,
-    destinationId: destination.id,
-    destinationLabel: destination.label,
-    createdAt: new Date().toISOString(),
-    cacheContext,
-  });
 }
 
 // Forget a search and drop any unconsumed pending prompt the moment its tab
@@ -879,7 +821,7 @@ chrome.runtime.onMessage.addListener(
       void recordDeliveryStatus({
         site: message.site,
         ok: message.ok,
-        reason: message.reason,
+        reason: message.signInNeeded ? "you're signed out of Gemini, and this video has no transcript" : message.reason,
         at: new Date().toISOString(),
       });
       void flashBadge(message.ok ? "✓" : "!", message.ok);
@@ -888,13 +830,21 @@ chrome.runtime.onMessage.addListener(
       // attempt completed (so a slow-mounting composer kept its chance to retry).
       if (sender.tab?.id !== undefined) void clearPendingPrompt(sender.tab.id);
       // A failed fill ends the run on the YouTube page now, with the reason,
-      // instead of leaving its button on "Analyzing..." until the 90s timeout.
+      // instead of leaving its button on "Analyzing..." until the timeout.
       if (!message.ok && sender.tab?.id !== undefined) {
         const destTabId = sender.tab.id;
         void (async () => {
           const search = (await getOpenSearches()).find((s) => s.tabId === destTabId);
           if (search?.sourceTabId === undefined) return;
           const videoId = search.videoUrl ? extractVideoId(search.videoUrl) ?? undefined : undefined;
+          if (message.signInNeeded) {
+            // Nothing was sent: the background tab has no use, so close it.
+            await chrome.tabs.remove(destTabId).catch(() => {});
+            await chrome.tabs.sendMessage(search.sourceTabId, {
+              type: "SET_SUMMARY_ERROR", videoId, reason: SIGN_IN_MESSAGE, category: "gemini-signin", noTranscript: true,
+            });
+            return;
+          }
           const reason = fillFailureMessage({
             site: message.site,
             reason: message.reason,
@@ -907,62 +857,70 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: true });
       return false;
     }
+    if (message.type === "TAB_PROGRESS") {
+      // The Gemini tab is working through a long transcript's parts: say so on
+      // the page (which also keeps the page's run from timing out).
+      const destTabId = sender.tab?.id;
+      void (async () => {
+        const search = (await getOpenSearches()).find((s) => s.tabId === destTabId);
+        if (search?.sourceTabId === undefined) return;
+        const videoId = search.videoUrl ? extractVideoId(search.videoUrl) : null;
+        progress(search.sourceTabId, videoId, message.step);
+      })().catch(() => {});
+      sendResponse({ ok: true });
+      return false;
+    }
     if (message.type === "AI_SUMMARY") {
-      // Resolve which YouTube video this scrape was for so the content script can
-      // drop it if the user has since navigated away (otherwise it renders/caches
-      // on the wrong video). openSearches maps the destination tab (the sender)
-      // back to the source video URL.
+      // Only this Gemini tab's own request says which video the answer is for;
+      // an answer TL;DW can't tie to its request is never shown or cached.
       const destTabId = sender.tab?.id;
       const srcTabId = message.sourceTabId;
-      let tldw = message.tldw;
       void (async () => {
-        let videoId: string | undefined;
-        let match: OpenSearch | undefined;
-        let durSec = 0;
-        try {
-          const searches = await getOpenSearches();
-          // Only this tab's own request says which video the answer is for.
-          // (Falling back to any search from the same YouTube tab could name
-          // the video that tab plays NOW, putting an old answer on a new video.)
-          const ownSearch = searches.find((s) => destTabId !== undefined && s.tabId === destTabId);
-          match = ownSearch;
-          // Count the length only of the video this tab's own request was for.
-          durSec = ownSearch?.videoDurationSeconds ?? 0;
-          if (match?.videoUrl) videoId = extractVideoId(match.videoUrl) ?? undefined;
-          // Cache only a scrape we can tie to its own request (this destination
-          // tab), and never one whose prompt carried another video's transcript.
-          const label = message.signedIn && ownSearch?.signedInLabel ? ownSearch.signedInLabel : match?.summaryLabel;
-          if (label) tldw = { ...tldw, label };
-        } catch { /* best effort */ }
-        // An answer TL;DW can't tie to a video is never shown: the page shows
-        // only a summary that names the video it is for.
-        if (!videoId) return;
-        const reply = (await chrome.tabs
-          .sendMessage(srcTabId, {
-            type: "SET_SUMMARY",
-            tldw,
-            source: match?.destinationLabel,
-            sourceKind: "tab",
+        const search = (await getOpenSearches()).find((s) => destTabId !== undefined && s.tabId === destTabId);
+        const videoId = search?.videoUrl ? extractVideoId(search.videoUrl) ?? undefined : undefined;
+        if (!search || !videoId) return;
+        if (message.cannotAccess) {
+          // Gemini couldn't open the linked video (signed out, or no captions
+          // it could read): say so instead of showing a made-up answer.
+          await chrome.tabs.remove(search.tabId).catch(() => {});
+          await chrome.tabs.sendMessage(srcTabId, {
+            type: "SET_SUMMARY_ERROR",
             videoId,
-          })
+            reason: message.signedIn ? cannotAccessMessage(!!search.hasKey) : SIGN_IN_MESSAGE,
+            category: message.signedIn ? undefined : "gemini-signin",
+            noTranscript: true,
+          }).catch(() => {});
+          return;
+        }
+        // Read the answer with the profile's layout, then keep only the times
+        // whose quotes the transcript TL;DW sent confirms.
+        const layout = layoutOf(search.layout);
+        let tldw: TldwSummary = (message.raw ? parseTldwBlock(message.raw, layout) : null) ?? message.tldw;
+        const segments = search.basis === "transcript" || search.basis === "excerpt" ? await getTabSegments(search.tabId) : null;
+        tldw = {
+          ...checkTimes(tldw, segments, search.videoDurationSeconds ?? 0),
+          basis: search.basis,
+          via: "tab",
+          profileId: search.cacheContext?.profileId,
+          profileName: search.profileName,
+        };
+        const reply = (await chrome.tabs
+          .sendMessage(srcTabId, { type: "SET_SUMMARY", tldw, source: "Gemini", sourceKind: "tab", videoId })
           .catch(() => undefined)) as SetSummaryReply | undefined;
         // Cache only what the page showed for its own video and wasn't late
         // for, and only a real parsed summary from this tab's own request.
         try {
-          const cacheContext = shouldCacheScrape(message.parsed, reply) ? cacheContextForScrape(match?.tabId === destTabId ? match : undefined) : undefined;
-          if (cacheContext) {
-            await setCachedSummary({ ...cacheContext, tldw, createdAt: new Date().toISOString() });
-          }
+          const cacheContext = shouldCacheScrape(message.parsed, reply) ? cacheContextForScrape(search) : undefined;
+          if (cacheContext) await setCachedSummary({ ...cacheContext, tldw, createdAt: new Date().toISOString() });
         } catch { /* best effort: a failed cache write never hides the summary */ }
-        // Bump lifetime stats: summary completed (tab-scrape / AI_SUMMARY path).
-        // The video's length was recorded with the tab TL;DW opened for it.
+        const durSec = search.videoDurationSeconds ?? 0;
         const today = localDateKey();
         void bumpLifetimeStats((s) => {
           s.summaries += 1;
           s.activity[today] = (s.activity[today] ?? 0) + 1;
           if (durSec > 0) s.durationSummarizedSeconds += durSec;
         });
-      })();
+      })().catch(() => {});
       sendResponse({ ok: true });
       return false;
     }
@@ -1045,7 +1003,7 @@ chrome.runtime.onMessage.addListener(
         }
         // None open — run a fresh summary that opens the destination tab, and
         // force-focus it (this is an explicit "take me there" click).
-        await runSummary({ senderTabId: ytTabId, source: "popup", forceFocusTab: true });
+        await runSummary({ senderTabId: ytTabId, source: "page-tab", forceFocusTab: true, profileId: message.profileId });
         sendResponse({ opened: true });
       })();
       return true; // async response
@@ -1107,7 +1065,8 @@ chrome.runtime.onMessage.addListener(
             autoSubmit: settings.autoSubmit,
             temporaryChats: settings.temporaryChats,
             sourceTabId: pending?.sourceTabId,
-            signedInPrompt: pending?.signedInPrompt,
+            parts: pending?.parts,
+            requireSignIn: pending?.requireSignIn,
           }),
         // Always respond even on a storage error, so the injector's port doesn't
         // hang (consistent with the ASK handler).

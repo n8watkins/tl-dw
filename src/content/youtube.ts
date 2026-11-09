@@ -19,26 +19,31 @@
  */
 
 import {
-  CHANNEL_TAGS_KEY,
-  TAGS_KEY,
-  VIDEO_TAGS_KEY,
-} from "../lib/constants";
-import {
   extractFromGetPanel,
   extractFromGetTranscript,
   extractFromTimedText,
-  joinSegments,
   stripSegmentTimeLabels,
+  type TranscriptRead,
 } from "../lib/youtubeTranscript";
 import { createKeyedSingleFlight } from "../lib/singleFlight";
 import { autoRunNote, usesOwnKey } from "../lib/autoRunNote";
-import { ADD_KEY_TO_WATCH, ADD_KEY_WHOLE_VIDEO } from "../lib/sendPlan";
+import { cachedSourceLabel, type SummarySourceKind } from "../lib/summarySource";
+import type { CachedSummary, PromptProfile, SponsorWindowApi, TldwSummary as SharedSummary, VideoMeta } from "../types";
 import {
-  cachedSourceLabel,
-  describeSummarySource,
-  type SummarySourceKind,
-} from "../lib/summarySource";
-import type { CachedSummary, SponsorWindowApi, Tag, VideoMeta } from "../types";
+  focusRing,
+  icon,
+  type MenuEntry,
+  overflowMenu,
+  panelHeader,
+  type PanelTheme,
+  panelTheme,
+  pillButton,
+  plainMarkdown,
+  sourceLine,
+  summaryBody,
+} from "./panelUi";
+import { formatClock, parseClock } from "../lib/timedTranscript";
+import { geminiModelLabel } from "../lib/constants";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = (...args: unknown[]) => console.log("[TL;DW]", ...args);
@@ -129,7 +134,7 @@ function adShowing(): boolean {
 
 // --- intercepted transcript cache ----------------------------------------
 
-let captured: string | null = null;
+let captured: TranscriptRead | null = null;
 let capturedVideoId: string | null = null;
 // Transcript-panel responses seen so far, and the video the latest was for.
 let panelResponseSeq = 0;
@@ -148,11 +153,11 @@ window.addEventListener("message", (event) => {
   // for get_panel, the id inside the response), not the current URL: a late
   // response for the previous video must not be served as the current one's
   // transcript after an SPA navigation.
-  let text: string | null = null;
+  let text: TranscriptRead | null = null;
   let videoId = typeof data.videoId === "string" && data.videoId ? data.videoId : null;
   if (data.kind === "get_panel") {
     const panel = extractFromGetPanel(data.body);
-    text = panel?.text ?? null;
+    text = panel ? { text: panel.text, segments: panel.segments } : null;
     if (panel?.videoId) videoId = panel.videoId;
   } else if (data.kind === "get_transcript") {
     text = extractFromGetTranscript(data.body);
@@ -174,11 +179,11 @@ window.addEventListener("message", (event) => {
   if (text && videoId) {
     captured = text;
     capturedVideoId = videoId;
-    log("intercepted transcript:", text.length, "chars", videoId === currentVideoId() ? "" : `(for ${videoId}, not this video)`);
+    log("intercepted transcript:", text.text.length, "chars", videoId === currentVideoId() ? "" : `(for ${videoId}, not this video)`);
   }
 });
 
-function cachedForCurrentVideo(): string | null {
+function cachedForCurrentVideo(): TranscriptRead | null {
   return captured && capturedVideoId === currentVideoId() ? captured : null;
 }
 
@@ -268,7 +273,7 @@ function segmentText(segment: Element): string {
   return stripSegmentTimeLabels(copy.textContent ?? "");
 }
 
-function scrapeRenderedTranscript(): string | null {
+function scrapeRenderedTranscript(): TranscriptRead | null {
   // Right after an in-page navigation the panel may still hold the previous
   // video's segments; never read it until the description shows the current video.
   if (!descriptionShowsCurrentVideo()) return null;
@@ -279,10 +284,16 @@ function scrapeRenderedTranscript(): string | null {
     "ytd-transcript-segment-renderer",
     "ytd-transcript-segment-list-renderer .segment",
   ]) {
-    const segments = document.querySelectorAll(selector);
+    const segments = [...document.querySelectorAll(selector)]
+      .map((el) => ({
+        // The line's visible clock ("2:36"); NaN when it has none.
+        start: parseClock(el.querySelector(SEGMENT_TIME_SELECTOR)?.textContent) ?? NaN,
+        text: segmentText(el),
+      }))
+      .filter((seg) => seg.text);
     if (segments.length === 0) continue;
-    const joined = joinSegments([...segments].map(segmentText));
-    if (joined) return joined;
+    const text = segments.map((seg) => seg.text).join(" ");
+    if (text) return { text, segments };
   }
   return null;
 }
@@ -290,7 +301,7 @@ function scrapeRenderedTranscript(): string | null {
 // --- request handling -----------------------------------------------------
 
 /** Either source: intercepted network data, or the rendered panel. */
-function available(): string | null {
+function available(): TranscriptRead | null {
   return cachedForCurrentVideo() ?? scrapeRenderedTranscript();
 }
 
@@ -403,7 +414,7 @@ const RELAY_GRACE_MS = 1500;
  * transcript, or null when YouTube had none or the page can't make the request
  * (then TL;DW opens the panel as before).
  */
-function requestTranscriptPanel(vid: string): Promise<string | null> {
+function requestTranscriptPanel(vid: string): Promise<TranscriptRead | null> {
   return new Promise((resolve) => {
     let settled = false;
     const finish = () => {
@@ -440,12 +451,12 @@ function requestTranscriptPanel(vid: string): Promise<string | null> {
  * Fetch the transcript for `vid`: first by asking YouTube for its transcript
  * panel directly, then by opening YouTube's panel, or null.
  */
-async function fetchTranscript(vid: string): Promise<string | null> {
+async function fetchTranscript(vid: string): Promise<TranscriptRead | null> {
   const info = playerInfoForCurrentVideo();
   if (!info || info.hasCaptions) {
     const direct = await requestTranscriptPanel(vid);
     if (direct) {
-      log("transcript fetched from YouTube's transcript panel:", direct.length, "chars");
+      log("transcript fetched from YouTube's transcript panel:", direct.text.length, "chars");
       return direct;
     }
     if (currentVideoId() !== vid) return null;
@@ -485,7 +496,7 @@ async function fetchTranscript(vid: string): Promise<string | null> {
     const hit = cachedForCurrentVideo();
     if (hit) {
       restore();
-      log("transcript captured:", hit.length, "chars");
+      log("transcript captured:", hit.text.length, "chars");
       return hit;
     }
     const answered = panelResponseSeq !== seqAtClick;
@@ -504,7 +515,7 @@ async function fetchTranscript(vid: string): Promise<string | null> {
       const scraped = scrapeRenderedTranscript();
       restore();
       if (scraped) {
-        log("transcript scraped from the panel:", scraped.length, "chars");
+        log("transcript scraped from the panel:", scraped.text.length, "chars");
         return scraped;
       }
       log("YouTube didn't provide a transcript for this video");
@@ -518,7 +529,7 @@ async function fetchTranscript(vid: string): Promise<string | null> {
       const scraped = scrapeRenderedTranscript();
       if (scraped) {
         restore();
-        log("transcript scraped from the panel:", scraped.length, "chars");
+        log("transcript scraped from the panel:", scraped.text.length, "chars");
         return scraped;
       }
     }
@@ -531,16 +542,16 @@ async function fetchTranscript(vid: string): Promise<string | null> {
 // One panel-open attempt per video at a time. Keyed by video id, so a slow
 // fetch for the previous video can't hand its result (or its cleanup) to the
 // next one.
-const transcriptFlight = createKeyedSingleFlight<string | null>();
+const transcriptFlight = createKeyedSingleFlight<TranscriptRead | null>();
 
-async function getTranscript(): Promise<string | null> {
+async function getTranscript(): Promise<TranscriptRead | null> {
   // Watch pages only: on a Short (or any other page) there is nothing to read,
   // and we must not click anything on it.
   const vid = currentVideoId();
   if (!vid) return null;
   const immediate = available();
   if (immediate) {
-    log("transcript ready:", immediate.length, "chars");
+    log("transcript ready:", immediate.text.length, "chars");
     return immediate;
   }
   return transcriptFlight.run(vid, () => fetchTranscript(vid));
@@ -772,115 +783,12 @@ let currentDirectApiEnabled = false;
 let navEpoch = 0;
 
 
-// --- tags: library + per-channel / per-video assignments (direct storage) ----
-// chrome.storage has no atomic read-modify-write (LESSONS_LEARNED #13). Every tag
-// write here is funnelled through serializeTagWrite, an in-realm promise chain, so
-// two rapid clicks IN THIS TAB can't clobber each other's get→modify→set — the
-// common case (the widget is the only writer of the assignment maps). It does NOT
-// coordinate with writes from the worker/options page: content scripts run in the
-// page origin, a separate lock scope from the extension realm, so navigator.locks
-// wouldn't bridge them either. A concurrent edit of the SAME key from the options
-// Tags section while clicking chips here can still lost-update; that's rare and
-// accepted. The storage SHAPES are the Phase 0 contract Agent A reads for weaving.
-
-type TagMap = Record<string, string[]>;
-
-// Serialize tag writes within this tab: each runs after the previous one settles
-// (resolve OR reject, so one failure doesn't wedge the queue), still returning the
-// real result so callers see errors.
-let tagWriteChain: Promise<unknown> = Promise.resolve();
-function serializeTagWrite<T>(fn: () => Promise<T>): Promise<T> {
-  const run = tagWriteChain.then(fn, fn);
-  tagWriteChain = run.then(() => undefined, () => undefined);
-  return run;
-}
-
-/** The key a channel's tags live under. Keyed by display NAME so it lines up
- *  with the rest of the channel model — history, lifetime stats, and the
- *  options Channels list all group by name, and the Channels UI looks tags up by
- *  name. (Keying by id stranded tags: real channels have an id, so id-keyed tags
- *  never matched the name-keyed Channels view.) */
-function channelTagKey(info: ChannelInfo): string {
-  return info.name;
-}
-
-async function readTagLibrary(): Promise<Tag[]> {
-  const r = await chrome.storage.local.get(TAGS_KEY);
-  return (r[TAGS_KEY] as Tag[]) ?? [];
-}
-
-async function readChannelTagMap(): Promise<TagMap> {
-  const r = await chrome.storage.local.get(CHANNEL_TAGS_KEY);
-  return (r[CHANNEL_TAGS_KEY] as TagMap) ?? {};
-}
-
-async function readVideoTagMap(): Promise<TagMap> {
-  const r = await chrome.storage.local.get(VIDEO_TAGS_KEY);
-  return (r[VIDEO_TAGS_KEY] as TagMap) ?? {};
-}
-
-/** Append a tag id to one map entry (deduped) and persist. */
-function addTagAssignment(mapKey: string, key: string, tagId: string): Promise<void> {
-  return serializeTagWrite(async () => {
-    const r = await chrome.storage.local.get(mapKey);
-    const map = (r[mapKey] as TagMap) ?? {};
-    const ids = map[key] ?? [];
-    if (!ids.includes(tagId)) map[key] = [...ids, tagId];
-    await chrome.storage.local.set({ [mapKey]: map });
-  });
-}
-
-/** Remove a tag id from one map entry and persist (drop the entry if empty). */
-function removeTagAssignment(mapKey: string, key: string, tagId: string): Promise<void> {
-  return serializeTagWrite(async () => {
-    const r = await chrome.storage.local.get(mapKey);
-    const map = (r[mapKey] as TagMap) ?? {};
-    const ids = (map[key] ?? []).filter((id) => id !== tagId);
-    if (ids.length) map[key] = ids;
-    else delete map[key];
-    await chrome.storage.local.set({ [mapKey]: map });
-  });
-}
-
-/** Create a tag in the library and return it (no assignment yet). */
-function createLibraryTag(label: string, prompt: string): Promise<Tag> {
-  return serializeTagWrite(async () => {
-    const lib = await readTagLibrary();
-    const id =
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `tag-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const tag: Tag = { id, label, prompt };
-    await chrome.storage.local.set({ [TAGS_KEY]: [...lib, tag] });
-    return tag;
-  });
-}
-
-/** "Apply to all future videos of this channel": move ids from VIDEO_TAGS_KEY[vid]
- *  into CHANNEL_TAGS_KEY[channelKey], deduping against what's already there. */
-function promoteVideoTags(vid: string, channelKey: string, tagIds: string[]): Promise<void> {
-  return serializeTagWrite(async () => {
-    const [chMap, vidMap] = await Promise.all([readChannelTagMap(), readVideoTagMap()]);
-    const merged = [...(chMap[channelKey] ?? [])];
-    for (const id of tagIds) if (!merged.includes(id)) merged.push(id);
-    chMap[channelKey] = merged;
-    const remaining = (vidMap[vid] ?? []).filter((id) => !tagIds.includes(id));
-    if (remaining.length) vidMap[vid] = remaining;
-    else delete vidMap[vid];
-    await chrome.storage.local.set({ [CHANNEL_TAGS_KEY]: chMap, [VIDEO_TAGS_KEY]: vidMap });
-  });
-}
-
-
 // --- TL;DW summary panel -------------------------------------------------
 
-type TldwSummary = {
-  summary: string;
-  details?: string;
-  /** How it was made, shown next to the title ("Watched by Gemini (no transcript)"). */
-  label?: string;
-  /** A one-off line shown under the summary (the model fallback notice). */
-  note?: string;
+/** A summary as the page shows it: what the worker sent, and where it came from. */
+type TldwSummary = SharedSummary & {
+  /** A one-off line under the summary (the model fallback notice). */
+  fallbackNote?: string;
   source?: string;
   sourceKind?: SummarySourceKind;
 };
@@ -971,16 +879,8 @@ function removeSummaryPanel(): void {
   setWatchButtonState("idle");
 }
 
-function theme(): { bg: string; border: string; text: string; sub: string; hover: string } {
-  const dark = document.documentElement.hasAttribute("dark");
-  return dark
-    ? { bg: "#212121", border: "#3f3f3f", text: "#f1f1f1", sub: "#aaaaaa", hover: "#383838" }
-    : { bg: "#ffffff", border: "#e5e5e5", text: "#0f0f0f", sub: "#606060", hover: "#f2f2f2" };
-}
+const theme = panelTheme;
 
-// Neutral-dark fill used for the "quiet" header actions (Open tab / Gemini
-// source) on hover — readable white-on-dark in both light and dark themes.
-const NEUTRAL_FILL = "#3f3f3f";
 
 /**
  * Uniform geometry shared by every injected pill-shaped control (the inline
@@ -1140,384 +1040,173 @@ function ensureWatchButton(): void {
   );
 }
 
-// --- popover menu primitive (overflow "⋯" menu + tag picker) ------------------
+// --- panel chrome: header, ⋯ menu, SponsorBlock line -------------------------
 
-/**
- * Anchor a small popover to a trigger element. The panel is an absolutely
- * positioned child of a relative wrapper, so it tracks the trigger as the page
- * scrolls without any recomputation. Closes on outside-click and Esc; the
- * teardown is pushed onto `cleanups` so a panel rebuild never leaks the document
- * listeners.
- */
-function buildPopoverMenu(
-  trigger: HTMLElement,
-  t: ReturnType<typeof theme>,
-  cleanups: Array<() => void>,
-  align: "left" | "right" = "right",
-): { wrap: HTMLElement; panel: HTMLElement; open: () => void; close: () => void; toggle: () => void } {
-  const wrap = document.createElement("span");
-  Object.assign(wrap.style, { position: "relative", display: "inline-flex", flexShrink: "0" });
+const LOGO_URL = () => chrome.runtime.getURL("icons/tl-dw-32.png");
 
-  const panel = document.createElement("div");
-  Object.assign(panel.style, {
-    position: "absolute", top: "calc(100% + 6px)", [align]: "0",
-    minWidth: "200px", maxWidth: "330px",
-    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "10px",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.30)",
-    padding: "6px", zIndex: "2147483000",
-    display: "none", flexDirection: "column", gap: "2px",
-    font: "13px/1.4 Roboto, system-ui, sans-serif", color: t.text, textAlign: "left",
-  });
-  // Keep clicks inside the popover from bubbling to the summary panel's
-  // detail-toggle handler (a click on the popover's padding would otherwise
-  // expand/collapse the details behind it).
-  panel.addEventListener("click", (e) => e.stopPropagation());
-  wrap.append(trigger, panel);
-
-  let isOpen = false;
-  let armTimer: number | undefined;
-  const onDocClick = (e: MouseEvent) => { if (!wrap.contains(e.target as Node)) close(); };
-  const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
-
-  const open = () => {
-    if (isOpen) return;
-    isOpen = true;
-    panel.style.display = "flex";
-    // Defer registering the outside-click listener so the click that OPENED the
-    // popover doesn't immediately close it. Track the timer so close() can cancel
-    // it — otherwise a teardown (e.g. SPA nav) between open() and the timer firing
-    // would register document listeners that nothing ever removes.
-    armTimer = window.setTimeout(() => {
-      armTimer = undefined;
-      if (!isOpen) return;
-      document.addEventListener("click", onDocClick, true);
-      document.addEventListener("keydown", onKey, true);
-    }, 0);
-  };
-  function close(): void {
-    if (!isOpen) return;
-    isOpen = false;
-    panel.style.display = "none";
-    if (armTimer !== undefined) { clearTimeout(armTimer); armTimer = undefined; }
-    document.removeEventListener("click", onDocClick, true);
-    document.removeEventListener("keydown", onKey, true);
-  }
-  const toggle = () => (isOpen ? close() : open());
-
-  cleanups.push(close);
-  return { wrap, panel, open, close, toggle };
+/** How the run went, as the header's subtitle says it: "Your Gemini key" or "Gemini tab (no key)". */
+function modeLabel(via: "api" | "tab" | undefined): string {
+  const usesKey = via ? via === "api" : currentDirectApiEnabled;
+  return usesKey ? "Your Gemini key" : "Gemini tab (no key)";
 }
 
-/** One clickable row inside a popover menu. Fills on hover (F4): red for a
- *  destructive action, a subtle theme highlight otherwise. */
-function menuItemRow(
-  t: ReturnType<typeof theme>,
-  label: string,
-  opts: { title?: string; danger?: boolean; onClick: () => void },
-): HTMLButtonElement {
-  const b = document.createElement("button");
-  b.textContent = label;
-  if (opts.title) b.title = opts.title;
-  Object.assign(b.style, {
-    display: "block", width: "100%", textAlign: "left",
-    background: "transparent", border: "none", borderRadius: "7px",
-    color: t.text, cursor: "pointer", whiteSpace: "nowrap",
-    font: "600 13px/1.3 Roboto, system-ui, sans-serif", padding: "9px 11px",
-  });
-  const hoverBg = opts.danger ? "#dc2626" : t.hover;
-  const hoverColor = opts.danger ? "#fff" : t.text;
-  b.addEventListener("mouseenter", () => { b.style.background = hoverBg; b.style.color = hoverColor; });
-  b.addEventListener("mouseleave", () => { b.style.background = "transparent"; b.style.color = t.text; });
-  b.addEventListener("click", (e) => { e.stopPropagation(); opts.onClick(); });
-  return b;
-}
-
-/**
- * The right-aligned "⋯" kebab that collapses the summary panel's SECONDARY
- * actions (Open tab / Clear cache / source badge) into a popover (F1). The
- * Auto-summarize toggle stays inline.
- */
-function buildOverflowMenu(
-  t: ReturnType<typeof theme>,
-  items: Array<{ label: string; title?: string; danger?: boolean; onClick: () => void }>,
-  cleanups: Array<() => void>,
-): HTMLElement {
-  const kebab = document.createElement("button");
-  kebab.textContent = "⋯";
-  kebab.setAttribute("aria-label", "More actions");
-  kebab.title = "More actions";
-  Object.assign(kebab.style, {
-    fontSize: "18px", fontWeight: "700", padding: "0 10px",
-    borderRadius: "999px", border: "2px solid transparent",
-    background: t.border, color: t.sub, cursor: "pointer", flexShrink: "0",
-    transition: "background 0.15s, color 0.15s", ...pillGeom,
-  });
-  kebab.addEventListener("mouseenter", () => { kebab.style.background = NEUTRAL_FILL; kebab.style.color = "#fff"; });
-  kebab.addEventListener("mouseleave", () => { kebab.style.background = t.border; kebab.style.color = t.sub; });
-
-  const { wrap, panel, toggle, close } = buildPopoverMenu(kebab, t, cleanups, "right");
-  for (const item of items) {
-    panel.append(menuItemRow(t, item.label, {
-      title: item.title, danger: item.danger,
-      onClick: () => { close(); item.onClick(); },
-    }));
-  }
-  kebab.addEventListener("click", (e) => { e.stopPropagation(); toggle(); });
-  return wrap;
-}
-
-// --- auto-run pill toggle (shared by all panel states) -----------------------
-
-/**
- * A small pill button in the panel header that shows/toggles per-channel
- * auto-summarize state. ON shows a red STOP outline so the state is clear.
- */
-function buildAutoToggle(
-  info: ChannelInfo,
-  initialOn: boolean,
-  t: ReturnType<typeof theme>,
-): HTMLButtonElement {
-  // OFF state reads as the offer ("turn it on"); ON state reads as a clear,
-  // unmistakable red STOP so it never looks like "nothing changed".
-  const offLabel = "↻ Auto-summarize";
-  const onLabel = "■ Stop auto-summarize";
-  const enableColor = "#1a73e8"; // feature color, used as OFF-hover preview
-  const STOP_COLOR = "#dc2626";
-
-  const btn = document.createElement("button");
-  Object.assign(btn.style, {
-    fontSize: "13px", fontWeight: "700", letterSpacing: "0.04em",
-    padding: "0 12px", borderRadius: "999px", border: "2px solid transparent",
-    cursor: "pointer", flexShrink: "0", whiteSpace: "nowrap",
-    background: t.border,
-    // Include `background` so the F4 hover fill eases like the sibling header
-    // pills (Gemini / kebab), not snap instantly.
-    transition: "background 0.15s, border-color 0.15s, color 0.15s",
-    ...pillGeom,
-  });
-
-  let isOn = initialOn;
-  // ON is shown by a red OUTLINE on the same gray pill (not a loud solid red).
-  const applyState = (on: boolean) => {
-    isOn = on;
-    btn.textContent = on ? onLabel : offLabel;
-    btn.style.background = t.border;
-    btn.style.borderColor = on ? STOP_COLOR : "transparent";
-    btn.style.color = on ? STOP_COLOR : t.sub;
-    btn.title = on
-      ? `Auto-summarize is ON for ${info.name} — click to stop`
-      : `Turn on auto-summarize for ${info.name}`;
-  };
-
-  applyState(initialOn);
-
-  btn.addEventListener("mouseenter", () => {
-    // F4 fill-on-hover: OFF → blue fill (turn it on); ON → red fill (stop).
-    // White text either way; the resting ON state keeps its red outline so the
-    // STOP semantics stay clear even without hover.
-    btn.style.background = isOn ? STOP_COLOR : enableColor;
-    btn.style.borderColor = isOn ? STOP_COLOR : enableColor;
-    btn.style.color = "#fff";
-  });
-  btn.addEventListener("mouseleave", () => {
-    applyState(isOn);
-  });
-
-  let busy = false;
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (busy) return;
-    const enabling = !currentAutoRunSummary;
-    if (enabling) {
-      busy = true;
-      // Read the mode now: the key may have been added or removed since the page loaded.
-      void chrome.storage.local.get("settings").then(
-        (r) => usesOwnKey(r["settings"] as Record<string, unknown> | undefined),
-        () => currentDirectApiEnabled,
-      ).then((usesKey) => {
-        showAutoRunConfirmOverlay(info, usesKey, () => {
-          currentAutoRunSummary = true;
-          applyState(true);
-          void writeAutoRunChannel(info, true).finally(() => { busy = false; });
-        }, () => { busy = false; });
-      });
-      return;
-    }
-    busy = true;
-    currentAutoRunSummary = false;
-    applyState(false);
-    void writeAutoRunChannel(info, false).finally(() => { busy = false; });
-  });
-
-  return btn;
-}
-
-/** Shared header row builder used by all panel states. */
-function buildPanelHead(
-  t: ReturnType<typeof theme>,
-  controls: HTMLElement[],
-  channelInfo: ChannelInfo | null,
-  showAutoRunToggle = true,
-  showTitle = true,
-  rightControls: HTMLElement[] = [],
-  endControls: HTMLElement[] = [],
-): HTMLElement {
-  const head = document.createElement("div");
-  // flexWrap so the inline SponsorBlock widget can wrap below if the row is tight.
-  Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px", flexWrap: "wrap" });
-
-  const icon = document.createElement("img");
-  icon.src = chrome.runtime.getURL("icons/tl-dw-32.png");
-  Object.assign(icon.style, { width: "32px", height: "32px", borderRadius: "7px", flexShrink: "0" });
-
-  const title = document.createElement("span");
-  title.textContent = "TL;DW";
-  Object.assign(title.style, { fontWeight: "700", fontSize: "15px", color: t.text, flexShrink: "0" });
-
-  const spacer = document.createElement("div");
-  spacer.style.flex = "1";
-  spacer.dataset.tldwSpacer = "1"; // anchor for inserting the SponsorBlock widget
-
-  const closeBtn = document.createElement("button");
-  Object.assign(closeBtn.style, {
-    background: "transparent", border: "none", color: t.sub,
-    cursor: "pointer", fontSize: "14px", lineHeight: "1",
-    padding: "4px 6px", borderRadius: "6px", flexShrink: "0",
-  });
-  closeBtn.textContent = "✕";
-  closeBtn.setAttribute("aria-label", "Hide TL;DW");
-  closeBtn.addEventListener("mouseenter", () => (closeBtn.style.background = t.hover));
-  closeBtn.addEventListener("mouseleave", () => (closeBtn.style.background = "transparent"));
-  closeBtn.addEventListener("click", () => {
-    removeSummaryPanel();
-  });
-
-  const autoToggles: HTMLElement[] = [];
-  if (channelInfo && showAutoRunToggle) {
-    autoToggles.push(buildAutoToggle(channelInfo, currentAutoRunSummary, t));
-  }
-
-  closeBtn.style.marginLeft = "12px";
-  // Right cluster order: extra right controls · Auto-summarize ·
-  // end controls (e.g. the "⋯" overflow menu) · ✕
-  head.append(
-    icon,
-    ...(showTitle ? [title] : []),
-    ...controls,
-    spacer,
-    ...rightControls,
-    ...autoToggles,
-    ...endControls,
-    closeBtn,
+/** Profiles, read fresh for the Style menu and the subtitle. */
+let knownProfiles: Pick<PromptProfile, "id" | "name">[] = [];
+function refreshProfiles(): void {
+  void chrome.storage.local.get("profiles").then(
+    (r) => { knownProfiles = ((r["profiles"] as PromptProfile[] | undefined) ?? []).map(({ id, name }) => ({ id, name })); },
+    () => {},
   );
-  // The SponsorBlock widget is inserted in line with the header (left of the
-  // spacer) by refreshSponsorPanel, which each panel calls right after it mounts.
-  return head;
+}
+refreshProfiles();
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes["profiles"]) refreshProfiles();
+});
+
+/** Turn the channel's auto-summarize on (after the confirmation) or off. */
+function toggleAutoRun(info: ChannelInfo): void {
+  if (currentAutoRunSummary) {
+    currentAutoRunSummary = false;
+    void writeAutoRunChannel(info, false);
+    return;
+  }
+  // Read the mode now: the key may have been added or removed since the page loaded.
+  void chrome.storage.local.get("settings").then(
+    (r) => usesOwnKey(r["settings"] as Record<string, unknown> | undefined),
+    () => currentDirectApiEnabled,
+  ).then((usesKey) => {
+    showAutoRunConfirmOverlay(info, usesKey, () => {
+      currentAutoRunSummary = true;
+      void writeAutoRunChannel(info, true);
+    }, () => {});
+  });
 }
 
-// --- SponsorBlock widget (data + actions supplied by sponsorblock.ts via window) ---
+/** The "⋯" menu's entries for a summary of `vid` made with profile `profileId`. */
+function summaryMenu(tldw: TldwSummary, vid: string | null): MenuEntry[] {
+  const entries: MenuEntry[] = [
+    {
+      kind: "item", label: "Regenerate", icon: "regenerate",
+      title: "Ask Gemini again with the same style, instead of using the saved summary",
+      onClick: () => void rerun(vid, { profileId: tldw.profileId, bypassCache: true }),
+    },
+    {
+      kind: "item", label: "Copy as text", icon: "copy",
+      onClick: () => void navigator.clipboard.writeText(summaryText(tldw)).catch(() => {}),
+    },
+    {
+      kind: "item", label: "Open in Gemini", icon: "external",
+      title: "Open this video's summary request in a Gemini tab",
+      onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OR_FOCUS_DESTINATION", videoId: vid ?? undefined, profileId: tldw.profileId }),
+    },
+  ];
+  if (knownProfiles.length > 1) {
+    entries.push({ kind: "separator" }, { kind: "heading", label: "Style" });
+    for (const p of knownProfiles) {
+      entries.push({
+        kind: "radio", label: p.name, checked: p.id === tldw.profileId,
+        onClick: () => { if (p.id !== tldw.profileId) void rerun(vid, { profileId: p.id }); },
+      });
+    }
+  }
+  entries.push({ kind: "separator" });
+  const info = currentChannelInfo;
+  if (info) {
+    entries.push({
+      kind: "item", label: `Auto-summarize ${info.name}`, icon: "auto",
+      detail: currentAutoRunSummary ? "On" : "Off",
+      onClick: () => toggleAutoRun(info),
+    });
+  }
+  entries.push({
+    kind: "item", label: "Settings", icon: "settings",
+    onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "settings" }),
+  });
+  return entries;
+}
 
-const SPONSOR_SECTION_ID = "tldw-sponsor-widget";
-// Collapsed view preference (persists across panel rebuilds within a session).
-let sponsorCollapsed = false;
+/** The summary as plain text, for "Copy as text". */
+function summaryText(tldw: TldwSummary): string {
+  const lines = [plainMarkdown(tldw.summary), ""];
+  for (const [i, item] of (tldw.items ?? []).entries()) {
+    const lead = tldw.layout === "tutorial" ? `${i + 1}.` : "-";
+    const time = item.time !== undefined ? `${formatClock(item.time)} ` : "";
+    const term = item.term ? `${plainMarkdown(item.term)}: ` : "";
+    const tag = item.tag ? ` (${plainMarkdown(item.tag)})` : "";
+    lines.push(`${lead} ${time}${term}${plainMarkdown(item.text)}${tag}`);
+  }
+  if (!tldw.items?.length && tldw.details) lines.push(plainMarkdown(tldw.details));
+  for (const q of tldw.questions ?? []) lines.push(`Q: ${plainMarkdown(q.question)}`, `A: ${plainMarkdown(q.answer)}`);
+  if (tldw.note) lines.push("", plainMarkdown(tldw.note));
+  const vid = currentVideoId();
+  if (vid) lines.push("", `https://www.youtube.com/watch?v=${vid}`);
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
 
 function sponsorApi(): SponsorWindowApi | null {
   return (window as unknown as { __tldwSponsor?: SponsorWindowApi }).__tldwSponsor ?? null;
 }
 
-/** Seconds → m:ss (or h:mm:ss for long videos). */
-function secToClock(s: number): string {
-  const sec = Math.max(0, Math.round(s));
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const ss = String(sec % 60).padStart(2, "0");
-  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
-}
-
 /**
- * Inline SponsorBlock widget for the panel header. Shows that auto-skip is on,
- * and for each sponsor a pair of YouTube-style clickable timestamps (start /
- * end) you can jump to. The Undo for an auto-skip lives in the notice
- * sponsorblock.ts shows over the player. Click "⏭" to collapse/expand.
+ * A quiet line at the foot of the panel when SponsorBlock auto-skip is on:
+ * each sponsor segment as start–end times you can jump to. The Undo for an
+ * auto-skip lives in the notice sponsorblock.ts shows over the player.
  */
-function buildSponsorWidget(t: ReturnType<typeof theme>): HTMLElement | null {
+function sponsorLine(t: PanelTheme): HTMLElement | null {
   const api = sponsorApi();
   const segs = api?.getSegments() ?? [];
   if (!api || segs.length === 0) return null;
-
-  const wrap = document.createElement("span");
-  wrap.id = SPONSOR_SECTION_ID;
-  Object.assign(wrap.style, {
-    display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: "6px",
-    fontSize: "12px", color: t.sub, flexShrink: "0",
+  const line = document.createElement("div");
+  line.dataset.tldwSponsor = "1";
+  Object.assign(line.style, {
+    display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px", marginTop: "6px",
+    font: "400 12px/1.5 Roboto, system-ui, sans-serif", color: t.sub,
   });
-
-  const toggle = document.createElement("button");
-  toggle.textContent = sponsorCollapsed
-    ? `⏭ SponsorBlock (${segs.length})`
-    : "⏭ SponsorBlock · auto-skip:";
-  toggle.title = "SponsorBlock auto-skip is on — click to " + (sponsorCollapsed ? "expand" : "collapse");
-  Object.assign(toggle.style, {
-    background: "transparent", border: "none", color: t.sub,
-    cursor: "pointer", fontWeight: "700", fontSize: "12px", padding: "0", flexShrink: "0",
-  });
-  toggle.addEventListener("click", (e) => {
-    e.stopPropagation();
-    sponsorCollapsed = !sponsorCollapsed;
-    refreshSponsorPanel();
-  });
-  wrap.append(toggle);
-  if (sponsorCollapsed) return wrap;
-
-  // A single YouTube-style (blue) clickable timestamp.
-  const stamp = (label: string, onClick: () => void): HTMLButtonElement => {
+  line.append(icon("skip", 14), "SponsorBlock skips");
+  const stamp = (seconds: number, onClick: () => void): HTMLButtonElement => {
     const b = document.createElement("button");
-    b.textContent = label;
-    b.title = `Jump to ${label}`;
+    b.type = "button";
+    b.textContent = formatClock(seconds);
+    b.setAttribute("aria-label", `Jump to ${formatClock(seconds)}`);
     Object.assign(b.style, {
-      background: "transparent", border: "none", color: "#3ea6ff",
-      cursor: "pointer", fontWeight: "700", fontSize: "12px", padding: "0",
+      background: "transparent", border: "none", padding: "0", cursor: "pointer",
+      color: t.link, font: "500 12px/1.5 Roboto, system-ui, sans-serif", fontVariantNumeric: "tabular-nums", outline: "none",
     });
     b.addEventListener("click", (e) => { e.stopPropagation(); onClick(); });
+    focusRing(b, t);
     return b;
   };
-
   for (const seg of segs) {
     const group = document.createElement("span");
-    Object.assign(group.style, {
-      display: "inline-flex", alignItems: "center", gap: "4px",
-      background: t.border, borderRadius: "999px", padding: "2px 9px", whiteSpace: "nowrap",
-    });
-
-    const dash = document.createElement("span");
-    dash.textContent = "–";
-    dash.style.color = t.sub;
-
-    group.append(
-      stamp(secToClock(seg.start), () => api.jumpTo(seg.index, "start")),
-      dash,
-      stamp(secToClock(seg.end), () => api.jumpTo(seg.index, "end")),
-    );
-
-    wrap.append(group);
+    Object.assign(group.style, { display: "inline-flex", alignItems: "center", gap: "2px", whiteSpace: "nowrap" });
+    group.append(stamp(seg.start, () => api.jumpTo(seg.index, "start")), "–", stamp(seg.end, () => api.jumpTo(seg.index, "end")));
+    line.append(group);
   }
-  return wrap;
+  return line;
 }
 
-/** Re-insert the SponsorBlock widget into the live panel header on any change. */
+/** Re-draw the SponsorBlock line in the live panel on any change. */
 function refreshSponsorPanel(): void {
-  const head = summaryPanel?.querySelector<HTMLElement>(":scope > div");
-  if (!head) return;
-  head.querySelector(`#${SPONSOR_SECTION_ID}`)?.remove();
-  const widget = buildSponsorWidget(theme());
-  if (!widget) return;
-  const spacer = head.querySelector<HTMLElement>("[data-tldw-spacer]");
-  if (spacer) head.insertBefore(widget, spacer);
-  else head.append(widget);
+  const panel = summaryPanel;
+  if (!panel) return;
+  panel.querySelector("[data-tldw-sponsor]")?.remove();
+  const line = sponsorLine(panelTheme());
+  if (line) panel.append(line);
 }
 
 // sponsorblock.ts fires this whenever segments are fetched, skipped, or undone.
 window.addEventListener("tldw-sponsor-update", refreshSponsorPanel);
+
+/** A new, empty TL;DW panel box with its header. */
+function newPanel(t: PanelTheme, subtitle: string | undefined, menu?: HTMLElement): HTMLElement {
+  const panel = document.createElement("div");
+  panel.id = "tldw-summary";
+  panel.setAttribute("role", "region");
+  panel.setAttribute("aria-label", "TL;DW summary");
+  Object.assign(panel.style, panelBoxStyle(t));
+  panel.append(panelHeader(t, { logoUrl: LOGO_URL(), subtitle, menu, onClose: removeSummaryPanel }));
+  return panel;
+}
 
 /**
  * Enter the in-flight ("Analyzing…") state. There's no skeleton panel anymore —
@@ -1544,9 +1233,15 @@ function startRunInFlight(): void {
   // Say what is happening; the worker's SET_RUN_PROGRESS messages update it.
   showProgress("Reading the transcript…");
   log("run in flight (inline button shows Analyzing…)");
+  armLoadingTimeout();
+}
 
-  // Don't let the run spin forever. After a grace period, surface a retry panel —
-  // but only if THIS run is still the active one (same video, still in flight).
+/**
+ * Don't let a run spin forever: after a grace period with no progress, show a
+ * retry panel, but only if THIS run is still the active one (same video,
+ * still in flight). Each progress step re-arms it.
+ */
+function armLoadingTimeout(): void {
   clearLoadingTimeout();
   const loadingVid = currentVideoId();
   loadingTimeoutTimer = window.setTimeout(() => {
@@ -1558,73 +1253,15 @@ function startRunInFlight(): void {
   }, LOADING_TIMEOUT_MS);
 }
 
-/**
- * How a summary was made, when not from the whole transcript ("Watched by
- * Gemini", part of a long transcript, public info only), shown above it. Its
- * "Add a free API key" advice opens the key setup, and drops out once a key is on.
- */
-function summaryLabelElement(t: ReturnType<typeof theme>, label: string): HTMLElement {
-  const el = document.createElement("div");
-  el.dataset.tldwLabel = "1";
-  el.setAttribute("role", "note");
-  Object.assign(el.style, {
-    fontSize: "12px", lineHeight: "1.5", fontWeight: "600", color: t.sub, background: t.hover,
-    borderRadius: "8px", padding: "4px 10px", marginBottom: "8px", width: "fit-content", maxWidth: "100%",
-    boxSizing: "border-box", overflowWrap: "anywhere",
-  });
-  const advice = [ADD_KEY_WHOLE_VIDEO, ADD_KEY_TO_WATCH].find((a) => label.endsWith(a));
-  if (!advice) {
-    el.textContent = label;
-    return el;
-  }
-  el.textContent = label.slice(0, -advice.length).trim();
-  if (currentDirectApiEnabled) return el;
-  el.append(" ");
-  const link = document.createElement("button");
-  link.type = "button";
-  link.textContent = advice;
-  Object.assign(link.style, {
-    background: "none", border: "none", padding: "0", font: "inherit", fontWeight: "600",
-    color: "#1a73e8", cursor: "pointer", textAlign: "left", textDecoration: "underline",
-  });
-  link.addEventListener("click", (e) => { e.stopPropagation(); openKeySetup(); });
-  el.append(link);
-  return el;
-}
-
-/** What the error panel can offer besides its message. */
 type ErrorPanelOptions = {
   noTranscript?: boolean;
-  /** The Gemini error category, which picks the panel's main action. */
+  /** The error category, which picks the panel's main action. */
   category?: string;
 };
 
-type PanelAction = { label: string; title?: string; primary?: boolean; onClick: () => void };
+type PanelAction = { label: string; icon?: string; title?: string; primary?: boolean; onClick: () => void };
 
-/** A pill button for a panel action: filled blue when primary, outlined otherwise. */
-function actionButton(t: ReturnType<typeof theme>, action: PanelAction): HTMLButtonElement {
-  const b = document.createElement("button");
-  b.type = "button";
-  b.textContent = action.label;
-  if (action.title) b.title = action.title;
-  Object.assign(b.style, {
-    fontSize: "13px", fontWeight: "600",
-    padding: "0 14px", borderRadius: "999px",
-    background: action.primary ? "#1a73e8" : "transparent",
-    color: action.primary ? "#fff" : t.text,
-    border: action.primary ? "none" : `1px solid ${t.border}`,
-    cursor: "pointer", whiteSpace: "nowrap", maxWidth: "100%",
-    overflow: "hidden", textOverflow: "ellipsis",
-    ...pillGeom,
-  });
-  b.addEventListener("click", (e) => {
-    e.stopPropagation();
-    action.onClick();
-  });
-  return b;
-}
-
-/** Start a page run that sends this video another way (Gemini tab, the API, part of the transcript). */
+/** Start a page run that sends this video another way (a Gemini tab, or the API). */
 function sendInstead(ask: { source: "page" | "page-tab" }): void {
   const vid = currentVideoId();
   if (!vid) return;
@@ -1637,74 +1274,77 @@ function sendInstead(ask: { source: "page" | "page-tab" }): void {
 
 const openKeySetup = () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" });
 
-/** The buttons an error or choice panel offers, most useful first. */
+/** The buttons an error panel offers, most useful first. */
 function errorPanelActions(opts: ErrorPanelOptions): PanelAction[] {
   const retry: PanelAction = {
-    label: "↻ Try again",
+    label: "Try again", icon: "regenerate",
     onClick: () => { if (currentSummarizeAction) void currentSummarizeAction(); },
   };
+  if (opts.category === "gemini-signin") {
+    // No transcript, signed out of Gemini (item 6): sign in there, then retry.
+    return [
+      {
+        label: "Sign in to Gemini", icon: "signin", primary: true,
+        title: "Open gemini.google.com to sign in, then come back and try again",
+        onClick: () => { window.open("https://gemini.google.com/", "_blank", "noopener"); },
+      },
+      retry,
+    ];
+  }
   const geminiTab: PanelAction = {
-    label: "Send to Gemini instead",
-    title: "Open Gemini in a background tab; TL;DW shows its answer here",
-    primary: true,
+    label: "Use the Gemini tab instead", icon: "tab",
+    title: "Ask Gemini in a background tab; TL;DW shows its answer here",
     onClick: () => sendInstead({ source: "page-tab" }),
   };
   if (opts.category === "unauthorized") {
-    return [{ label: "Replace key in TL;DW settings", primary: true, onClick: openKeySetup }, retry];
+    return [{ label: "Replace your key", icon: "key", primary: true, onClick: openKeySetup }, retry];
   }
-  if (opts.category === "quota_limited") {
-    return [{ ...geminiTab, label: "Send to Gemini in a tab instead" }, retry];
-  }
+  if (opts.category === "quota_limited") return [geminiTab, retry];
   if (opts.category === "model_unavailable") {
-    return [{ label: "Choose another model", primary: true, onClick: openKeySetup }, retry];
+    return [{ label: "Choose another model", icon: "settings", primary: true, onClick: openKeySetup }, retry];
   }
   if (opts.noTranscript) return [];
   return [{ ...retry, primary: true }];
 }
 
 /**
- * Shown when a run fails or needs a decision: the reason, and the actions that
- * fix it (replace the key, send to a Gemini tab, add a key, retry).
+ * Shown when a run fails or needs the user: the reason, and the actions that
+ * fix it (sign in to Gemini, replace the key, use the Gemini tab, retry).
  */
 function showSummaryErrorPanel(reason?: string, actionUrl?: string, opts: ErrorPanelOptions = {}): void {
   const host = panelHost();
   if (!host) return;
   removeSummaryPanel();
 
-  const t = theme();
-  const panel = document.createElement("div");
-  panel.id = "tldw-summary";
+  const t = panelTheme();
+  const panel = newPanel(t, undefined);
   panel.setAttribute("role", "status");
-  Object.assign(panel.style, panelBoxStyle(t));
 
-  const head = buildPanelHead(t, [], currentChannelInfo, false, true);
-  Object.assign(head.style, { marginBottom: "8px" });
-
-  const msg = document.createElement("div");
-  // A specific reason from the worker (an API error, no transcript, a choice);
+  const msg = document.createElement("p");
+  msg.dataset.tldwMessage = "1";
+  // A specific reason from the worker (an API error, no transcript, sign-in);
   // without one, the run timed out.
-  msg.textContent = reason && opts.noTranscript
+  msg.textContent = reason && (opts.noTranscript || opts.category === "gemini-signin")
     ? reason
     : reason
     ? `Couldn't get the summary: ${reason}`
-    : "Couldn't get the summary back in time. If you're using the tab flow (no API key), " +
-      "the destination tab may still be working or may need a sign-in: check it, then retry.";
-  Object.assign(msg.style, { fontSize: "13px", lineHeight: "1.5", color: t.sub });
-  panel.append(head, msg);
+    : "Couldn't get the summary back in time. Without a key, the Gemini tab may still be working: check it, then try again.";
+  Object.assign(msg.style, { margin: "6px 0 0", font: "400 14px/1.5 Roboto, system-ui, sans-serif", color: t.text });
+  panel.append(msg);
 
   const actions = errorPanelActions(opts);
   if (actions.length || actionUrl) {
     const row = document.createElement("div");
-    Object.assign(row.style, { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", marginTop: "10px" });
-    for (const action of actions) row.append(actionButton(t, action));
+    Object.assign(row.style, { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", marginTop: "12px" });
+    for (const a of actions) row.append(pillButton(t, a.label, { icon: a.icon, primary: a.primary, title: a.title, onClick: a.onClick }));
     if (actionUrl) {
       const link = document.createElement("a");
       link.href = actionUrl;
       link.target = "_blank";
       link.rel = "noreferrer";
-      link.textContent = "Open Google AI Studio ↗";
-      Object.assign(link.style, { color: "#3ea6ff", fontWeight: "600", fontSize: "12px" });
-      if (!document.documentElement.hasAttribute("dark")) link.style.color = "#065fd4";
+      link.textContent = "Open Google AI Studio";
+      Object.assign(link.style, { display: "inline-flex", alignItems: "center", gap: "4px", color: t.link, font: "500 13px/1.4 Roboto, system-ui, sans-serif" });
+      link.append(icon("external", 14));
       row.append(link);
     }
     panel.append(row);
@@ -1739,11 +1379,11 @@ window.addEventListener("resize", () => {
 });
 
 /** The box every TL;DW panel shares. */
-function panelBoxStyle(t: ReturnType<typeof theme>): Partial<CSSStyleDeclaration> {
+function panelBoxStyle(t: PanelTheme): Partial<CSSStyleDeclaration> {
   return {
     background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
-    padding: "10px 14px", marginTop: "12px", marginBottom: "16px",
-    font: "14px/1.4 Roboto, system-ui, sans-serif", color: t.text,
+    padding: "10px 12px 12px 16px", marginTop: "12px", marginBottom: "16px",
+    font: "400 14px/1.4 Roboto, system-ui, sans-serif", color: t.text,
     boxSizing: "border-box", maxWidth: "100%", overflowWrap: "anywhere",
   };
 }
@@ -1759,29 +1399,27 @@ function showProgress(step: string | undefined, notice?: string): void {
   if (!host) return;
   const kind = runInFlight ? "progress" : "notice";
   if (!runInFlight && !notice) return;
-  const t = theme();
+  const t = panelTheme();
   let panel = currentVideoPanel();
   if (!panel || (summaryPanelKind !== "progress" && summaryPanelKind !== "notice")) {
     removeSummaryPanel();
-    panel = document.createElement("div");
-    panel.id = "tldw-summary";
-    Object.assign(panel.style, panelBoxStyle(t));
-    const head = buildPanelHead(t, [], currentChannelInfo, false, true);
-    Object.assign(head.style, { marginBottom: "6px" });
+    panel = newPanel(t, modeLabel(undefined));
     const stepEl = document.createElement("div");
     stepEl.dataset.tldwStep = "1";
     stepEl.setAttribute("role", "status");
     stepEl.setAttribute("aria-live", "polite");
-    Object.assign(stepEl.style, { fontSize: "13px", lineHeight: "1.5", color: t.sub, animation: "tldw-pulse 1.6s ease-in-out infinite" });
+    Object.assign(stepEl.style, { margin: "6px 0 0", font: "400 14px/1.5 Roboto, system-ui, sans-serif", color: t.sub, animation: "tldw-pulse 1.6s ease-in-out infinite" });
     const noticeEl = document.createElement("div");
     noticeEl.dataset.tldwNotice = "1";
-    Object.assign(noticeEl.style, { fontSize: "13px", lineHeight: "1.5", color: t.text, marginTop: "6px" });
-    panel.append(head, stepEl, noticeEl);
+    Object.assign(noticeEl.style, { marginTop: "6px", font: "400 13px/1.5 Roboto, system-ui, sans-serif", color: t.text });
+    panel.append(stepEl, noticeEl);
     mountPanel(host, panel);
     fitPanelToViewport();
     if (runInFlight) setWatchButtonState("analyzing");
   }
   summaryPanelKind = kind;
+  // A long transcript's parts can take a while: each step re-arms the timeout.
+  if (runInFlight && step) armLoadingTimeout();
   const stepEl = panel.querySelector<HTMLElement>("[data-tldw-step]");
   if (stepEl) {
     stepEl.textContent = kind === "progress" ? step ?? "" : "";
@@ -1793,625 +1431,90 @@ function showProgress(step: string | undefined, notice?: string): void {
   refreshSponsorPanel();
 }
 
-// F8 "Regenerate" tag tie-in: when the user forces a re-run while VIDEO-ONLY tags
-// are active, remember the video so the fresh summary can offer to save those
-// tags for the whole channel. Cleared on navigation and once the offer is acted on.
-let pendingTagPromptVid: string | null = null;
-
-type RegenOpts = {
-  /** Arm the "save these tags for the channel?" offer for the fresh summary (F8). */
-  promote?: boolean;
-  /** Re-run even on a non-auto channel (Regenerate), vs. just dropping back to the
-   *  configured flow (Clear cache, which lands the idle CTA for manual channels). */
-  forceRun?: boolean;
-  /** Force a live request even if the effective prompt has an exact cache match. */
-  bypassCache?: boolean;
-};
-
 /**
- * Drop this video's cache and re-run (F8 Regenerate / Clear cache). Reuses the
- * existing flow: clear cache → maybeStartDirectApiRun. For an auto-run channel
- * that fires a fresh Gemini call automatically; `forceRun` additionally kicks the
- * run for a manual channel (which would otherwise just land the idle CTA), so
- * "Regenerate" always re-summarizes. The cache-skip + autoAskedVid dedup keeps it
- * to a single ASK / single count.
+ * Summarize this video again: Regenerate (the same style, skipping the saved
+ * summary) or another style from the menu (which may be saved already).
  */
-async function regenerateSummary(vid: string | null, opts: RegenOpts = {}): Promise<void> {
-  const { promote = false, forceRun = false, bypassCache = forceRun } = opts;
-  const startEpoch = navEpoch;
-  // Arm (Regenerate) or clear (Clear cache) the promote offer. The rebuilt
-  // summary's tags row recomputes the actual video-only set and drops the flag if
-  // none remain, so we only need to flag the video here — no extra storage read.
-  pendingTagPromptVid = promote && vid ? vid : null;
-
-  // Ask the worker to drop every variant for this video. Wrap in try/catch so a storage hiccup can't
-  // skip the re-run below — the old clearBtn used .finally to re-run regardless.
-  try {
-    if (vid) await chrome.runtime.sendMessage({ type: "CACHE_CLEAR", videoId: vid });
-  } catch { /* best effort — still re-run below */ }
-  // Bail if the user navigated during the awaited storage I/O — otherwise we'd
-  // tear down the freshly-injected panel for the NEW video (LESSONS_LEARNED #9).
-  if (navEpoch !== startEpoch) return;
-  // Allow this deliberate re-run to fire a fresh ASK: on an auto-run channel the
-  // per-visit dedup already marked this video, which would otherwise swallow the
-  // re-run and leave the loading panel spinning. Reset to null so sendAutoAsk can
-  // fire exactly once (no double-count — it re-marks the video immediately).
-  if (vid && autoAskedVid === vid) autoAskedVid = null;
+async function rerun(vid: string | null, opts: { profileId?: string; bypassCache?: boolean }): Promise<void> {
+  if (!vid || vid !== currentVideoId()) return;
+  // Allow this deliberate re-run to send even after an automatic one this visit.
+  if (autoAskedVid === vid) autoAskedVid = null;
   removeSummaryPanel();
-  // forceRun makes maybeStartDirectApiRun re-run even on a non-auto channel, so the
-  // run decision lives in one place (no post-hoc panel-state inspection here).
-  await maybeStartDirectApiRun({ forceRun, bypassCache });
+  await maybeStartDirectApiRun({ forceRun: true, bypassCache: opts.bypassCache, profileId: opts.profileId });
 }
 
-// --- tags row (F6-UI) building blocks ----------------------------------------
-
-/** A small round glyph button (× remove, ↑ promote) used inside tag chips. */
-function iconBtn(glyph: string, title: string, color: string): HTMLButtonElement {
-  const b = document.createElement("button");
-  b.textContent = glyph;
-  b.title = title;
-  Object.assign(b.style, {
-    display: "inline-flex", alignItems: "center", justifyContent: "center",
-    width: "18px", height: "18px", borderRadius: "50%",
-    background: "transparent", border: "none", color,
-    cursor: "pointer", fontSize: "13px", lineHeight: "1", padding: "0", flexShrink: "0",
-  });
-  b.addEventListener("mouseenter", () => { b.style.background = "rgba(127,127,127,0.25)"; });
-  b.addEventListener("mouseleave", () => { b.style.background = "transparent"; });
-  return b;
+/** Seek the video to `seconds` and bring the player into view. */
+function seekTo(seconds: number): void {
+  const video = currentVideoId()
+    ? document.querySelector<HTMLVideoElement>("video.html5-main-video, #movie_player video")
+    : null;
+  if (!video) return;
+  video.currentTime = seconds;
+  void video.play().catch(() => {});
+  document.getElementById("movie_player")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-/** Uppercase section heading inside the tag picker popover. */
-function tagSectionLabel(t: ReturnType<typeof theme>, text: string): HTMLElement {
-  const el = document.createElement("div");
-  el.textContent = text;
-  Object.assign(el.style, {
-    fontSize: "11px", fontWeight: "700", letterSpacing: "0.04em",
-    textTransform: "uppercase", color: t.sub, margin: "0 0 6px",
-  });
-  return el;
-}
-
-/** A text input styled for the tag picker; stops clicks from toggling the panel. */
-function tagInput(t: ReturnType<typeof theme>, placeholder: string): HTMLInputElement {
-  const inp = document.createElement("input");
-  inp.type = "text";
-  inp.placeholder = placeholder;
-  Object.assign(inp.style, {
-    width: "100%", boxSizing: "border-box", marginBottom: "6px",
-    padding: "7px 9px", borderRadius: "7px", border: `1px solid ${t.border}`,
-    background: t.bg, color: t.text, fontSize: "12px",
-  });
-  inp.addEventListener("input", () => { inp.style.borderColor = t.border; });
-  inp.addEventListener("click", (e) => e.stopPropagation());
-  return inp;
-}
-
-/** One active tag chip with scope marker, optional promote (↑), and remove (×). */
-function buildTagChip(
-  t: ReturnType<typeof theme>,
-  tag: Tag,
-  origin: "channel" | "video",
-  vid: string | null,
-  chKey: string | null,
-  rebuild: () => void,
-): HTMLElement {
-  const chip = document.createElement("span");
-  Object.assign(chip.style, {
-    display: "inline-flex", alignItems: "center", gap: "5px",
-    background: t.border, color: t.text, borderRadius: "999px",
-    padding: "2px 4px 2px 10px", whiteSpace: "nowrap", fontSize: "12px", fontWeight: "600",
-  });
-
-  const labelEl = document.createElement("span");
-  labelEl.textContent = tag.label;
-  if (tag.prompt) chip.title = tag.prompt;
-  chip.append(labelEl);
-
-  const scope = document.createElement("span");
-  scope.textContent = origin === "channel" ? "· channel" : "· video";
-  Object.assign(scope.style, { color: t.sub, fontSize: "10px", fontWeight: "700", letterSpacing: "0.03em" });
-  chip.append(scope);
-
-  // Promote (this-video → channel) — only meaningful for a video-only tag.
-  if (origin === "video" && vid && chKey) {
-    const promote = iconBtn("↑", `Apply "${tag.label}" to all future videos of this channel`, t.sub);
-    promote.addEventListener("click", (e) => {
-      e.stopPropagation();
-      void promoteVideoTags(vid, chKey, [tag.id]).then(rebuild);
-    });
-    chip.append(promote);
+/** Where the summary came from, in a few quiet words, and the icon that goes with it. */
+function sourceParts(tldw: TldwSummary): { parts: string[]; icon: string } {
+  const cached = tldw.sourceKind === "cache";
+  const parts: string[] = [];
+  let iconName = "transcript";
+  if (tldw.basis === "video") {
+    iconName = "video";
+    parts.push(tldw.via === "api" ? "Watched by Gemini (no transcript), so no times are shown" : "From the video's link (no transcript), so no times are shown");
+  } else if (tldw.basis === "excerpt") {
+    parts.push("From the start and end of the transcript (very long video)");
+  } else if (tldw.basis === "public") {
+    iconName = "video";
+    parts.push("From public info about the video (no transcript)");
+  } else if (tldw.basis === "transcript") {
+    parts.push(tldw.timed ? "From the transcript · times checked against the captions" : "From the transcript");
+  } else if (tldw.label) {
+    // A summary saved before 1.4 kept its own label.
+    parts.push(tldw.label);
   }
-
-  const remove = iconBtn("×", `Remove "${tag.label}"`, t.sub);
-  remove.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const mapKey = origin === "channel" ? CHANNEL_TAGS_KEY : VIDEO_TAGS_KEY;
-    const key = origin === "channel" ? chKey : vid;
-    if (!key) return;
-    void removeTagAssignment(mapKey, key, tag.id).then(rebuild);
-  });
-  chip.append(remove);
-
-  return chip;
-}
-
-/** The "+ add" control: a popover to pick a library tag or quick-create one,
- *  scoped to this channel or this video only. */
-function buildTagAddControl(
-  t: ReturnType<typeof theme>,
-  library: Tag[],
-  vid: string,
-  channelInfo: ChannelInfo,
-  cleanups: Array<() => void>,
-  rebuild: () => void,
-): HTMLElement {
-  const addBtn = document.createElement("button");
-  addBtn.textContent = "+ add";
-  addBtn.title = "Add a tag for this channel or just this video";
-  Object.assign(addBtn.style, {
-    background: "transparent", border: `1px dashed ${t.sub}`, color: t.sub,
-    cursor: "pointer", fontWeight: "700", fontSize: "12px",
-    borderRadius: "999px", padding: "2px 10px", flexShrink: "0",
-  });
-  addBtn.addEventListener("mouseenter", () => { addBtn.style.color = t.text; addBtn.style.borderColor = t.text; });
-  addBtn.addEventListener("mouseleave", () => { addBtn.style.color = t.sub; addBtn.style.borderColor = t.sub; });
-
-  const chKey = channelTagKey(channelInfo);
-  const { wrap, panel, close, toggle } = buildPopoverMenu(addBtn, t, cleanups, "left");
-  Object.assign(panel.style, { minWidth: "260px", gap: "0", padding: "10px" });
-
-  let scopeSel: "channel" | "video" = "video";
-  const assign = (tagId: string) => {
-    const mapKey = scopeSel === "channel" ? CHANNEL_TAGS_KEY : VIDEO_TAGS_KEY;
-    const key = scopeSel === "channel" ? chKey : vid;
-    void addTagAssignment(mapKey, key, tagId).then(() => { close(); rebuild(); });
-  };
-
-  // Scope toggle: this video only vs the whole channel.
-  const scopeWrap = document.createElement("div");
-  Object.assign(scopeWrap.style, { display: "flex", gap: "6px", marginBottom: "10px" });
-  const mkScope = (text: string): HTMLButtonElement => {
-    const b = document.createElement("button");
-    b.textContent = text;
-    Object.assign(b.style, {
-      flex: "1", padding: "6px 8px", borderRadius: "7px", cursor: "pointer",
-      border: `1px solid ${t.border}`, fontSize: "12px", fontWeight: "700",
-      background: "transparent", color: t.sub,
-    });
-    return b;
-  };
-  const videoScopeBtn = mkScope("This video only");
-  const channelScopeBtn = mkScope("For this channel");
-  const paintScope = () => {
-    const paint = (b: HTMLButtonElement, on: boolean) => {
-      b.style.background = on ? "#1a73e8" : "transparent";
-      b.style.color = on ? "#fff" : t.sub;
-      b.style.borderColor = on ? "#1a73e8" : t.border;
-    };
-    paint(videoScopeBtn, scopeSel === "video");
-    paint(channelScopeBtn, scopeSel === "channel");
-  };
-  videoScopeBtn.addEventListener("click", (e) => { e.stopPropagation(); scopeSel = "video"; paintScope(); });
-  channelScopeBtn.addEventListener("click", (e) => { e.stopPropagation(); scopeSel = "channel"; paintScope(); });
-  paintScope();
-  scopeWrap.append(videoScopeBtn, channelScopeBtn);
-  panel.append(scopeWrap);
-
-  // Existing library tags.
-  if (library.length) {
-    panel.append(tagSectionLabel(t, "From your library"));
-    const list = document.createElement("div");
-    Object.assign(list.style, {
-      display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px",
-      maxHeight: "120px", overflowY: "auto",
-    });
-    for (const tag of library) {
-      const b = document.createElement("button");
-      b.textContent = tag.label;
-      if (tag.prompt) b.title = tag.prompt;
-      Object.assign(b.style, {
-        background: t.border, color: t.text, border: "none", borderRadius: "999px",
-        padding: "4px 10px", cursor: "pointer", fontSize: "12px", fontWeight: "600", whiteSpace: "nowrap",
-      });
-      b.addEventListener("mouseenter", () => { b.style.background = "#1a73e8"; b.style.color = "#fff"; });
-      b.addEventListener("mouseleave", () => { b.style.background = t.border; b.style.color = t.text; });
-      b.addEventListener("click", (e) => { e.stopPropagation(); assign(tag.id); });
-      list.append(b);
-    }
-    panel.append(list);
+  if (tldw.via === "api" && tldw.model) parts.push(geminiModelLabel(tldw.model));
+  if (cached) {
+    parts.push("saved earlier");
+    iconName = parts.length === 1 ? "saved" : iconName;
   }
-
-  // Quick-create a new tag (label + prompt) and assign it in the chosen scope.
-  panel.append(tagSectionLabel(t, "Quick-create"));
-  const labelInput = tagInput(t, "Label (e.g. Citations)");
-  const promptInput = tagInput(t, "Prompt woven into the summary");
-  panel.append(labelInput, promptInput);
-
-  const createBtn = document.createElement("button");
-  createBtn.textContent = "Create & add";
-  Object.assign(createBtn.style, {
-    width: "100%", marginTop: "4px", padding: "8px", borderRadius: "8px",
-    background: "#1a73e8", color: "#fff", border: "none", cursor: "pointer",
-    fontSize: "13px", fontWeight: "700",
-  });
-  let creating = false;
-  const submitCreate = () => {
-    if (creating) return; // guard against a double-click creating two library tags
-    const label = labelInput.value.trim();
-    const prompt = promptInput.value.trim();
-    if (!label) labelInput.style.borderColor = "#dc2626";
-    if (!prompt) promptInput.style.borderColor = "#dc2626";
-    if (!label || !prompt) return;
-    creating = true;
-    void createLibraryTag(label, prompt)
-      .then((tag) => assign(tag.id))
-      .finally(() => { creating = false; });
-  };
-  createBtn.addEventListener("click", (e) => { e.stopPropagation(); submitCreate(); });
-  promptInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); submitCreate(); }
-  });
-  panel.append(createBtn);
-
-  addBtn.addEventListener("click", (e) => { e.stopPropagation(); toggle(); });
-  return wrap;
+  return { parts, icon: iconName };
 }
 
-/** F8 tie-in banner: "Save these tags for future videos of this channel?" */
-function buildPromoteAllBanner(
-  t: ReturnType<typeof theme>,
-  vid: string,
-  chKey: string,
-  tagIds: string[],
-  rebuild: () => void,
-): HTMLElement {
-  const banner = document.createElement("span");
-  Object.assign(banner.style, {
-    display: "inline-flex", alignItems: "center", gap: "8px",
-    background: t.hover, borderRadius: "8px", padding: "4px 6px 4px 10px",
-    fontSize: "12px", color: t.text, flexShrink: "0",
-  });
-  const msg = document.createElement("span");
-  msg.textContent = "Save these tags for future videos of this channel?";
-
-  const save = document.createElement("button");
-  save.textContent = "Save";
-  Object.assign(save.style, {
-    background: "#1a73e8", color: "#fff", border: "none", borderRadius: "999px",
-    padding: "3px 12px", cursor: "pointer", fontWeight: "700", fontSize: "12px", flexShrink: "0",
-  });
-  save.addEventListener("click", (e) => {
-    e.stopPropagation();
-    pendingTagPromptVid = null;
-    void promoteVideoTags(vid, chKey, tagIds).then(rebuild);
-  });
-
-  const dismiss = iconBtn("×", "Dismiss", t.sub);
-  dismiss.addEventListener("click", (e) => {
-    e.stopPropagation();
-    pendingTagPromptVid = null;
-    rebuild();
-  });
-
-  banner.append(msg, save, dismiss);
-  return banner;
-}
-
-/**
- * F6-UI — the bottom "Tags:" row of a loaded summary. Shows the tags active for
- * this video (channel tags ∪ video tags, resolved against the library), with
- * add / remove / promote controls, a "↻ Regenerate" action, and an "Edit tags →"
- * deep link. Re-reads storage and re-renders itself after every change so it
- * always reflects what's persisted (and what Agent A weaves into the prompt).
- */
-function buildTagsRow(
-  t: ReturnType<typeof theme>,
-  vid: string | null,
-  cleanups: Array<() => void>,
-): HTMLElement {
-  const row = document.createElement("div");
-  Object.assign(row.style, {
-    borderTop: `1px solid ${t.border}`,
-    marginTop: "8px", paddingTop: "7px",
-    fontSize: "12px", color: t.sub,
-    display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center",
-  });
-
-  const channelInfo = currentChannelInfo;
-  const chKey = channelInfo ? channelTagKey(channelInfo) : null;
-
-  // Each rebuild() recreates the "+ add" popover, so its teardown is kept in a
-  // single-slot list (drained + replaced per rebuild) rather than pushed onto the
-  // panel-wide `cleanups` — otherwise that array would grow one stale closure per
-  // tag edit for the panel's lifetime. One panel-level cleanup closes whatever the
-  // current popover is.
-  const addControlCleanups: Array<() => void> = [];
-  cleanups.push(() => { for (const fn of addControlCleanups.splice(0)) fn(); });
-
-  const rebuild = async () => {
-    // Guard against a late rebuild landing on a different video after navigation.
-    if (vid && currentVideoId() !== vid) return;
-    // Close + forget the previous rebuild's add-control popover before rebuilding.
-    for (const fn of addControlCleanups.splice(0)) fn();
-    const [library, chMap, vidMap] = await Promise.all([
-      readTagLibrary(), readChannelTagMap(), readVideoTagMap(),
-    ]);
-    if (vid && currentVideoId() !== vid) return;
-
-    const byId = new Map(library.map((tag) => [tag.id, tag]));
-    const channelIds = chKey ? chMap[chKey] ?? [] : [];
-    const videoIds = vid ? vidMap[vid] ?? [] : [];
-
-    const children: HTMLElement[] = [];
-
-    const label = document.createElement("span");
-    label.textContent = "Tags:";
-    Object.assign(label.style, { fontWeight: "700", flexShrink: "0" });
-    children.push(label);
-
-    const seen = new Set<string>();
-    const addChip = (id: string, origin: "channel" | "video") => {
-      if (seen.has(id)) return;
-      const tag = byId.get(id);
-      if (!tag) return; // assignment references a deleted library tag — skip it
-      seen.add(id);
-      children.push(buildTagChip(t, tag, origin, vid, chKey, rebuild));
-    };
-    for (const id of channelIds) addChip(id, "channel");
-    for (const id of videoIds) if (!channelIds.includes(id)) addChip(id, "video");
-
-    if (seen.size === 0) {
-      const none = document.createElement("span");
-      none.textContent = "none yet";
-      none.style.opacity = "0.7";
-      children.push(none);
-    }
-
-    if (vid && channelInfo) {
-      children.push(buildTagAddControl(t, library, vid, channelInfo, addControlCleanups, rebuild));
-    }
-
-    // ↻ Regenerate (F8) — force a fresh run that picks up any tags just added.
-    if (vid) {
-      const regen = document.createElement("button");
-      regen.textContent = "↻ Regenerate";
-      regen.title = "Re-run the summary now (counts as a Gemini request). Uses any tags you've added.";
-      Object.assign(regen.style, {
-        background: "transparent", border: `1px solid ${t.border}`, color: t.sub,
-        cursor: "pointer", fontWeight: "700", fontSize: "12px",
-        borderRadius: "999px", padding: "2px 10px", flexShrink: "0",
-      });
-      regen.addEventListener("mouseenter", () => { regen.style.background = "#1a73e8"; regen.style.color = "#fff"; regen.style.borderColor = "#1a73e8"; });
-      regen.addEventListener("mouseleave", () => { regen.style.background = "transparent"; regen.style.color = t.sub; regen.style.borderColor = t.border; });
-      regen.addEventListener("click", (e) => { e.stopPropagation(); void regenerateSummary(vid, { promote: true, forceRun: true }); });
-      children.push(regen);
-    }
-
-    const edit = document.createElement("button");
-    edit.textContent = "Edit tags →";
-    edit.title = "Open the Tags section in TL;DW options";
-    Object.assign(edit.style, {
-      background: "transparent", border: "none", color: "#3ea6ff",
-      cursor: "pointer", fontWeight: "700", fontSize: "12px", padding: "0",
-      marginLeft: "2px", flexShrink: "0",
-    });
-    edit.addEventListener("click", (e) => {
-      e.stopPropagation();
-      void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "tags" });
-    });
-    children.push(edit);
-
-    // F8: after a regen with video-only tags active, offer to save them channel-wide.
-    if (pendingTagPromptVid && pendingTagPromptVid === vid && chKey) {
-      const videoOnly = videoIds.filter((id) => !channelIds.includes(id) && byId.has(id));
-      if (videoOnly.length) children.push(buildPromoteAllBanner(t, vid, chKey, videoOnly, rebuild));
-      else pendingTagPromptVid = null;
-    }
-
-    row.replaceChildren(...children);
-  };
-
-  void rebuild();
-  return row;
-}
-
-let detailsSeq = 0;
-
-/** Drop Markdown emphasis markers a model leaves in plain text ("**key**" -> "key"). */
-function plainMarkdown(text: string): string {
-  return text.replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1").replace(/`([^`]+)`/g, "$1");
-}
-
-/**
- * The DETAILS text as paragraphs and lists: lines starting "• " become a
- * bulleted list, lines starting "1. " a numbered one, anything else a paragraph.
- * Built with DOM nodes and textContent only (model output is untrusted).
- */
-function renderDetails(text: string, t: ReturnType<typeof theme>): HTMLElement {
-  const wrap = document.createElement("div");
-  Object.assign(wrap.style, { paddingTop: "6px", fontSize: "13px", lineHeight: "1.55", color: t.sub });
-  let list: HTMLElement | null = null;
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (!line) continue;
-    const bullet = line.match(/^•\s+(.*)$/);
-    const numbered = line.match(/^(\d{1,2})\.\s+(.*)$/);
-    if (bullet || numbered) {
-      const tag = bullet ? "UL" : "OL";
-      if (!list || list.tagName !== tag) {
-        list = document.createElement(tag.toLowerCase());
-        Object.assign(list.style, { margin: "4px 0", paddingLeft: "20px" });
-        if (numbered) list.setAttribute("start", numbered[1]);
-        wrap.append(list);
-      }
-      const li = document.createElement("li");
-      li.textContent = plainMarkdown(bullet ? bullet[1] : numbered![2]);
-      Object.assign(li.style, { margin: "2px 0" });
-      list.append(li);
-    } else {
-      list = null;
-      const p = document.createElement("p");
-      p.textContent = plainMarkdown(line);
-      Object.assign(p.style, { margin: "4px 0" });
-      wrap.append(p);
-    }
-  }
-  return wrap;
-}
-
-function buildSummaryPanel(
-  tldw: TldwSummary,
-  videoId?: string | null,
-): HTMLElement {
-  const t = theme();
-  const vid = videoId ?? currentVideoId();
-  // Teardown fns (popover document listeners) run from removeSummaryPanel via
-  // __tldwCleanup, so a panel rebuild never leaks listeners.
+function buildSummaryPanel(tldw: TldwSummary, vid: string | null): HTMLElement {
+  const t = panelTheme();
+  // Teardown fns (the menu's document listeners) run from removeSummaryPanel
+  // via __tldwCleanup, so a panel rebuild never leaks listeners.
   const cleanups: Array<() => void> = [];
-
-  const panel = document.createElement("div");
-  panel.id = "tldw-summary";
-  Object.assign(panel.style, panelBoxStyle(t));
-
-  // --- header: "⋯" overflow menu (F1) ---
-  // The panel is summary-only: no AI verdict pill and no engagement/rating cue.
-  // A label says how the summary was made when it wasn't from the transcript.
-  const headerControls: HTMLElement[] = [];
-  const labelEl = tldw.label ? summaryLabelElement(t, tldw.label) : null;
-
-  // F1: collapse the secondary actions (Open tab / Clear cache / source badge)
-  // into a right-aligned "⋯" popover. The Auto-summarize toggle (added by
-  // buildPanelHead) stays inline; the Tags row lives at the bottom of the panel.
-  const menuItems: Array<{ label: string; title?: string; danger?: boolean; onClick: () => void }> = [];
-
-  // ↗ Open tab — jump to the AI destination tab (reuses the scraped one if open).
-  menuItems.push({
-    label: "↗ Open tab",
-    title: "Go to the AI destination tab (reuses the one we scraped if it's still open)",
-    onClick: () => void chrome.runtime.sendMessage({
-      type: "OPEN_OR_FOCUS_DESTINATION",
-      videoId: vid ?? undefined,
-    }),
-  });
-
-  // 🧹 Clear cache — drop THIS video's cached summary and start fresh.
-  menuItems.push({
-    label: "🧹 Clear cache",
-    title: "Remove this video's cached summary and start fresh",
-    danger: true,
-    onClick: () => { void regenerateSummary(vid, {}); },
-  });
-
-  // Source / Cached badge as a menu row, honest about origin and pointing where
-  // it makes sense. When Direct API isn't set up and there's no origin to show,
-  // offer the "Get instant results" setup nudge (the free headless path).
-  const origin = describeSummarySource(tldw.source, tldw.sourceKind);
-  if (origin) {
-    menuItems.push({
-      label: origin.label,
-      title: origin.title,
-      onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: origin.section }),
-    });
-  } else if (!currentDirectApiEnabled) {
-    menuItems.push({
-      label: "⚡ Get instant results",
-      title: "Get summaries instantly from the free Gemini API: no tab opens, no waiting. Click to set it up.",
-      onClick: () => void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" }),
-    });
+  const profileName = tldw.profileName ?? knownProfiles.find((p) => p.id === tldw.profileId)?.name;
+  const subtitle = [profileName, modeLabel(tldw.via)].filter(Boolean).join(" · ");
+  const menu = overflowMenu(t, () => summaryMenu(tldw, vid), cleanups);
+  const panel = newPanel(t, subtitle, menu);
+  panel.dataset.tldwLayout = tldw.layout ?? "legacy";
+  panel.append(summaryBody(t, tldw, seekTo));
+  if (tldw.fallbackNote) {
+    const n = document.createElement("p");
+    n.dataset.tldwFallback = "1";
+    n.setAttribute("role", "note");
+    n.textContent = tldw.fallbackNote;
+    Object.assign(n.style, { margin: "10px 0 0", font: "400 12px/1.5 Roboto, system-ui, sans-serif", color: t.sub });
+    panel.append(n);
   }
-
-  const overflowMenu = buildOverflowMenu(t, menuItems, cleanups);
-
-  const head = buildPanelHead(t, headerControls, currentChannelInfo, true, true, [], [overflowMenu]);
-  Object.assign(head.style, { marginBottom: "8px" });
-
-  // --- body: summary always visible; a button shows and hides the details ---
-  const hasDetails = !!tldw.details;
-  const body = document.createElement("div");
-
-  const summaryEl = document.createElement("div");
-  summaryEl.textContent = plainMarkdown(tldw.summary);
-  Object.assign(summaryEl.style, { fontSize: "14px", lineHeight: "1.5", color: t.text });
-  body.append(summaryEl);
-
-  if (hasDetails) {
-    detailsSeq += 1;
-    const detailsId = `tldw-details-${detailsSeq}`;
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.dataset.tldwDetailsToggle = "1";
-    toggle.setAttribute("aria-expanded", "false");
-    toggle.setAttribute("aria-controls", detailsId);
-    Object.assign(toggle.style, {
-      display: "inline-flex", alignItems: "center", gap: "4px",
-      marginTop: "6px", padding: "2px 0", background: "transparent", border: "none",
-      color: t.sub, fontSize: "13px", fontWeight: "600", cursor: "pointer",
-    });
-
-    const details = renderDetails(tldw.details!, t);
-    details.id = detailsId;
-    details.hidden = true;
-
-    let expanded = false;
-    const setExpanded = (next: boolean) => {
-      expanded = next;
-      details.hidden = !expanded;
-      toggle.setAttribute("aria-expanded", String(expanded));
-      toggle.textContent = expanded ? "Hide details ▴" : "Show details ▾";
-    };
-    setExpanded(false);
-    toggle.addEventListener("click", (e) => {
-      e.stopPropagation();
-      setExpanded(!expanded);
-    });
-    // Clicking the summary text toggles too (a mouse shortcut; the button is
-    // the keyboard and screen-reader control).
-    summaryEl.style.cursor = "pointer";
-    summaryEl.addEventListener("click", () => setExpanded(!expanded));
-    body.append(toggle, details);
-  }
-
-  // --- tags row (F6-UI): active channel+video tags + add / remove / promote ---
-  const tagsRow = buildTagsRow(t, vid, cleanups);
-
-  // removeSummaryPanel() is the single removal path, so aggregate every teardown
-  // (popover document listeners) onto the element and run them there — cheaper
-  // than a per-panel MutationObserver just to notice this node leave.
+  const { parts, icon: iconName } = sourceParts(tldw);
+  if (parts.length) panel.append(sourceLine(t, parts, iconName));
   (panel as CleanablePanel).__tldwCleanup = () => { for (const fn of cleanups) fn(); };
-
-  // The panel is summary-only: summary text + tags row + the "⋯" menu. No
-  // engagement cue and no AI verdict pill.
-  panel.append(head);
-  if (labelEl) panel.append(labelEl);
-  panel.append(body);
-  if (tldw.note) {
-    const note = document.createElement("div");
-    note.dataset.tldwNote = "1";
-    note.setAttribute("role", "note");
-    note.textContent = tldw.note;
-    Object.assign(note.style, { fontSize: "12px", lineHeight: "1.5", color: t.sub, marginTop: "8px" });
-    panel.append(note);
-  }
-  panel.append(tagsRow);
   return panel;
 }
 
-
-function showSummaryPanel(
-  tldw: TldwSummary,
-  videoId?: string | null,
-): void {
+function showSummaryPanel(tldw: TldwSummary, videoId?: string | null): void {
   const host = panelHost();
   if (!host) return;
-
   const vid = videoId ?? currentVideoId();
   // Never put a summary on another video's page.
   if (!vid || vid !== currentVideoId()) return;
   removeSummaryPanel();
-  // A result landed — the run is no longer in flight (clears the timeout +
-  // the inline button's "Analyzing…" cue, which setWatchButtonState("ready")
-  // below replaces).
+  // A result landed — the run is no longer in flight (clears the timeout and
+  // the button's "Analyzing…" cue, which setWatchButtonState("ready") replaces).
   endRunInFlight();
   const panel = buildSummaryPanel(tldw, vid);
   mountPanel(host, panel);
@@ -2610,7 +1713,7 @@ function handleAskReply(vid: string, reply: unknown): void {
  * by the caller from the resulting panel state.
  */
 async function maybeStartDirectApiRun(
-  opts: { forceRun?: boolean; bypassCache?: boolean } = {},
+  opts: { forceRun?: boolean; bypassCache?: boolean; profileId?: string } = {},
 ): Promise<void> {
   const vid = currentVideoId();
   if (!vid) return;
@@ -2668,7 +1771,14 @@ async function maybeStartDirectApiRun(
   // Serve the newest variant on passive navigation. The worker owns the read
   // and records the hit exactly when it delivers a result.
   const serveCached = (entry: CachedSummary) => {
-    showSummaryPanel({ ...entry.tldw, source: cachedSourceLabel(entry.profileName), sourceKind: "cache" }, vid);
+    showSummaryPanel({
+      ...entry.tldw,
+      // A summary saved before 1.4 doesn't name its profile itself.
+      profileId: entry.tldw.profileId ?? entry.profileId,
+      profileName: entry.tldw.profileName ?? entry.profileName,
+      source: cachedSourceLabel(entry.profileName),
+      sourceKind: "cache",
+    }, vid);
     log("served from cache");
   };
 
@@ -2697,6 +1807,7 @@ async function maybeStartDirectApiRun(
       const reply: unknown = await chrome.runtime.sendMessage({
         type: "ASK",
         source: "page",
+        profileId: opts.profileId,
         bypassCache: opts.bypassCache ?? false,
       });
       handleAskReply(vid, reply);
@@ -2705,7 +1816,9 @@ async function maybeStartDirectApiRun(
   // Expose for the loading-timeout retry panel.
   currentSummarizeAction = startApiCall;
 
-  const cacheResult = opts.bypassCache
+  // A style picked from the menu may be saved already, but only the worker
+  // knows the exact request; the newest saved summary would be another style.
+  const cacheResult = opts.bypassCache || opts.profileId
     ? undefined
     : await chrome.runtime.sendMessage({ type: "CACHE_LOOKUP", videoId: vid }) as
         | { entry?: CachedSummary }
@@ -2881,7 +1994,6 @@ function onNavigate(): void {
   // failed run on a previous visit doesn't block this one).
   autoAskedVid = null;
   // The "save these tags for the channel?" offer is per-video; drop it on nav.
-  pendingTagPromptVid = null;
   removeSummaryPanel();
   // A run for the previous video is no longer relevant — clear the in-flight
   // flag + timeout so the inline button doesn't carry "Analyzing…" onto the new
@@ -2919,9 +2031,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // Name the video the transcript is for, so the worker can refuse one that
     // doesn't match the video it is summarizing.
     const videoId = currentVideoId();
-    void getTranscript().then((transcript) =>
-      sendResponse({ transcript: currentVideoId() === videoId ? transcript : null, videoId }),
-    );
+    void getTranscript().then((read) => {
+      const ours = currentVideoId() === videoId ? read : null;
+      // A line without a readable time travels as null (JSON has no NaN).
+      sendResponse({ transcript: ours?.text ?? null, segments: ours?.segments ?? [], videoId });
+    });
     return true;
   }
   if (type === "PAUSE_VIDEO") {
@@ -2938,7 +2052,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   if (type === "SET_SUMMARY") {
-    const msg = message as { tldw?: TldwSummary; source?: string; sourceKind?: SummarySourceKind; videoId?: string; note?: string };
+    const msg = message as { tldw?: SharedSummary; source?: string; sourceKind?: SummarySourceKind; videoId?: string; note?: string };
     const tldw = msg?.tldw;
     if (tldw?.summary) {
       const cur = currentVideoId();
@@ -2962,7 +2076,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       // run IS done and the summary is cached below; leaving runInFlight set would
       // strand the button on "Analyzing…" and fire a bogus 90s timeout error.
       endRunInFlight();
-      showSummaryPanel({ ...tldw, source: msg.source, sourceKind: msg.sourceKind, note: msg.note }, vid);
+      showSummaryPanel({ ...tldw, source: msg.source, sourceKind: msg.sourceKind, fallbackNote: msg.note }, vid);
       sendResponse({ ok: true, shown: true, late });
       return false;
     }

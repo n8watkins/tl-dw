@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page, chromium } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -387,6 +388,7 @@ async function mockGemini(
   prompts: string[],
   status: number | ((model: string) => number) = 200,
   calls: GeminiCall[] = [],
+  answer: (prompt: string) => string = () => "---TLDW---\nSUMMARY: Fixture summary.\nDETAILS: Fixture details.\n---END TLDW---",
 ): Promise<void> {
   await context.route("https://generativelanguage.googleapis.com/**", async (route) => {
     const model = new URL(route.request().url()).pathname.match(/models\/([^:/]+)/)?.[1] ?? "";
@@ -418,7 +420,7 @@ async function mockGemini(
       body: JSON.stringify({
         candidates: [{
           content: {
-            parts: [{ text: "---TLDW---\nSUMMARY: Fixture summary.\nDETAILS: Fixture details.\n---END TLDW---" }],
+            parts: [{ text: answer(prompt) }],
           },
         }],
       }),
@@ -489,7 +491,7 @@ test("invalid key verification remains saved with actionable status", async () =
   }
 });
 
-test("manual and automatic summaries use their effective profiles", async () => {
+test("manual, popup and automatic summaries use the profile picked for them, else the default", async () => {
   const manual = await launchExtension();
   try {
     const prompts: string[] = [];
@@ -504,7 +506,8 @@ test("manual and automatic summaries use their effective profiles", async () => 
     expect(prompts[0]).not.toContain("AUTOMATIC PROFILE");
 
     await page.reload();
-    await expect(page.locator("#tldw-summary")).toContainText("💾 Cached (Global Profile)");
+    await expect(page.locator("#tldw-summary")).toContainText("Global Profile · Your Gemini key");
+    await expect(page.locator("#tldw-summary")).toContainText("saved earlier");
     expect(prompts).toHaveLength(1);
     const usage = await getStorage<{ attemptsToday?: number }>(manual, "geminiUsage");
     const stats = await getStorage<{ cacheHits?: number }>(manual, "tldwStats");
@@ -567,7 +570,8 @@ test("manual and automatic summaries use their effective profiles", async () => 
     const page = await openVideo(automatic.context, "fixture-auto");
     await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
     expect(prompts).toHaveLength(1);
-    expect(prompts[0]).toContain("AUTOMATIC PROFILE");
+    // One default style for every run (the separate auto-run profile is retired).
+    expect(prompts[0]).toContain("GLOBAL PROFILE");
   } finally {
     await automatic.close();
   }
@@ -669,7 +673,7 @@ test("malformed model output ends loading with a retry", async () => {
     const page = await openVideo(session.context, "fixture-malformed");
     await page.locator("#tldw-watch-btn").click();
     await expect(page.locator("#tldw-summary")).toContainText("could not read");
-    await expect(page.getByRole("button", { name: "↻ Try again" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
     await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
   } finally {
     await session.close();
@@ -688,7 +692,7 @@ test("a timed-out request ends loading with a retry", async () => {
     const page = await openVideo(session.context, "fixture-timeout");
     await page.locator("#tldw-watch-btn").click();
     await expect(page.locator("#tldw-summary")).toContainText("Gemini took too long to answer");
-    await expect(page.getByRole("button", { name: "↻ Try again" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
     await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
   } finally {
     await session.close();
@@ -745,7 +749,7 @@ test("quota errors end loading and count a failed attempt", async () => {
   }
 });
 
-test("transcripts reach the prompt as spoken text only", async () => {
+test("transcripts reach the prompt as spoken text, one [m:ss] time per line, with no screen-reader labels", async () => {
   const session = await launchExtension();
   try {
     const prompts: string[] = [];
@@ -756,9 +760,9 @@ test("transcripts reach the prompt as spoken text only", async () => {
     await page.locator("#tldw-watch-btn").click();
     await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
     expect(prompts[0]).toContain(
-      "The fixture transcript explains reliable extension testing. It recommends prompt-aware caching",
+      "[0:01] The fixture transcript explains reliable extension testing.\n[0:05] It recommends prompt-aware caching",
     );
-    expect(prompts[0]).not.toMatch(/\d+ seconds?|0:0[15]/);
+    expect(prompts[0]).not.toMatch(/\d+ seconds?|0:010:01|1 second/);
   } finally {
     await session.close();
   }
@@ -777,8 +781,9 @@ test("the transcript is read from YouTube's get_panel response", async () => {
     const page = await openVideo(session.context, "fixture-panel");
     await page.locator("#tldw-watch-btn").click();
     await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+    // The times come from the panel's own seek commands.
     expect(prompts[0]).toContain(
-      "Intercepted panel text arrives from the network. Nothing here is scraped from the page.",
+      "[0:02] Intercepted panel text arrives from the network.\n[0:09] Nothing here is scraped from the page.",
     );
   } finally {
     await session.close();
@@ -1000,8 +1005,9 @@ test("the example summary works with no key and sends nothing", async () => {
     await expect(welcome.getByRole("heading", { name: "This is what TL;DW puts under a video." })).toBeVisible();
     const panel = welcome.getByRole("article", { name: "Example summary" });
     await expect(panel).toContainText("Trust your intuition");
-    await panel.getByRole("button", { name: "Show details ▾" }).click();
-    await expect(panel).toContainText("death is life's ultimate change agent");
+    // Real, checked times, each a link to that moment of the video.
+    await expect(panel.getByRole("link", { name: "Watch from 5:07" })).toHaveAttribute("href", "https://www.youtube.com/watch?v=UF8uR6Z6KLc&t=307s");
+    await expect(panel).toContainText("times checked against the captions");
     await expect(welcome.getByRole("link", { name: "Watch it on YouTube ↗" }))
       .toHaveAttribute("href", "https://www.youtube.com/watch?v=UF8uR6Z6KLc");
     await welcome.getByRole("button", { name: "Back" }).click();
@@ -1048,7 +1054,7 @@ test("the previous video's transcript never reaches the next, uncaptioned video"
     await expect.poll(() => session.worker.evaluate(() => chrome.action.getBadgeText({})), { timeout: 3_000, intervals: [50] }).toBe("…");
     // B has no transcript, so Gemini watches B from its link: A's transcript
     // is never sent, and the summary says how it was made.
-    await expect(page.locator("#tldw-summary")).toContainText("Watched by Gemini (no transcript)");
+    await expect(page.locator("#tldw-summary")).toContainText("Watched by Gemini (no transcript), so no times are shown");
     expect(calls).toHaveLength(1);
     expect(calls[0].videoUrl).toBe("https://www.youtube.com/watch?v=fixture-b");
     expect(calls[0].mediaResolution).toBe("MEDIA_RESOLUTION_LOW");
@@ -1107,7 +1113,7 @@ test("auto-run-if-long uses the video's length, not a pre-roll ad's", async () =
     </script>`));
     const page = await openVideo(session.context, "fixture-long-ad");
     // The run fires; the video has no transcript, so Gemini watches it.
-    await expect(page.locator("#tldw-summary")).toContainText("Watched by Gemini (no transcript)", { timeout: 15_000 });
+    await expect(page.locator("#tldw-summary")).toContainText("Watched by Gemini (no transcript), so no times are shown", { timeout: 15_000 });
     expect(prompts).toHaveLength(1);
     await page.close();
 
@@ -1120,7 +1126,7 @@ test("auto-run-if-long uses the video's length, not a pre-roll ad's", async () =
       player.querySelector(".ytp-time-duration").textContent = "0:15";
     </script>`));
     const second = await openVideo(session.context, "fixture-long-ad-2");
-    await expect(second.locator("#tldw-summary")).toContainText("Watched by Gemini (no transcript)", { timeout: 15_000 });
+    await expect(second.locator("#tldw-summary")).toContainText("Watched by Gemini (no transcript), so no times are shown", { timeout: 15_000 });
     const tabId = await tabIdFor(session, second.url());
     const meta = await session.worker.evaluate(async (id) => chrome.tabs.sendMessage(id!, { type: "GET_VIDEO_META" }), tabId);
     expect((meta as { durationSeconds: number }).durationSeconds).toBe(3600);
@@ -1318,7 +1324,8 @@ test("closing the auto-run confirmation leaves no key listener behind", async ()
     };
     const before = await keydownListeners();
     for (const close of ["Cancel", "Escape", "backdrop"] as const) {
-      await page.getByRole("button", { name: "↻ Auto-summarize" }).click();
+      await page.locator("#tldw-summary").getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: /Auto-summarize Fixture Channel/ }).click();
       await expect(page.locator("#tldw-autorun-overlay")).toBeVisible();
       if (close === "Cancel") await page.getByRole("button", { name: "Cancel" }).click();
       else if (close === "Escape") await page.keyboard.press("Escape");
@@ -1687,7 +1694,7 @@ test("no transcript with a key: Gemini watches the video, and a private one is r
     const page = await openVideo(session.context, "fixture-no-transcript");
     await page.locator("#tldw-watch-btn").click();
     await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
-    await expect(page.locator("#tldw-summary [data-tldw-label]")).toHaveText("Watched by Gemini (no transcript)");
+    await expect(page.locator("#tldw-summary [data-tldw-source]")).toHaveText("Watched by Gemini (no transcript), so no times are shown · Gemini 3.5 Flash-Lite");
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
       model: "gemini-3.5-flash-lite",
@@ -1786,12 +1793,19 @@ const chatHistorySidebar = `<nav aria-label="Recent chats">
 function chatSiteFixture(
   site: ChatSite,
   signedIn: boolean,
-  answer: { kind?: "tldw" | "raw"; delayMs?: number } = {},
+  answer: { kind?: "tldw" | "raw" | "cannot" | "points"; delayMs?: number; lines?: string[] } = {},
 ): string {
   const m = CHAT_SITES[site];
   const account = signedIn
     ? '<a aria-label="Google Account: Fixture User" href="https://accounts.google.com/SignOutOptions">FU</a>'
     : '<a href="https://accounts.google.com/ServiceLogin?continue=https://gemini.google.com/app">Sign in</a>';
+  const lines = answer.lines ?? (answer.kind === "raw"
+    ? ["Here is a long answer that forgot the requested block entirely, so there is nothing to parse in it at all.",
+      "It goes on for a while about the video without any of the field labels TL;DW asked for."]
+    : answer.kind === "cannot"
+      ? ["CANNOT_ACCESS"]
+      : ["---TLDW---", "SUMMARY: Hidden answers are read in full.",
+        "DETAILS: Background tabs keep finished paragraphs hidden until they are shown.", "---END TLDW---"]);
   return `<!doctype html>
 <html>
   <head><title>Chat</title><style>.pending { display: none; }</style></head>
@@ -1802,21 +1816,26 @@ function chatSiteFixture(
       ${m.composer[0]}${m.editor}<span id="slot">${m.send}</span>${m.composer[1]}
     ${m.layout[2]}
     <script>
-      const lines = ${answer.kind === "raw"
-        ? JSON.stringify(["Here is a long answer that forgot the requested block entirely, so there is nothing to parse in it at all.",
-          "It goes on for a while about the video without any of the field labels TL;DW asked for."])
-        : JSON.stringify(["---TLDW---", "SUMMARY: Hidden answers are read in full.",
-          "DETAILS: Background tabs keep finished paragraphs hidden until they are shown.", "---END TLDW---"])};
+      const lines = ${JSON.stringify(lines)};
       const slot = document.getElementById("slot");
+      // Every message sent, in order; a transcript part gets its acknowledgement.
+      window.__messages = [];
       const bind = () => slot.querySelector("button").addEventListener("click", () => {
-        window.__sentPrompt = document.querySelector("[contenteditable]").textContent;
+        const editor = document.querySelector("[contenteditable]");
+        const sent = editor.textContent;
+        window.__sentPrompt = sent;
+        window.__messages.push(sent);
+        editor.textContent = "";
         slot.innerHTML = ${JSON.stringify(m.stop)};
+        const part = sent.match(/reply with only "(Got part \\d+ of \\d+\\.)"/);
+        const reply = part ? [part[1]] : lines;
         setTimeout(() => {
           document.getElementById("thread").insertAdjacentHTML("beforeend", ${JSON.stringify(m.response[0])} +
-            lines.map((line) => '<p class="pending">' + line + "</p>").join("") + ${JSON.stringify(m.response[1])});
-          window.__answeredAt = Date.now();
+            reply.map((line) => '<p class="pending">' + line + "</p>").join("") + ${JSON.stringify(m.response[1])});
+          if (!part) window.__answeredAt = Date.now();
           slot.innerHTML = ${JSON.stringify(m.send)};
-        }, ${answer.delayMs ?? 1200});
+          bind();
+        }, part ? 300 : ${answer.delayMs ?? 1200});
       });
       bind();
     </script>
@@ -1833,22 +1852,16 @@ function profilesWithoutUrl() {
   return profiles().map((p) => (p.id === "global" ? { ...p, promptTemplate: "GLOBAL PROFILE {{title}}" } : p));
 }
 
-const PART_LABEL = "Summarized from part of the transcript (video is long). Add a free API key to summarize the whole video.";
-const PUBLIC_INFO_LABEL =
-  "No transcript, so Gemini summarized from public info about this video, not the video itself. Add a free API key so Gemini can watch it.";
-const READ_TRANSCRIPT_LABEL = "Gemini read the video's transcript through YouTube";
-
 const geminiTabCases = [
   { kind: "transcript", signedIn: false },
   { kind: "long video", signedIn: false },
-  { kind: "long video", signedIn: true },
-  { kind: "unread captions", signedIn: false },
   { kind: "unread captions", signedIn: true },
   { kind: "no captions", signedIn: true },
 ] as const;
 
 for (const { kind, signedIn } of geminiTabCases) {
-  test(`the Gemini tab's hidden answer comes back, labeled honestly (${kind}, ${signedIn ? "signed in" : "signed out"})`, async () => {
+  test(`the Gemini tab's hidden answer comes back, with an honest source line (${kind}, ${signedIn ? "signed in" : "signed out"})`, async () => {
+    test.setTimeout(60_000);
     const session = await launchExtension();
     try {
       if (kind === "unread captions") {
@@ -1872,15 +1885,8 @@ for (const { kind, signedIn } of geminiTabCases) {
       const geminiPage = session.context.waitForEvent("page");
       await page.locator("#tldw-watch-btn").click();
       const panel = page.locator("#tldw-summary");
-      if (kind === "long video") {
-        await expect(panel).toContainText(
-          "This video is long. Signed in to Gemini, it reads the transcript through YouTube; signed out, it gets the transcript's start and end.",
-        );
-      } else if (kind === "unread captions") {
-        await expect(panel).toContainText("Signed in, Gemini reads the captions through YouTube; signed out, it can only summarize public info");
-      } else if (kind === "no captions") {
-        await expect(panel).toContainText("so Gemini gets the link and can only summarize public info about the video");
-      }
+      if (kind === "long video") await expect(panel).toContainText("This video is long, so Gemini gets its transcript in 2 parts.");
+      else if (kind !== "transcript") await expect(panel).toContainText("so Gemini gets its link and reads the captions through YouTube");
       await expect.poll(async () => (await created()).length).toBe(1);
       expect((await created())[0]).toMatchObject({ url: "https://gemini.google.com/app", active: false });
 
@@ -1889,43 +1895,34 @@ for (const { kind, signedIn } of geminiTabCases) {
       const gemini = await geminiPage;
       await gemini.goto("https://gemini.google.com/app");
       await page.bringToFront();
-      await expect.poll(() => gemini.evaluate(() => (window as unknown as { __sentPrompt?: string }).__sentPrompt ?? "")).not.toBe("");
-      const sent = await gemini.evaluate(() => (window as unknown as { __sentPrompt: string }).__sentPrompt);
-      expect(await gemini.evaluate(() => document.querySelector("model-response")?.textContent ?? "")).toBe("");
+      await expect.poll(() => gemini.evaluate(() => (window as unknown as { __answeredAt?: number }).__answeredAt ?? 0), { timeout: 30_000 }).toBeGreaterThan(0);
+      const messages = await gemini.evaluate(() => (window as unknown as { __messages: string[] }).__messages);
+      const sent = messages.at(-1)!;
 
       await expect(panel).toContainText("Hidden answers are read in full.", { timeout: 20_000 });
-      await panel.getByRole("button", { name: "Show details ▾" }).click();
       await expect(panel).toContainText("Background tabs keep finished paragraphs hidden until they are shown.");
       await expect(panel).not.toContainText("---TLDW---");
-      await expect(panel).not.toContainText("Watched");
-      const label = panel.locator("[data-tldw-label]");
+      const source = panel.locator("[data-tldw-source]");
       const link = `Video link: https://www.youtube.com/watch?v=${videoId}`;
-      const readTranscript = "Read this video's transcript (its captions) through YouTube";
       if (kind === "transcript") {
-        await expect(label).toHaveCount(0);
+        await expect(source).toHaveText("From the transcript");
+        expect(messages).toHaveLength(1);
         expect(sent).toContain("TRANSCRIPT START");
-        expect(sent).not.toContain("transcript shortened");
-      } else if (signedIn && kind !== "no captions") {
-        // Signed in, Gemini reads the captions itself from the link.
-        await expect(label).toHaveText(READ_TRANSCRIPT_LABEL);
-        expect(sent).toContain(link);
-        expect(sent).toContain(readTranscript);
-        expect(sent).not.toContain("TRANSCRIPT START");
+        expect(sent).toContain("[0:01] The fixture transcript explains reliable extension testing.");
       } else if (kind === "long video") {
-        await expect(label).toHaveText(PART_LABEL);
-        await expect(label.getByRole("button", { name: "Add a free API key to summarize the whole video." })).toBeVisible();
-        // As much of the real transcript as fits, its start and end kept.
-        expect(sent.length).toBeLessThanOrEqual(30_000);
-        expect(sent).toContain("TRANSCRIPT START");
-        expect(sent).toContain("This lecture keeps going with careful detail about the topic at hand and more. 0");
-        expect(sent).toMatch(/and more\. \d{3}<<<TRANSCRIPT END>>>/);
-        expect(sent).toMatch(/\[\.\.\. transcript shortened: about \d+% of the transcript/);
+        // The whole transcript, in parts, then the request: nothing left out.
+        await expect(source).toHaveText("From the transcript");
+        expect(messages).toHaveLength(3);
+        expect(messages.join("\n")).toContain("careful detail about the topic at hand and more. 0");
+        expect(messages.join("\n")).not.toContain("transcript shortened");
+        expect(sent).toContain("The video's whole transcript is in the 2 parts I sent above");
       } else {
-        // No transcript: the link, and only public info, signed in or not.
-        await expect(label).toHaveText(PUBLIC_INFO_LABEL);
+        // No transcript: the link, read by a signed-in Gemini, and never times.
+        await expect(source).toHaveText("From the video's link (no transcript), so no times are shown");
         expect(sent).toContain(link);
-        expect(sent).not.toContain(readTranscript);
+        expect(sent).toContain("reply with only the word CANNOT_ACCESS");
         expect(sent).not.toContain("TRANSCRIPT START");
+        expect(sent).not.toContain("QUOTE");
       }
     } finally {
       await session.close();
@@ -2066,17 +2063,17 @@ test("a rate-limited default model falls back to 3.1 Flash-Lite and says so once
     const page = await openVideo(session.context, "fixture-fallback");
     await page.locator("#tldw-watch-btn").click();
     await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
-    await expect(page.locator("#tldw-summary [data-tldw-note]")).toHaveText(
+    await expect(page.locator("#tldw-summary [data-tldw-fallback]")).toHaveText(
       "Gemini 3.5 Flash-Lite hit its rate or quota limit, so TL;DW used Gemini 3.1 Flash-Lite for this summary.",
     );
     expect(calls.map((c) => c.model)).toEqual(["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]);
-    await expect(page.locator("#tldw-summary")).toContainText("⚡ Gemini 3.1 Flash-Lite");
+    await expect(page.locator("#tldw-summary [data-tldw-source]")).toContainText("Gemini 3.1 Flash-Lite");
 
     // The next summary falls back again but doesn't repeat the notice.
     const second = await openVideo(session.context, "fixture-fallback-2");
     await second.locator("#tldw-watch-btn").click();
     await expect(second.locator("#tldw-summary")).toContainText("Fixture summary.");
-    await expect(second.locator("#tldw-summary [data-tldw-note]")).toHaveCount(0);
+    await expect(second.locator("#tldw-summary [data-tldw-fallback]")).toHaveCount(0);
   } finally {
     await session.close();
   }
@@ -2091,8 +2088,8 @@ test("API errors offer the action that fixes them", async () => {
     const page = await openVideo(session.context, "fixture-bad-key");
     await page.locator("#tldw-watch-btn").click();
     const panel = page.locator("#tldw-summary");
-    await expect(panel.getByRole("button", { name: "Replace key in TL;DW settings" })).toBeVisible();
-    await panel.getByRole("button", { name: "Replace key in TL;DW settings" }).click();
+    await expect(panel.getByRole("button", { name: "Replace your key" })).toBeVisible();
+    await panel.getByRole("button", { name: "Replace your key" }).click();
     // It reuses the options tab already open (the welcome page) or opens one.
     await expect.poll(() => session.context.pages().some((p) => p.url().endsWith("options/index.html#directapi")))
       .toBe(true);
@@ -2103,7 +2100,7 @@ test("API errors offer the action that fixes them", async () => {
     await mockGemini(session.context, [], 429, calls);
     const limited = await openVideo(session.context, "fixture-limited");
     await limited.locator("#tldw-watch-btn").click();
-    await expect(limited.locator("#tldw-summary").getByRole("button", { name: "Send to Gemini in a tab instead" })).toBeVisible();
+    await expect(limited.locator("#tldw-summary").getByRole("button", { name: "Use the Gemini tab instead" })).toBeVisible();
     expect(calls.map((c) => c.model)).toEqual(["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]);
   } finally {
     await session.close();
@@ -2133,7 +2130,7 @@ test("the model picker changes the model TL;DW calls", async () => {
 });
 
 
-test("details show as a list behind a real button, and the panel fits a narrow window", async () => {
+test("a summary saved before 1.4 still shows its details, and the panel fits a narrow window", async () => {
   const session = await launchExtension();
   try {
     await routeYouTube(session.context);
@@ -2149,16 +2146,10 @@ test("details show as a list behind a real button, and the panel fits a narrow w
     await setStorage(session, { profiles: profiles(), settings: directSettings() });
     const page = await openVideo(session.context, "fixture-list");
     await page.locator("#tldw-watch-btn").click();
-    const toggle = page.getByRole("button", { name: "Show details ▾" });
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(page.locator("#tldw-summary li")).toHaveCount(3);
-    await expect(page.locator("#tldw-summary li").first()).toBeHidden();
-    await toggle.focus();
-    await page.keyboard.press("Enter");
-    await expect(page.getByRole("button", { name: "Hide details ▴" })).toHaveAttribute("aria-expanded", "true");
-    await expect(page.locator("#tldw-summary li")).toHaveText(["Sleep eight hours.", "Walk daily.", "Eat protein."]);
-    await page.keyboard.press("Space");
-    await expect(page.locator("#tldw-summary li").first()).toBeHidden();
+    // A model that answers in the old SUMMARY/DETAILS shape: its list shows as a list, Markdown removed.
+    await expect(page.locator("#tldw-summary")).toContainText("They are:");
+    await expect(page.locator("#tldw-summary li")).toHaveText([/Sleep eight hours\.$/, /Walk daily\.$/, /Eat protein\.$/]);
+    await expect(page.locator("#tldw-summary")).not.toContainText("Show details");
 
     // A column wider than the window (as YouTube's is at 420px) doesn't clip the panel.
     await page.evaluate(() => { const below = document.getElementById("below")!; below.style.marginLeft = "-6px"; below.style.width = "calc(100% + 30px)"; });
@@ -2167,6 +2158,12 @@ test("details show as a list behind a real button, and the panel fits a narrow w
       const r = document.getElementById("tldw-summary")!.getBoundingClientRect();
       return r.left >= 0 && r.right <= document.documentElement.clientWidth;
     })).toBe(true);
+    // At that width the header stays one row: the menu and close stay on the title's line.
+    const rows = await page.evaluate(() => {
+      const head = document.querySelector<HTMLElement>("#tldw-summary [data-tldw-head]")!;
+      return [...head.children].map((el) => Math.round(el.getBoundingClientRect().top));
+    });
+    expect(Math.max(...rows) - Math.min(...rows)).toBeLessThan(8);
   } finally {
     await session.close();
   }
@@ -2183,8 +2180,12 @@ test("the auto-run confirmation describes the mode in use: a background Gemini t
     await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
     const overlay = page.locator("#tldw-autorun-overlay");
 
+    const openAutoRun = async () => {
+      await page.locator("#tldw-summary").getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: /Auto-summarize Fixture Channel/ }).click();
+    };
     // With a key: each automatic summary uses it.
-    await page.getByRole("button", { name: "↻ Auto-summarize" }).click();
+    await openAutoRun();
     await expect(overlay).toContainText("Each summary uses your Gemini API key.");
     await page.keyboard.press("Escape");
 
@@ -2193,7 +2194,7 @@ test("the auto-run confirmation describes the mode in use: a background Gemini t
       const r = await chrome.storage.local.get("settings");
       await chrome.storage.local.set({ settings: { ...r.settings, geminiApiKey: "", useDirectApi: false } });
     });
-    await page.getByRole("button", { name: "↻ Auto-summarize" }).click();
+    await openAutoRun();
     await expect(overlay).toContainText("each new video opens Gemini in a background tab");
     await expect(overlay).not.toContainText("API key. Free-tier");
     await expect(overlay.getByRole("button", { name: "Add a free API key instead →" })).toBeVisible();
@@ -2402,6 +2403,288 @@ test("a sponsor segment that runs past the video's end is skipped and counted on
     const stats = await getStorage<{ sponsorSkips: number; sponsorSecondsSaved: number }>(session, "tldwStats");
     expect(stats?.sponsorSkips).toBe(1);
     expect(stats?.sponsorSecondsSaved).toBe(10);
+  } finally {
+    await session.close();
+  }
+});
+
+// --- 1.4: layouts, checked times, sign-in, long transcripts, contrast ---------
+
+/** youtubeFixture with a player <video>, so a time can be shown to seek it. */
+const timedFixture = youtubeFixture.replace('<div id="below"></div>', '<div id="below"></div><video class="html5-main-video"></video>');
+
+const QUICK_ANSWER = [
+  "---TLDW---",
+  "SUMMARY: Reliable extension tests need real transcripts.",
+  "POINTS:",
+  '- 0:01 | Test extensions against real pages. | "The fixture transcript explains reliable"',
+  '- 0:40 | A moment the video never had. | "words nobody ever said in it"',
+  '- 0:05 | Cache by prompt, not just by video. | "recommends prompt-aware caching"',
+  "---END TLDW---",
+].join("\n");
+
+test("a summary shows its points, with a time only where the quote checks out against the captions", async () => {
+  const session = await launchExtension();
+  try {
+    const prompts: string[] = [];
+    await routeYouTube(session.context, timedFixture);
+    await mockGemini(session.context, prompts, 200, [], () => QUICK_ANSWER);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-timed");
+    await page.locator("#tldw-watch-btn").click();
+    const panel = page.locator("#tldw-summary");
+    await expect(panel).toContainText("Reliable extension tests need real transcripts.");
+    // The transcript went with a time on each line.
+    expect(prompts[0]).toContain("[0:01] The fixture transcript explains reliable extension testing.\n[0:05] It recommends");
+    // Checked times are shown; the invented one is dropped, its point kept.
+    await expect(panel.getByRole("button", { name: "Play from 0:01" })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Play from 0:05" })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Play from 0:40" })).toHaveCount(0);
+    await expect(panel).toContainText("A moment the video never had.");
+    await expect(panel).toContainText("From the transcript · times checked against the captions");
+    await expect(panel).toContainText("Global Profile · Your Gemini key");
+    // The quotes are never shown.
+    await expect(panel).not.toContainText("words nobody ever said");
+    await panel.getByRole("button", { name: "Play from 0:05" }).click();
+    expect(await page.evaluate(() => document.querySelector("video")!.currentTime)).toBe(5);
+  } finally {
+    await session.close();
+  }
+});
+
+test("each style lays the summary out its own way, picked from the menu", async () => {
+  const session = await launchExtension();
+  try {
+    const prompts: string[] = [];
+    await routeYouTube(session.context, timedFixture);
+    await mockGemini(session.context, prompts, 200, [], (prompt) => {
+      if (prompt.startsWith("RESEARCH")) {
+        return "---TLDW---\nSUMMARY: It shows how caching works.\nPOINTS:\n- Caching is keyed by prompt | Shown\n- It is the best approach | Opinion\nNOTE: Not covered: cache size limits.\n---END TLDW---";
+      }
+      if (prompt.startsWith("LEARNING")) {
+        return "---TLDW---\nSUMMARY: One idea carries it.\nPOINTS:\n- Fingerprint | A hash of the prompt.\nQUESTIONS:\n- Why hash the prompt? | So each style is cached on its own.\n---END TLDW---";
+      }
+      if (prompt.startsWith("TUTORIAL")) {
+        return "---TLDW---\nSUMMARY: Set up prompt-aware caching.\nPOINTS:\n- Hash the prompt\n- Store the summary under it\nNOTE: You'll need: a storage API.\n---END TLDW---";
+      }
+      return QUICK_ANSWER;
+    });
+    const timestamp = "2026-07-20T00:00:00.000Z";
+    const styled = [
+      { id: "tldw", name: "Quick", layout: "quick", promptTemplate: "QUICK {{url}}", createdAt: timestamp, updatedAt: timestamp },
+      { id: "research", name: "Research", layout: "research", promptTemplate: "RESEARCH {{url}}", createdAt: timestamp, updatedAt: timestamp },
+      { id: "learning", name: "Learning", layout: "learning", promptTemplate: "LEARNING {{url}}", createdAt: timestamp, updatedAt: timestamp },
+      { id: "tutorial", name: "Tutorial", layout: "tutorial", promptTemplate: "TUTORIAL {{url}}", createdAt: timestamp, updatedAt: timestamp },
+    ];
+    await setStorage(session, { profiles: styled, settings: { ...directSettings(), defaultProfileId: "tldw" } });
+    const page = await openVideo(session.context, "fixture-styles");
+    await page.locator("#tldw-watch-btn").click();
+    const panel = page.locator("#tldw-summary");
+    await expect(panel).toContainText("Quick · Your Gemini key");
+    const pick = async (style: string) => {
+      await panel.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitemradio", { name: style }).click();
+    };
+
+    await pick("Research");
+    await expect(panel).toHaveAttribute("data-tldw-layout", "research");
+    await expect(panel.locator('[data-tldw-tag="shown"]')).toHaveText("Shown");
+    await expect(panel.locator('[data-tldw-tag="opinion"]')).toHaveText("Opinion");
+    await expect(panel).toContainText("Not covered: cache size limits.");
+    expect(prompts.at(-1)).toMatch(/^RESEARCH/);
+
+    await pick("Learning");
+    await expect(panel).toHaveAttribute("data-tldw-layout", "learning");
+    await expect(panel).toContainText("Fingerprint");
+    const question = panel.locator("summary", { hasText: "Why hash the prompt?" });
+    await expect(panel).not.toContainText("So each style is cached on its own.", { useInnerText: true });
+    await question.click();
+    await expect(panel).toContainText("So each style is cached on its own.", { useInnerText: true });
+
+    await pick("Tutorial");
+    await expect(panel).toHaveAttribute("data-tldw-layout", "tutorial");
+    await expect(panel.locator("ol li")).toHaveCount(2);
+    await expect(panel).toContainText("You'll need: a storage API.");
+
+    // Picking Quick again comes back from the cache, as it was.
+    const sent = prompts.length;
+    await pick("Quick");
+    await expect(panel).toHaveAttribute("data-tldw-layout", "quick");
+    await expect(panel).toContainText("saved earlier");
+    expect(prompts.length).toBe(sent);
+  } finally {
+    await session.close();
+  }
+});
+
+test("no transcript and signed out of Gemini: the panel asks to sign in instead of sending the link", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context, playerFixture({ lengthSeconds: 900, captions: false }));
+    await session.context.route("https://gemini.google.com/**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "text/html", body: chatSiteFixture("gemini", false) });
+    });
+    await setStorage(session, {
+      profiles: profiles(),
+      settings: { ...directSettings(), geminiApiKey: "", useDirectApi: false, temporaryChats: false, focusGeminiTab: false },
+    });
+    const page = await openVideo(session.context, "fixture-signed-out");
+    await recordTabCreates(session);
+    const geminiTab = session.context.waitForEvent("page");
+    await page.locator("#tldw-watch-btn").click();
+    const gemini = await geminiTab;
+    await gemini.goto("https://gemini.google.com/app");
+    await page.bringToFront();
+    const panel = page.locator("#tldw-summary");
+    await expect(panel).toContainText("This video has no transcript. Sign in to Gemini to summarize it from the video.");
+    await expect(panel.getByRole("button", { name: "Sign in to Gemini" })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Try again" })).toBeVisible();
+    // Nothing was typed into Gemini, and the unused background tab is closed.
+    await expect.poll(() => gemini.isClosed()).toBe(true);
+    expect(await session.worker.evaluate(async () => JSON.stringify(await chrome.storage.session.get("pendingPrompts")))).not.toContain("CANNOT_ACCESS");
+    await expect(page.locator("#tldw-watch-btn")).toHaveText("TL;DW");
+    const signIn = session.context.waitForEvent("page");
+    await panel.getByRole("button", { name: "Sign in to Gemini" }).click();
+    expect((await signIn).url()).toContain("gemini.google.com");
+  } finally {
+    await session.close();
+  }
+});
+
+test("signed in, a link Gemini can't open is said plainly, never shown as a summary", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context, playerFixture({ lengthSeconds: 900, captions: false }));
+    await session.context.route("https://gemini.google.com/**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "text/html", body: chatSiteFixture("gemini", true, { kind: "cannot", delayMs: 300 }) });
+    });
+    await setStorage(session, {
+      profiles: profiles(),
+      settings: { ...directSettings(), geminiApiKey: "", useDirectApi: false, temporaryChats: false, focusGeminiTab: false },
+    });
+    const page = await openVideo(session.context, "fixture-cannot");
+    await recordTabCreates(session);
+    const geminiTab = session.context.waitForEvent("page");
+    await page.locator("#tldw-watch-btn").click();
+    const gemini = await geminiTab;
+    await gemini.goto("https://gemini.google.com/app");
+    await page.bringToFront();
+    const panel = page.locator("#tldw-summary");
+    await expect(panel).toContainText("Gemini couldn't open this video or its captions", { timeout: 20_000 });
+    await expect(panel).not.toContainText("CANNOT_ACCESS");
+  } finally {
+    await session.close();
+  }
+});
+
+test("without a key, a long transcript goes to the Gemini tab whole, in parts, then the request", async () => {
+  test.setTimeout(90_000);
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context, longTranscriptFixture(70_000));
+    await session.context.route("https://gemini.google.com/**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: chatSiteFixture("gemini", false, {
+          lines: ["---TLDW---", "SUMMARY: The lecture keeps going in careful detail.", "POINTS:", "- It covers the topic at length.", "---END TLDW---"],
+          delayMs: 600,
+        }),
+      });
+    });
+    await setStorage(session, {
+      profiles: profiles(),
+      settings: { ...directSettings(), geminiApiKey: "", useDirectApi: false, temporaryChats: false, focusGeminiTab: false },
+    });
+    const page = await openVideo(session.context, "fixture-long-tab");
+    await recordTabCreates(session);
+    const geminiTab = session.context.waitForEvent("page");
+    await page.locator("#tldw-watch-btn").click();
+    const gemini = await geminiTab;
+    await gemini.goto("https://gemini.google.com/app");
+    await page.bringToFront();
+    await expect(page.locator("#tldw-summary")).toContainText("gets its transcript in");
+    await expect(page.locator("#tldw-summary")).toContainText("The lecture keeps going in careful detail.", { timeout: 60_000 });
+    const messages = await gemini.evaluate(() => (window as unknown as { __messages: string[] }).__messages);
+    expect(messages.length).toBeGreaterThanOrEqual(4);
+    expect(messages[0]).toContain("in " + (messages.length - 1) + " parts");
+    expect(messages.slice(0, -1).every((m) => m.length <= 30_000)).toBe(true);
+    // Every line of the transcript went, the last one included, and no "shortened" marker.
+    expect(messages.join("\n")).toContain("and more. 886");
+    expect(messages.join("\n")).not.toContain("transcript shortened");
+    expect(messages.at(-1)).toContain("The video's whole transcript is in the");
+  } finally {
+    await session.close();
+  }
+});
+
+/** WCAG 2 A and AA violations axe finds in `selector` (none expected). */
+async function axeViolations(page: Page, selector: string): Promise<string[]> {
+  const results = await new AxeBuilder({ page }).include(selector).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  return results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
+}
+
+for (const theme of ["light", "dark"] as const) {
+  test(`the panel, its menu, its styles and its error states meet WCAG AA (${theme})`, async () => {
+    test.setTimeout(90_000);
+    const session = await launchExtension();
+    try {
+      await routeYouTube(session.context, theme === "dark"
+        ? timedFixture.replace("<html>", '<html dark="">').replace("<body>", '<body style="background:#0f0f0f">')
+        : timedFixture);
+      await mockGemini(session.context, [], 200, [], (prompt) => prompt.startsWith("RESEARCH")
+        ? "---TLDW---\nSUMMARY: s\nPOINTS:\n- 0:01 | A claim | Shown | \"The fixture transcript explains reliable\"\n- b | Stated\n- c | Opinion\n- d | Check: from 2017\nNOTE: Not covered: x.\n---END TLDW---"
+        : QUICK_ANSWER);
+      const timestamp = "2026-07-20T00:00:00.000Z";
+      await setStorage(session, {
+        profiles: [
+          { id: "tldw", name: "Quick", layout: "quick", promptTemplate: "QUICK {{url}}", createdAt: timestamp, updatedAt: timestamp },
+          { id: "research", name: "Research", layout: "research", promptTemplate: "RESEARCH {{url}}", createdAt: timestamp, updatedAt: timestamp },
+        ],
+        settings: { ...directSettings(), defaultProfileId: "tldw" },
+      });
+      const page = await openVideo(session.context, `fixture-axe-${theme}`);
+      await page.locator("#tldw-watch-btn").click();
+      const panel = page.locator("#tldw-summary");
+      await expect(panel.getByRole("button", { name: "Play from 0:01" })).toBeVisible();
+      expect(await axeViolations(page, "#tldw-summary")).toEqual([]);
+      await panel.getByRole("button", { name: "More actions" }).click();
+      await expect(page.getByRole("menu")).toBeVisible();
+      expect(await axeViolations(page, "#tldw-summary")).toEqual([]);
+      // Keyboard: Esc closes the menu and returns focus to "More actions".
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("menu")).toBeHidden();
+      await expect(panel.getByRole("button", { name: "More actions" })).toBeFocused();
+      await panel.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitemradio", { name: "Research" }).click();
+      await expect(panel.locator('[data-tldw-tag="check"]')).toBeVisible();
+      expect(await axeViolations(page, "#tldw-summary")).toEqual([]);
+      // An error state with its actions.
+      await session.context.unroute("https://generativelanguage.googleapis.com/**");
+      await mockGemini(session.context, [], 401);
+      await panel.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: "Regenerate" }).click();
+      await expect(panel.getByRole("button", { name: "Replace your key" })).toBeVisible();
+      expect(await axeViolations(page, "#tldw-summary")).toEqual([]);
+    } finally {
+      await session.close();
+    }
+  });
+}
+
+test("the popup and the options pages meet WCAG AA", async () => {
+  const session = await launchExtension();
+  try {
+    await setStorage(session, { profiles: profiles(), settings: { defaultProfileId: "global", retiredDestinationNotice: "Claude" } });
+    const popup = await popupFor(session, { id: 1, url: "https://www.youtube.com/watch?v=x", title: "A video - YouTube" });
+    await expect(popup.getByRole("note").first()).toBeVisible();
+    expect(await axeViolations(popup, "body")).toEqual([]);
+    const options = await session.context.newPage();
+    for (const section of ["welcome", "example", "profiles", "settings", "directapi"]) {
+      await options.goto(`chrome-extension://${session.extensionId}/src/options/index.html#${section}`);
+      await options.waitForTimeout(400);
+      expect(await axeViolations(options, "body"), section).toEqual([]);
+    }
   } finally {
     await session.close();
   }

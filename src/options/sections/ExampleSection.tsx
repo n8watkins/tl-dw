@@ -1,15 +1,14 @@
-import { useState } from "react";
 import { EXAMPLE_SUMMARY as EX } from "../../lib/exampleSummary";
+import { formatClock } from "../../lib/timedTranscript";
 
 const ICON_URL = chrome.runtime.getURL("icons/tl-dw-48.png");
 
 /**
  * options#example: a real summary that ships with TL;DW, laid out like the
  * panel TL;DW puts under a video. It needs no key and sends nothing; the only
- * way off the page is the user following the link to the video.
+ * way off the page is the user following a link to the video.
  */
 export function ExampleSection({ onBack }: { onBack: () => void }) {
-  const [expanded, setExpanded] = useState(false);
   return (
     <div className="welcome example">
       <header className="example-head">
@@ -23,23 +22,30 @@ export function ExampleSection({ onBack }: { onBack: () => void }) {
 
       <article className="example-panel" aria-label="Example summary">
         <div className="example-panel-head">
-          <img src={ICON_URL} alt="" width={28} height={28} />
+          <img src={ICON_URL} alt="" width={22} height={22} />
           <span className="example-panel-name">TL;DW</span>
-          <span className="example-badge">Example summary</span>
+          <span className="example-panel-sub">· {EX.tldw.profileName} · Gemini tab (no key)</span>
         </div>
-        <p className="example-summary">{EX.summary}</p>
-        <button
-          type="button"
-          className="example-toggle"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? "Hide details ▴" : "Show details ▾"}
-        </button>
-        {expanded && <p className="example-details">{EX.details}</p>}
+        <p className="example-summary">{EX.tldw.summary}</p>
+        <ul className="example-points">
+          {EX.tldw.items.map((item) => (
+            <li key={item.time}>
+              <a
+                className="example-time"
+                href={`${EX.videoUrl}&t=${item.time}s`}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`Watch from ${formatClock(item.time)}`}
+              >
+                {formatClock(item.time)}
+              </a>
+              <span>{item.text}</span>
+            </li>
+          ))}
+        </ul>
         <p className="example-source">
-          Made on {EX.madeOn} by Gemini from the video's transcript, with TL;DW's default prompt
-          and no key.
+          From the transcript · times checked against the captions · made on {EX.madeOn} with
+          TL;DW's Quick style and no key
         </p>
       </article>
 
@@ -55,7 +61,7 @@ export function ExampleSection({ onBack }: { onBack: () => void }) {
 
       <p className="welcome-fine">
         On the video's page, press the blue <strong>TL;DW</strong> button under the video to make
-        a fresh summary yourself.
+        a fresh summary yourself. A time takes you to that moment in the video.
       </p>
       <div className="welcome-actions">
         <button className="btn btn-ghost" onClick={onBack}>Back</button>

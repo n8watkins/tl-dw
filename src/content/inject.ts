@@ -456,6 +456,15 @@ function structuralText(root: Element): string {
     .trim();
 }
 
+/** How many answers the chat shows (the first response selector that matches any). */
+function responseCount(responseSelectors: string[]): number {
+  for (const sel of responseSelectors) {
+    const n = document.querySelectorAll(sel).length;
+    if (n) return n;
+  }
+  return 0;
+}
+
 /** The last element matching the first response selector that has any. */
 function lastResponseElement(responseSelectors: string[]): HTMLElement | null {
   for (const sel of responseSelectors) {
@@ -491,7 +500,10 @@ type ResponseRead = {
  * that has it (what the user sees), else from the DOM tree, which also has
  * text the page keeps hidden (a background tab's unrevealed paragraphs).
  */
-function readResponse(responseSelectors: string[]): ResponseRead {
+function readResponse(responseSelectors: string[], after = 0): ResponseRead {
+  // Only an answer that came after our message counts (a long transcript's
+  // parts each got an "OK" answer first).
+  if (responseCount(responseSelectors) <= after) return { text: "", tldw: null, hidden: false };
   const rendered = readLastResponse(responseSelectors);
   const parsed = rendered ? parseTldwBlock(rendered) : null;
   if (parsed) return { text: rendered, tldw: parsed, hidden: false };
@@ -534,6 +546,7 @@ async function waitForResponseAndSend(
   config: SiteConfig,
   sourceTabId: number,
   signedIn = false,
+  after = 0,
 ): Promise<void> {
   log(`watching ${config.name} for the response (sourceTab ${sourceTabId})`);
   const deadline = Date.now() + 180_000;
@@ -560,16 +573,17 @@ async function waitForResponseAndSend(
   let previous = "";
   let stableSince = Date.now();
   let hidden = false;
+  let answer = "";
   while (Date.now() < deadline) {
     const generating = hasStopButton(config);
-    const read = readResponse(config.responseSelectors);
+    const read = readResponse(config.responseSelectors, after);
     if (read.text !== previous) { previous = read.text; stableSince = Date.now(); }
     lastText = read.text;
     hidden = read.hidden;
     const stableFor = Date.now() - stableSince;
     const complete = !!read.tldw && /END\s+TLDW/i.test(read.text);
     const settled = (!generating && stableFor >= 600) || (complete && stableFor >= COMPLETE_BLOCK_STABLE_MS);
-    if (read.tldw && settled) { tldw = read.tldw; break; }
+    if (read.tldw && settled) { tldw = read.tldw; answer = read.text; break; }
     if (!generating && !read.tldw && lastText && Date.now() - stableSince >= NO_BLOCK_GIVE_UP_MS) break;
     await sleep(700);
   }
@@ -578,7 +592,7 @@ async function waitForResponseAndSend(
   if (tldw) {
     log("parsed TL;DW block — sending to YouTube tab");
     try {
-      await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw, sourceTabId, signedIn, parsed: true });
+      await chrome.runtime.sendMessage({ type: "AI_SUMMARY", tldw, raw: answer, sourceTabId, signedIn, parsed: true });
     } catch {
       /* background may be asleep — best effort */
     }
@@ -592,6 +606,16 @@ async function waitForResponseAndSend(
     `no TL;DW block found. response selector matched ${lastText.length} chars.`,
     lastText ? `First 300:\n${lastText.slice(0, 300)}` : "(empty — response selector may be wrong)",
   );
+  // Gemini said it couldn't open the linked video (signed out, or captions it
+  // couldn't read): the page says so instead of showing a guess.
+  if (lastText.length < 300 && /\bCANNOT[ _]ACCESS\b/i.test(lastText)) {
+    try {
+      await chrome.runtime.sendMessage({
+        type: "AI_SUMMARY", tldw: { summary: "" }, sourceTabId, signedIn, parsed: false, cannotAccess: true,
+      });
+    } catch { /* best effort */ }
+    return;
+  }
   if (lastText.length > 80) {
     // No structured block, but the AI clearly answered — surface its first
     // substantive line as the summary and the rest as details, so the panel
@@ -695,22 +719,108 @@ const SIGNED_OUT_SELECTORS = [
 ];
 
 /**
- * Whether the Gemini page shows a signed-in Google account. Waits briefly for
- * the account bar, and answers false whenever it isn't sure (no account
- * button, or any sign-in link or button), since the signed-out plan is the
- * safe one.
+ * Whether the Gemini page shows a signed-in Google account: "out" as soon as
+ * a sign-in link or button shows, "in" when Google's account button does and
+ * no sign-in control, and "unknown" when neither shows within the wait.
  */
-async function geminiSignedIn(timeoutMs = 4000): Promise<boolean> {
+async function geminiAccount(timeoutMs = 4000): Promise<"in" | "out" | "unknown"> {
   const signedOut = () =>
     SIGNED_OUT_SELECTORS.some((sel) => document.querySelector(sel)) ||
     [...document.querySelectorAll<HTMLElement>("a, button")].some((el) => /^\s*sign in\s*$/i.test(el.textContent ?? ""));
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (signedOut()) return false;
-    if (SIGNED_IN_SELECTORS.some((sel) => document.querySelector(sel))) return !signedOut();
+    if (signedOut()) return "out";
+    if (SIGNED_IN_SELECTORS.some((sel) => document.querySelector(sel))) return signedOut() ? "out" : "in";
     await sleep(250);
   }
+  return "unknown";
+}
+
+type Filled = { editor: HTMLElement } | { failed: Outcome };
+
+/** Type `text` into the composer (finding it afresh: the app re-renders it). */
+async function fill(config: SiteConfig, text: string, timeoutMs: number): Promise<Filled> {
+  // Generous ceiling: the chat app can render a splash and only mount the
+  // composer after its client-side router resolves, which on a cold load can
+  // land well past document_idle.
+  const editor = await waitFor<HTMLElement>(config.editorSelectors, timeoutMs);
+  if (!editor) {
+    const copied = await fallbackToClipboard(
+      text,
+      config.name,
+      `couldn't find ${config.name}'s message box. If you're signed out, sign in first`,
+    );
+    return { failed: { ok: false, reason: COMPOSER_MISSING_REASON, copied } };
+  }
+  // Try execCommand / textContent approach first; fall back to ClipboardEvent paste.
+  let inserted = insertText(editor, text);
+  if (!inserted) inserted = await pasteIntoEditor(editor, text);
+  if (inserted) return { editor };
+  // A composer holding only part of the text means the site cut it short (a
+  // length limit): say so, and empty it so the partial prompt (missing the
+  // transcript's end) can't be sent by accident.
+  const share = insertedShare(composerText(editor), text);
+  const cutShort = share > 0;
+  if (cutShort) clearComposer(editor);
+  const pct = Math.round(share * 100);
+  const copied = await fallbackToClipboard(
+    text,
+    config.name,
+    cutShort ? `${config.name} cut the prompt off (it kept about ${pct}%)` : undefined,
+  );
+  return {
+    failed: {
+      ok: false,
+      reason: cutShort
+        ? `cut the prompt off at about ${pct}% because it was too long, so nothing was sent`
+        : "wouldn't take the prompt TL;DW typed into its message box",
+      keptPercent: cutShort ? pct : undefined,
+      copied,
+    },
+  };
+}
+
+/** Press Send, or, failing that, Enter in the editor. */
+async function submit(config: SiteConfig, editor: HTMLElement): Promise<void> {
+  // Give the app a moment to process the input and enable the send button.
+  await sleep(400);
+  const btn = await findEnabledSendButton(config, 6000);
+  if (btn) {
+    btn.click();
+    return;
+  }
+  // Last resort: the full keydown→keypress→keyup sequence; some composers
+  // submit on keypress/keyup, and a lone keydown is a no-op there.
+  for (const type of ["keydown", "keypress", "keyup"] as const) {
+    editor.dispatchEvent(new KeyboardEvent(type, {
+      key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true,
+    }));
+  }
+}
+
+/** How long Gemini gets to acknowledge one part of a long transcript. */
+const PART_ANSWER_MS = 90_000;
+
+/** Wait for Gemini's answer to the message just sent (a part's acknowledgement). */
+async function waitForAnswer(config: SiteConfig, after: number): Promise<boolean> {
+  const deadline = Date.now() + PART_ANSWER_MS;
+  let previous = "";
+  let stableSince = Date.now();
+  while (Date.now() < deadline) {
+    await sleep(500);
+    if (responseCount(config.responseSelectors) <= after) continue;
+    const el = lastResponseElement(config.responseSelectors);
+    const text = el ? structuralText(el) : "";
+    if (text !== previous) { previous = text; stableSince = Date.now(); }
+    if (text && !hasStopButton(config) && Date.now() - stableSince >= 800) return true;
+  }
   return false;
+}
+
+async function progressStep(step: string): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage({ type: "TAB_PROGRESS", step });
+  } catch { /* best effort */ }
 }
 
 async function run(): Promise<void> {
@@ -719,113 +829,64 @@ async function run(): Promise<void> {
 
   const res = (await chrome.runtime.sendMessage({ type: "GET_PENDING" })) as {
     prompt: string | null;
+    parts?: string[];
+    requireSignIn?: boolean;
     autoSubmit?: boolean;
     temporaryChats?: boolean;
     sourceTabId?: number;
-    signedInPrompt?: string;
   } | null;
 
-  let prompt = res?.prompt;
+  const prompt = res?.prompt;
   if (!prompt) { log(`${config.name}: no pending prompt for this tab`); return; }
-  log(`${config.name}: pending prompt found (${prompt.length} chars, sourceTab ${res?.sourceTabId ?? "none"}, autoSubmit ${res?.autoSubmit !== false})`);
-  if (res?.sourceTabId === undefined) {
-    log("WARNING: no sourceTabId — the summary can't be sent back to the YouTube tab");
-  }
+  const parts = res?.parts ?? [];
+  log(`${config.name}: pending prompt found (${prompt.length} chars, ${parts.length} transcript parts first, sourceTab ${res?.sourceTabId ?? "none"}, autoSubmit ${res?.autoSubmit !== false})`);
 
-  if (res?.temporaryChats) {
-    await activateTemporaryMode(location.hostname);
-  }
-
-  // Generous ceiling: the chat app can render a splash and only
-  // mount the composer after their client-side router resolves, which on a cold
-  // load can land well past document_idle.
-  const editor = await waitFor<HTMLElement>(config.editorSelectors, 20000);
-  if (!editor) {
-    const copied = await fallbackToClipboard(
-      prompt,
-      config.name,
-      `couldn't find ${config.name}'s message box. If you're signed out, sign in first`,
-    );
-    await reportOutcome(config.name, { ok: false, reason: COMPOSER_MISSING_REASON, copied });
+  // Without a transcript, Gemini gets the video's link, which only a
+  // signed-in Gemini can read. Signed out, say so instead of sending: the
+  // signed-out answer would be a guess. When unsure, send: the prompt lets
+  // Gemini answer CANNOT_ACCESS, and the page says the same then.
+  const account = res?.requireSignIn ? await geminiAccount() : "unknown";
+  if (res?.requireSignIn) log(`Gemini account: ${account}`);
+  if (res?.requireSignIn && account === "out") {
+    try {
+      await chrome.runtime.sendMessage({ type: "INJECT_RESULT", site: config.name, ok: false, signInNeeded: true });
+    } catch { /* best effort */ }
     return;
   }
 
-  // Signed in, the Gemini web app reads a linked video's captions itself, so
-  // the worker may have prepared a link prompt for that case. Send it only
-  // when the page clearly shows a signed-in account.
-  let signedIn = false;
-  if (res?.signedInPrompt && config.name === "Gemini") {
-    signedIn = await geminiSignedIn();
-    log(`Gemini account: ${signedIn ? "signed in, sending the link prompt" : "signed out or unsure"}`);
-    if (signedIn) prompt = res.signedInPrompt;
+  if (res?.temporaryChats) await activateTemporaryMode(location.hostname);
+
+  // A long transcript goes first, part by part, each acknowledged before the next.
+  for (let i = 0; i < parts.length; i++) {
+    void progressStep(`Sending the transcript to Gemini, part ${i + 1} of ${parts.length}…`);
+    const before = responseCount(config.responseSelectors);
+    const filled = await fill(config, parts[i]!, i === 0 ? 20000 : 10000);
+    if ("failed" in filled) {
+      await reportOutcome(config.name, filled.failed);
+      return;
+    }
+    await submit(config, filled.editor);
+    if (!(await waitForAnswer(config, before))) {
+      await reportOutcome(config.name, { ok: false, reason: `didn't answer part ${i + 1} of the transcript in time` });
+      return;
+    }
   }
 
-  // Try execCommand / textContent approach first; fall back to ClipboardEvent paste.
-  let inserted = insertText(editor, prompt);
-  if (!inserted) {
-    inserted = await pasteIntoEditor(editor, prompt);
-  }
-  if (!inserted) {
-    // All in-page approaches failed. A composer holding only part of the prompt
-    // means the site cut it short (a length limit): say so, and empty it so the
-    // partial prompt (missing the transcript's end) can't be sent by accident.
-    const share = insertedShare(composerText(editor), prompt);
-    const cutShort = share > 0;
-    if (cutShort) clearComposer(editor);
-    const pct = Math.round(share * 100);
-    const copied = await fallbackToClipboard(
-      prompt,
-      config.name,
-      cutShort ? `${config.name} cut the prompt off (it kept about ${pct}%)` : undefined,
-    );
-    await reportOutcome(config.name, {
-      ok: false,
-      reason: cutShort
-        ? `cut the prompt off at about ${pct}% because it was too long, so nothing was sent`
-        : "wouldn't take the prompt TL;DW typed into its message box",
-      keptPercent: cutShort ? pct : undefined,
-      copied,
-    });
+  const before = responseCount(config.responseSelectors);
+  const filled = await fill(config, prompt, parts.length ? 10000 : 20000);
+  if ("failed" in filled) {
+    await reportOutcome(config.name, filled.failed);
     return;
   }
-
   // The prompt is in — report success now; submit is best-effort after this.
   await reportOutcome(config.name, { ok: true });
+  if (parts.length) void progressStep("Waiting for Gemini's answer…");
 
-  if (res?.autoSubmit === false) {
-    // Still watch for the response if the user submits manually.
-    if (res.sourceTabId !== undefined) {
-      void waitForResponseAndSend(config, res.sourceTabId, signedIn);
-    }
-    return;
-  }
-
-  // Give React/Angular a moment to process the input event and enable the send button.
-  await sleep(400);
-  const btn = await findEnabledSendButton(config, 6000);
-  if (btn) {
-    btn.click();
-  } else {
-    // Last resort: synthetic Enter. Dispatch the full keydown→keypress→keyup
-    // sequence — some composers submit on keypress/keyup, and a lone keydown is
-    // a no-op there.
-    for (const type of ["keydown", "keypress", "keyup"] as const) {
-      editor.dispatchEvent(
-        new KeyboardEvent(type, {
-          key: "Enter",
-          code: "Enter",
-          keyCode: 13,
-          which: 13,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    }
-  }
-
-  // After submit, wait for the AI to finish and forward the response.
+  // With the parts already sent, the request must go too; otherwise auto-submit
+  // off lets the user press Send, and TL;DW still watches for the answer.
+  if (res?.autoSubmit !== false || parts.length) await submit(config, filled.editor);
   if (res?.sourceTabId !== undefined) {
-    void waitForResponseAndSend(config, res.sourceTabId, signedIn);
+    void waitForResponseAndSend(config, res.sourceTabId, account === "in", before);
   }
 }
 

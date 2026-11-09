@@ -5,6 +5,15 @@
  * unit-testable.
  */
 
+import { parseClock, type Segment } from "./timedTranscript";
+
+/**
+ * A transcript as read: the spoken text, and each caption line with its start
+ * time. A line whose time couldn't be read has start NaN, so the transcript
+ * then counts as untimed (see isTimed) and no time is ever shown from it.
+ */
+export type TranscriptRead = { text: string; segments: Segment[] };
+
 /** Below this many characters a "transcript" is noise (an empty panel, a lone label). */
 const MIN_TRANSCRIPT_CHARS = 20;
 
@@ -44,36 +53,66 @@ function walk(root: unknown, visit: (node: Record<string, unknown>) => void): vo
  * The classic `/youtubei/v1/get_transcript` InnerTube response: every segment
  * is a `transcriptSegmentRenderer` with a `snippet`.
  */
-export function extractFromGetTranscript(root: unknown): string | null {
-  const parts: string[] = [];
+export function extractFromGetTranscript(root: unknown): TranscriptRead | null {
+  const segments: Segment[] = [];
   walk(root, (record) => {
-    const seg = record.transcriptSegmentRenderer as { snippet?: SnippetLike } | undefined;
+    const seg = record.transcriptSegmentRenderer as
+      | { snippet?: SnippetLike; startMs?: unknown; startTimeText?: SnippetLike }
+      | undefined;
     if (seg?.snippet) {
       const text = snippetText(seg.snippet);
-      if (text) parts.push(text);
+      if (!text) return;
+      const ms = Number(seg.startMs);
+      const start = Number.isFinite(ms) && seg.startMs !== undefined && seg.startMs !== ""
+        ? ms / 1000
+        : parseClock(snippetText(seg.startTimeText)) ?? NaN;
+      segments.push({ start, text });
     }
   });
-  return finish(parts);
+  return read(segments);
 }
 
-export type PanelTranscript = { text: string; videoId?: string };
+/** The transcript from its lines, or null when it's noise. */
+function read(segments: Segment[]): TranscriptRead | null {
+  const text = finish(segments.map((s) => s.text));
+  return text ? { text, segments } : null;
+}
+
+export type PanelTranscript = TranscriptRead & { videoId?: string };
 
 /**
  * The current `/youtubei/v1/get_panel` response (the "modern transcript view",
- * 2026): each segment is a `transcriptSegmentViewModel` whose `simpleText` is
- * the spoken text only. The same endpoint serves other engagement panels, so a
- * response with no transcript segments returns null. The video id comes from
- * the segments' own seek commands (`watchEndpoint.videoId`), which is exact even
+ * 2026): each line is a `macroMarkersPanelItemViewModel` whose segment
+ * (`transcriptSegmentViewModel`) holds the spoken text and whose tap command
+ * seeks to `startTimeSeconds`. The same endpoint serves other engagement
+ * panels, so a response with no transcript segments returns null. The video id
+ * comes from those seek commands (`watchEndpoint.videoId`), which is exact even
  * when the response lands after an in-page navigation.
  */
 export function extractFromGetPanel(root: unknown): PanelTranscript | null {
-  const parts: string[] = [];
+  const segments: Segment[] = [];
   let videoId: string | undefined;
+  // The walk is depth-first and visits a panel item before the segment inside
+  // it, so the item's start time is carried to that segment through this.
+  let pendingStart = NaN;
   walk(root, (record) => {
-    const seg = record.transcriptSegmentViewModel as SnippetLike | undefined;
+    const item = record.macroMarkersPanelItemViewModel as
+      | { onTap?: { innertubeCommand?: { watchEndpoint?: { startTimeSeconds?: unknown } } } }
+      | undefined;
+    if (item && typeof item === "object") {
+      // Remember this line's time for the segment found inside it.
+      pendingStart = Number(item.onTap?.innertubeCommand?.watchEndpoint?.startTimeSeconds);
+    }
+    const seg = record.transcriptSegmentViewModel as (SnippetLike & { timestamp?: unknown }) | undefined;
     if (seg && typeof seg === "object") {
       const text = snippetText(seg);
-      if (text) parts.push(text);
+      if (text) {
+        const start = Number.isFinite(pendingStart)
+          ? pendingStart
+          : parseClock(typeof seg.timestamp === "string" ? seg.timestamp : "") ?? NaN;
+        segments.push({ start, text });
+      }
+      pendingStart = NaN;
     }
     if (!videoId) {
       const endpoint = record.watchEndpoint as { videoId?: unknown } | undefined;
@@ -82,34 +121,39 @@ export function extractFromGetPanel(root: unknown): PanelTranscript | null {
       }
     }
   });
-  const text = finish(parts);
-  return text ? { text, videoId } : null;
+  const transcript = read(segments);
+  return transcript ? { ...transcript, videoId } : null;
 }
 
 /** Parse a timedtext response, either json3 or the legacy XML. */
-export function extractFromTimedText(body: unknown): string | null {
+export function extractFromTimedText(body: unknown): TranscriptRead | null {
   if (typeof body !== "string" || !body) return null;
 
   if (body.trimStart().startsWith("{")) {
     try {
       const json = JSON.parse(body) as {
-        events?: { segs?: { utf8?: string }[] }[];
+        events?: { tStartMs?: number; segs?: { utf8?: string }[] }[];
       };
-      const text = (json.events ?? [])
-        .flatMap((e) => e.segs ?? [])
-        .map((s) => s.utf8 ?? "")
-        .join("");
-      return finish([text]);
+      const segments = (json.events ?? [])
+        .filter((e) => Array.isArray(e.segs))
+        .map((e) => ({
+          start: typeof e.tStartMs === "number" ? e.tStartMs / 1000 : NaN,
+          text: (e.segs ?? []).map((seg) => seg.utf8 ?? "").join("").replace(/\s+/g, " ").trim(),
+        }))
+        .filter((seg) => seg.text);
+      return read(segments);
     } catch {
       return null;
     }
   }
 
-  const parts: string[] = [];
-  for (const m of body.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)) {
-    parts.push(decodeEntities(m[1] ?? ""));
+  const segments: Segment[] = [];
+  for (const m of body.matchAll(/<text\b([^>]*)>([\s\S]*?)<\/text>/g)) {
+    const start = Number((m[1] ?? "").match(/\bstart="([\d.]+)"/)?.[1] ?? NaN);
+    const text = decodeEntities(m[2] ?? "").replace(/\s+/g, " ").trim();
+    if (text) segments.push({ start, text });
   }
-  return finish(parts);
+  return read(segments);
 }
 
 export function decodeEntities(s: string): string {

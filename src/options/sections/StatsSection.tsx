@@ -213,7 +213,7 @@ function computeDestinationUsage(summaries: SearchHistoryEntry[]): Distribution[
   return [...counts.entries()]
     .map(([key, count]) => ({
       key,
-      label: key === DIRECT ? "Direct API / other" : destinationLabel(key),
+      label: key === DIRECT ? "Your Gemini key" : destinationLabel(key),
       count,
     }))
     .sort((a, b) => b.count - a.count);

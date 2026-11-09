@@ -55,7 +55,7 @@ function panelResponse(items: unknown[]) {
 }
 
 describe("extractFromGetPanel", () => {
-  it("reads only the spoken text and the video id, never the time labels", () => {
+  it("reads the spoken text with each line's start, and the video id, never the time labels in the text", () => {
     const result = extractFromGetPanel(panelResponse([
       panelSegment(0, 1, "[♪♪♪]"),
       panelSegment(1, 18, "♪ We're no strangers to love ♪"),
@@ -64,8 +64,19 @@ describe("extractFromGetPanel", () => {
     expect(result).toEqual({
       text: "[♪♪♪] ♪ We're no strangers to love ♪ ♪ A full commitment's what I'm thinking of ♪",
       videoId: "dQw4w9WgXcQ",
+      segments: [
+        { start: 1, text: "[♪♪♪]" },
+        { start: 18, text: "♪ We're no strangers to love ♪" },
+        { start: 27, text: "♪ A full commitment's what I'm thinking of ♪" },
+      ],
     });
     expect(result?.text).not.toMatch(/seconds?|0:18/);
+  });
+
+  it("falls back to the clock label when a line has no seek time", () => {
+    const seg = panelSegment(0, 42, "Spoken words here and more.");
+    delete (seg.macroMarkersPanelItemViewModel as { onTap?: unknown }).onTap;
+    expect(extractFromGetPanel(panelResponse([seg]))?.segments).toEqual([{ start: 42, text: "Spoken words here and more." }]);
   });
 
   it("ignores get_panel responses for other panels", () => {
@@ -79,21 +90,30 @@ describe("extractFromGetTranscript", () => {
     const body = {
       actions: [{
         segments: [
-          { transcriptSegmentRenderer: { snippet: { runs: [{ text: "Hello there, " }, { text: "general" }] } } },
-          { transcriptSegmentRenderer: { snippet: { simpleText: "Kenobi, you are a bold one." } } },
+          { transcriptSegmentRenderer: { startMs: "1200", snippet: { runs: [{ text: "Hello there, " }, { text: "general" }] } } },
+          { transcriptSegmentRenderer: { startTimeText: { simpleText: "0:05" }, snippet: { simpleText: "Kenobi, you are a bold one." } } },
         ],
       }],
     };
-    expect(extractFromGetTranscript(body)).toBe("Hello there, general Kenobi, you are a bold one.");
+    expect(extractFromGetTranscript(body)).toEqual({
+      text: "Hello there, general Kenobi, you are a bold one.",
+      segments: [{ start: 1.2, text: "Hello there, general" }, { start: 5, text: "Kenobi, you are a bold one." }],
+    });
   });
 });
 
 describe("extractFromTimedText", () => {
   it("reads json3 and XML captions", () => {
-    const json3 = JSON.stringify({ events: [{ segs: [{ utf8: "First caption line " }, { utf8: "and the second one" }] }] });
-    expect(extractFromTimedText(json3)).toBe("First caption line and the second one");
-    const xml = '<transcript><text start="0">Tom &amp; Jerry &#39;run&#39;</text><text start="2">across the whole house &lt;fast&gt;</text></transcript>';
-    expect(extractFromTimedText(xml)).toBe("Tom & Jerry 'run' across the whole house <fast>");
+    const json3 = JSON.stringify({ events: [{ tStartMs: 0, segs: [{ utf8: "First caption line " }] }, { tStartMs: 2500, segs: [{ utf8: "and the second one" }] }] });
+    expect(extractFromTimedText(json3)).toEqual({
+      text: "First caption line and the second one",
+      segments: [{ start: 0, text: "First caption line" }, { start: 2.5, text: "and the second one" }],
+    });
+    const xml = '<transcript><text start="0">Tom &amp; Jerry &#39;run&#39;</text><text start="2.4">across the whole house &lt;fast&gt;</text></transcript>';
+    expect(extractFromTimedText(xml)).toEqual({
+      text: "Tom & Jerry 'run' across the whole house <fast>",
+      segments: [{ start: 0, text: "Tom & Jerry 'run'" }, { start: 2.4, text: "across the whole house <fast>" }],
+    });
   });
 });
 

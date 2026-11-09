@@ -130,7 +130,7 @@ export function HistorySection() {
       <div className="section-header">
         <h1 className="section-title">History</h1>
         <p className="section-desc">
-          Prompt and video. Direct API calls also store the Gemini response — expand an entry to see it.
+          Prompt and video. Summaries made with your Gemini key also keep Gemini's response: expand an entry to see it.
         </p>
       </div>
 

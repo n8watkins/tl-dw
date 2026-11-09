@@ -107,7 +107,7 @@ export function WelcomeSection({ onDone }: { onDone: () => void }) {
           <a href={AI_STUDIO_LINKS.terms} target="_blank" rel="noreferrer">Gemini API terms ↗</a>
           ). Limits depend on the model:{" "}
           <a href={AI_STUDIO_LINKS.rateLimitDocs} target="_blank" rel="noreferrer">rate limits ↗</a>.
-          You can add, check or remove the key any time in TL;DW settings, under Direct API.
+          You can add, check or remove the key any time in TL;DW settings, under Your Gemini key.
         </p>
       </details>
       <button className="welcome-settings-link" onClick={onDone}>All settings</button>

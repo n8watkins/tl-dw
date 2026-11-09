@@ -1846,35 +1846,27 @@ a.btn { text-decoration: none; }
   padding: 16px 18px;
   margin-bottom: 14px;
 }
-.example-panel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.example-panel-head img { border-radius: 7px; }
-.example-panel-name { font-weight: 700; font-size: 15px; }
-.example-badge {
-  margin-left: auto;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--accent);
-  background: rgba(124, 58, 237, 0.14);
-  border: 1px solid rgba(167, 139, 250, 0.35);
-  border-radius: 999px;
-  padding: 3px 10px;
-}
-.example-summary { font-size: 16px; line-height: 1.5; }
-.example-toggle {
-  margin-top: 8px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: 13px;
+.example-panel-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 10px; }
+.example-panel-head img { border-radius: 6px; align-self: center; margin-right: 2px; }
+.example-panel-name { font-weight: 700; font-size: 14px; }
+.example-panel-sub { font-size: 13px; color: var(--muted); }
+.example-summary { font-size: 15px; font-weight: 600; line-height: 1.5; margin: 0; }
+.example-points { list-style: none; margin: 8px 0 0; padding: 0; }
+.example-points li { display: flex; align-items: flex-start; gap: 10px; padding: 4px 0; font-size: 14px; line-height: 22px; }
+.example-time {
+  flex-shrink: 0;
+  min-width: 44px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--surface2);
+  color: var(--link, #93c5fd);
+  font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
 }
-.example-toggle:hover { color: var(--text); }
-.example-details { margin-top: 10px; font-size: 14px; line-height: 1.6; color: var(--muted); }
+.example-time:hover { text-decoration: underline; }
 .example-source {
   margin-top: 14px;
   padding-top: 12px;
