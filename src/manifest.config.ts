@@ -16,7 +16,9 @@ const grantOptionalHosts = env.TLDW_E2E === "1";
 
 export default defineManifest({
   manifest_version: 3,
-  name: "TL;DW",
+  // The store listing's name. Several store items are already called TLDW or
+  // TL;DW, so the listing says what it is; short_name and the UI stay "TL;DW".
+  name: "TL;DW: YouTube Summaries with Gemini",
   short_name: "TL;DW",
   version: pkg.version,
   // chrome.runtime.getContexts (finding an open options tab without the "tabs"

@@ -1,6 +1,6 @@
 # Chrome Web Store Submission Guide
 
-This is the source for the TL;DW Chrome Web Store listing (updated for v1.2.0, 2026-11-09).
+This is the source for the TL;DW Chrome Web Store listing (updated for v1.2.1, 2026-11-09).
 Each field is in its own block; copy the text inside the block.
 The owner's step-by-step checklist is item 3 in [OWNER-TODO.md](../OWNER-TODO.md).
 
@@ -9,7 +9,7 @@ The owner's step-by-step checklist is item 3 in [OWNER-TODO.md](../OWNER-TODO.md
 Build from a clean checkout of the release tag, without changing the version, then validate:
 
 ```bash
-git checkout v1.2.0 && npm ci
+git checkout v1.2.1 && npm ci
 npm run package            # web-store/tldw-<version>.zip
 npm run validate:package   # manifest at the root, base hosts only, no source maps or keys
 ```
@@ -21,8 +21,11 @@ The upload ZIP must contain `manifest.json` at its root with the version in `pac
 ### Name (comes from the manifest, nothing to type)
 
 ```
-TL;DW
+TL;DW: YouTube Summaries with Gemini
 ```
+
+At least six store items are already called TLDW or TL;DW, so the listing name says what it does.
+Everywhere inside the extension it is still TL;DW.
 
 ### Summary (comes from the manifest description, 127 of 132 characters)
 

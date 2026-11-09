@@ -5,7 +5,7 @@ Agents keep this list current; tick an item by changing `[ ]` to `[x]` and addin
 No secrets go in this file: keys live in pass-env, and this file names only the entries.
 The cross-project list of keys to rotate is `SECURITY-TODO.md` in the private [secret-handling-review](https://github.com/n8watkins/secret-handling-review/blob/main/SECURITY-TODO.md) repo.
 
-Last checked: 2026-11-09 (version 1.2.0).
+Last checked: 2026-11-09 (version 1.2.1).
 
 ## 1. Test the real Gemini API
 
@@ -62,7 +62,7 @@ The decision whether the transcript reader needs more work before the store laun
 
 ## 3. Publish to the Chrome Web Store (Unlisted)
 
-- [ ] TL;DW 1.2.0 is submitted with Unlisted visibility.
+- [ ] TL;DW 1.2.1 is submitted with Unlisted visibility.
 
 **What.**
 Register as a Chrome Web Store developer and submit the extension.
@@ -74,7 +74,7 @@ Register as a Chrome Web Store developer and submit the extension.
 3. Open https://chrome.google.com/webstore/devconsole, accept the developer agreement and pay the one-time $5 fee.
 4. In account settings, set the publisher name, then add and verify the contact email.
 5. Declare non-trader (a free personal project) or trader (published as a business; the store then shows your business contact details to EU users).
-6. Add a new item and upload `web-store/tldw-1.2.0.zip` (ask Claude to rebuild it from the `v1.2.0` tag if it is missing).
+6. Add a new item and upload `web-store/tldw-1.2.1.zip` (ask Claude to rebuild it from the `v1.2.1` tag if it is missing).
 7. Paste every field from [docs/STORE_SUBMISSION.md](docs/STORE_SUBMISSION.md) and upload the images in `store-assets/`.
 8. Privacy policy URL: https://n8builds.dev/privacy/tldw once it is live, else https://github.com/n8watkins/tl-dw/blob/master/PRIVACY.md
 9. Set visibility to **Unlisted** and submit.
