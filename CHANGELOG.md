@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0 - 2026-11-09
+
+### New
+
+- A new TL;DW icon, and an example summary you can see before setting anything up ([#41](https://github.com/n8watkins/tl-dw/pull/41))
+
 ## 1.1.3 - 2026-11-02
 
 ### Fixed
