@@ -1,6 +1,6 @@
 # Chrome Web Store Submission Guide
 
-This is the source for the TL;DW Chrome Web Store listing (updated for v1.2.1, 2026-11-09).
+This is the source for the TL;DW Chrome Web Store listing (updated for v1.4.0, 2026-11-09).
 Each field is in its own block; copy the text inside the block.
 The owner's step-by-step checklist is item 3 in [OWNER-TODO.md](../OWNER-TODO.md).
 
@@ -9,7 +9,7 @@ The owner's step-by-step checklist is item 3 in [OWNER-TODO.md](../OWNER-TODO.md
 Build from a clean checkout of the release tag, without changing the version, then validate:
 
 ```bash
-git checkout v1.2.1 && npm ci
+git checkout v1.4.0 && npm ci
 npm run package            # web-store/tldw-<version>.zip
 npm run validate:package   # manifest at the root, base hosts only, no source maps or keys
 ```
@@ -38,20 +38,26 @@ Too Long; Didn't Watch: summarize any YouTube video right on the page with Gemin
 ```
 Get the point of a YouTube video without watching all of it.
 
-Press the blue TL;DW button under any video and a summary appears right on the page: one line with the main takeaway, and the key details a click away.
+Press the blue TL;DW button under any video and the summary appears right on the page: the main takeaway, and the key points under it. When a point comes with a time, click it to jump to that moment. TL;DW shows a time only after checking that the words it cites are really said there.
 
-It works with no setup. TL;DW opens Gemini in a background tab, with the Google account you already use there (or none), and brings Gemini's answer back to the video.
+Pick the style that fits the video:
+- Quick: the takeaway and three key points.
+- Research: the video's claims, how it backs each one, and what it leaves out.
+- Learning: the key ideas as cards, and questions to test yourself.
+- Tutorial: numbered steps, and what you need first.
+Switch styles from the panel, or give a channel its own: a cooking channel as Tutorial, a lecture channel as Learning.
+
+It works with no setup. TL;DW asks Gemini in a background tab, with the Google account you already use there (or none), and brings the answer back to the video.
 For summaries in seconds with no extra tab, add your own free Gemini API key. It takes about two minutes in Google AI Studio, and TL;DW walks you through it.
-With a key, long videos are summarized from the whole transcript, and Gemini can watch videos that have no captions.
+Either way Gemini reads the video's transcript, a long one in full. With a key, Gemini can also watch videos that have no captions.
 
 Not sure yet? "See an example summary" on the welcome page shows a real summary TL;DW made, with no key and no setup.
 
-What you can do:
+More:
 - Summarize with a click, the keyboard shortcut (Alt+Shift+G), or the right-click menu.
-- Pick a prompt profile: the short TL;DW, research notes, a learning brief, a tutorial brief, or the best moments to watch. Edit them or write your own.
 - Ask a specific question about the video.
 - Summarize long videos, or chosen channels, automatically.
-- Tag videos and channels, and find past summaries in your history.
+- Find past summaries in your history.
 - Optionally skip community-reported sponsor segments with SponsorBlock (off by default).
 
 Private by design:
@@ -80,10 +86,10 @@ English (United States)
 - Store icon (128x128): `store-icon-128.png`.
 - Screenshots (1280x800), in this order:
   1. `01-summary-on-the-page-1280x800.png`
-  2. `02-key-details-1280x800.png`
-  3. `03-works-with-no-setup-1280x800.png`
-  4. `04-example-summary-1280x800.png`
-  5. `05-prompt-profiles-1280x800.png`
+  2. `02-styles-that-look-different-1280x800.png`
+  3. `03-learn-and-check-yourself-1280x800.png`
+  4. `04-one-menu-away-1280x800.png`
+  5. `05-works-with-no-setup-1280x800.png`
 - Small promo tile (440x280): `promo-tile-440x280.png`.
 - Marquee promo tile (1400x560, optional): `marquee-1400x560.png`.
 
@@ -99,7 +105,7 @@ English (United States)
 ### Single purpose description
 
 ```
-TL;DW summarizes the YouTube video you are watching. When you ask, it sends the video's transcript (or its link) with a summary prompt to Google's Gemini, either the Gemini web app in a tab or the Gemini API with your own key, and shows the summary on the YouTube page. Prompt profiles, tags, history, caching and the optional sponsor-segment skipping all serve that one purpose.
+TL;DW summarizes the YouTube video you are watching. When you ask, it sends the video's transcript (or its link) with a summary prompt to Google's Gemini, either the Gemini web app in a tab or the Gemini API with your own key, and shows the summary on the YouTube page. Summary styles, history, caching and the optional sponsor-segment skipping all serve that one purpose.
 ```
 
 ### Permission justifications
@@ -107,7 +113,7 @@ TL;DW summarizes the YouTube video you are watching. When you ask, it sends the 
 storage:
 
 ```
-Saves the user's settings, prompt profiles, tags, local summary history, a cache of parsed summaries, the user's own Gemini API key, usage counters, and the short-lived prompt waiting for the Gemini tab. Everything stays in Chrome on the device.
+Saves the user's settings, summary styles and each channel's style, local summary history, a cache of parsed summaries, the user's own Gemini API key, usage counters, and the short-lived prompt waiting for the Gemini tab. Everything stays in Chrome on the device.
 ```
 
 contextMenus:
@@ -187,7 +193,7 @@ How to test, no account or key needed:
 1. Install TL;DW. A welcome page opens.
 2. Click "See an example summary" to see a real summary TL;DW made, shipped with the extension. This page needs no key and sends nothing.
 3. Open https://www.youtube.com/watch?v=UF8uR6Z6KLc and press the blue TL;DW button under the video (next to Subscribe), or press Alt+Shift+G.
-4. TL;DW opens Gemini (gemini.google.com) in a background tab, sends the prompt there and, after about 10 to 60 seconds, shows the summary under the video. Being signed in to Google is optional. "Show details" expands it.
+4. TL;DW opens Gemini (gemini.google.com) in a background tab, sends the prompt there and, after about 10 to 60 seconds, shows the summary under the video: the takeaway and key points, with times you can click. Being signed in to Google is optional for this video, which has captions. The ⋯ menu on the summary switches between the Quick, Research, Learning and Tutorial styles.
 
 With a Gemini API key (optional, free at https://aistudio.google.com/apikey): open TL;DW's settings, go to Direct API, paste the key and save. TL;DW verifies it and turns Direct API on; summaries then appear in a few seconds with no extra tab.
 
