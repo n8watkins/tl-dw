@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDestinationPrompt, buildDestinationPromptInfo, TLDW_REMINDER, TRANSCRIPT_SHORTENED_NOTE } from "./promptBuilder";
+import { appendTranscript, buildDestinationPrompt, buildDestinationPromptInfo, promptForHistory, TLDW_REMINDER, TRANSCRIPT_SHORTENED_NOTE } from "./promptBuilder";
 import type { Destination, PromptProfile, VideoContext } from "../types";
 
 const profile: PromptProfile = {
@@ -243,5 +243,25 @@ describe("buildDestinationPromptInfo", () => {
     const { truncated, prompt } = buildDestinationPromptInfo(profile, video, site, transcript, null, null, { maxChars: 1_000_000 });
     expect(truncated).toBe(false);
     expect(prompt).toContain(transcript.trim());
+  });
+});
+
+describe("promptForHistory", () => {
+  it("keeps the prompt that was sent and replaces only the transcript", () => {
+    const transcript = "word ".repeat(2000).trim();
+    const sent = appendTranscript("Summarize this video.", transcript) + "\n\n---\nReminder.";
+    const kept = promptForHistory(sent);
+    expect(kept).toContain("Summarize this video.");
+    expect(kept).toContain("<<<TRANSCRIPT START>>>");
+    expect(kept).toContain("<<<TRANSCRIPT END>>>");
+    expect(kept).toContain("Reminder.");
+    expect(kept).toContain("9,999 characters, sent but not kept in History");
+    expect(kept).not.toContain("word word");
+    expect(kept).not.toContain("If you can't open the video itself");
+  });
+
+  it("leaves a link prompt unchanged", () => {
+    const sent = "Summarize.\n\nVideo link: https://www.youtube.com/watch?v=x";
+    expect(promptForHistory(sent)).toBe(sent);
   });
 });

@@ -1,7 +1,7 @@
 // The injector for the optional chat sites, built as a standalone script so it
 // can be registered at runtime once the user allows that site.
 import injectScript from "../content/inject-optional.ts?script&iife";
-import { buildDestinationPrompt, buildDestinationPromptInfo } from "../lib/promptBuilder";
+import { buildDestinationPrompt, buildDestinationPromptInfo, promptForHistory, transcriptPlaceholder } from "../lib/promptBuilder";
 import { parseTldwBlock } from "../lib/tldw";
 import { selectSummaryProfile } from "../lib/summaryProfile";
 import { fingerprintPrompt } from "../lib/summaryCache";
@@ -722,7 +722,7 @@ async function prepareAndSend({
       if (settings.saveHistoryOnSearch) {
         try {
           await addHistoryEntry({
-            video, profile, prompt: linkPrompt, settings,
+            video, profile, prompt: promptForHistory(prompt), settings,
             destinationId: destination.id,
             channelAvatarUrl: video.avatarUrl,
           });
@@ -913,17 +913,21 @@ async function prepareAndSend({
         : undefined,
       summaryLabel,
       signedInPrompt ? SIGNED_IN_TRANSCRIPT_LABEL : undefined,
+      videoDurationSeconds,
     );
   }
   if (settings.saveHistoryOnSearch) {
-    // Store a transcript-free prompt: the transcript can be tens to hundreds of
-    // KB, and persisting it per entry would bloat chrome.storage.local toward
-    // its ~5 MB quota (and means "Copy prompt" wouldn't quietly drag the whole
-    // transcript along).
+    // Store the prompt that was sent, with the transcript replaced by a
+    // placeholder: the transcript can be tens to hundreds of KB, and persisting
+    // it per entry would bloat chrome.storage.local toward its ~5 MB quota (and
+    // "Copy prompt" shouldn't quietly drag the whole transcript along). A
+    // source destination gets the bare transcript, so it is replaced whole.
     await addHistoryEntry({
       video,
       profile,
-      prompt: linkPrompt,
+      prompt: destination.payload === "source" && transcript && prompt === transcript
+        ? transcriptPlaceholder(transcript)
+        : promptForHistory(prompt),
       settings,
       destinationId: destination.id,
       channelAvatarUrl: video.avatarUrl,
@@ -942,10 +946,12 @@ async function recordOpenSearch(
   cacheContext?: import("../types").OpenSearch["cacheContext"],
   summaryLabel?: string,
   signedInLabel?: string,
+  videoDurationSeconds?: number,
 ): Promise<void> {
   await addOpenSearch({
     summaryLabel,
     signedInLabel,
+    videoDurationSeconds: videoDurationSeconds || undefined,
     tabId,
     sourceTabId,
     transcriptVideoId,
@@ -1040,10 +1046,13 @@ chrome.runtime.onMessage.addListener(
       void (async () => {
         let videoId: string | undefined;
         let match: OpenSearch | undefined;
+        let durSec = 0;
         try {
           const searches = await getOpenSearches();
           const ownSearch = searches.find((s) => destTabId !== undefined && s.tabId === destTabId);
           match = ownSearch ?? searches.find((s) => s.sourceTabId === srcTabId);
+          // Count the length only of the video this tab's own request was for.
+          durSec = ownSearch?.videoDurationSeconds ?? 0;
           if (match?.videoUrl) videoId = extractVideoId(match.videoUrl) ?? undefined;
           // Cache only a scrape we can tie to its own request (this destination
           // tab), and never one whose prompt carried another video's transcript.
@@ -1067,14 +1076,15 @@ chrome.runtime.onMessage.addListener(
             await setCachedSummary({ ...cacheContext, tldw, createdAt: new Date().toISOString() });
           }
         } catch { /* best effort: a failed cache write never hides the summary */ }
+        // Bump lifetime stats: summary completed (tab-scrape / AI_SUMMARY path).
+        // The video's length was recorded with the tab TL;DW opened for it.
+        const today = localDateKey();
+        void bumpLifetimeStats((s) => {
+          s.summaries += 1;
+          s.activity[today] = (s.activity[today] ?? 0) + 1;
+          if (durSec > 0) s.durationSummarizedSeconds += durSec;
+        });
       })();
-      // Bump lifetime stats: summary completed (tab-scrape / AI_SUMMARY path).
-      const today = localDateKey();
-      void bumpLifetimeStats((s) => {
-        s.summaries += 1;
-        s.activity[today] = (s.activity[today] ?? 0) + 1;
-        // Duration is not available from the AI_SUMMARY message; skip it.
-      });
       sendResponse({ ok: true });
       return false;
     }

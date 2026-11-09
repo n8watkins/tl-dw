@@ -122,6 +122,24 @@ export function appendTranscript(
   );
 }
 
+const TRANSCRIPT_BLOCK = /(<<<TRANSCRIPT START>>>\n)([\s\S]*?)(\n<<<TRANSCRIPT END>>>)/;
+
+/** What stands in for a transcript in History: its length, not its text. */
+export function transcriptPlaceholder(transcript: string): string {
+  return `[the video's transcript: ${transcript.length.toLocaleString("en-US")} characters, sent but not kept in History]`;
+}
+
+/**
+ * The prompt as History keeps it: exactly what was sent, except that the
+ * transcript between the markers is replaced by a one-line placeholder. A
+ * transcript can be hundreds of KB, which would push chrome.storage.local
+ * toward its quota, but History must still show the prompt that was really sent.
+ */
+export function promptForHistory(sent: string): string {
+  return sent.replace(TRANSCRIPT_BLOCK, (_whole, start: string, transcript: string, end: string) =>
+    `${start}${transcriptPlaceholder(transcript)}${end}`);
+}
+
 /**
  * A one-line restatement of the output format, placed after the transcript so
  * the binding instruction is also the last thing the model reads.
