@@ -1,6 +1,6 @@
 # TL;DW - Privacy Policy
 
-_Last updated: November 2, 2026 (extension v1.1.1)_
+_Last updated: November 9, 2026 (extension v1.2.0)_
 
 TL;DW summarizes YouTube videos.
 It has no developer backend, no accounts, no shared API key, and no analytics, tracking or telemetry.
@@ -48,15 +48,17 @@ TL;DW stores the following in `chrome.storage.local`, on your device only:
 - Settings, prompt profiles and tags.
 - Your Gemini API key, if you add one, with its name and whether it was verified.
   The key stays in this storage; anyone with access to your Chrome profile could read it, so you can delete it in TL;DW at any time and revoke it in Google AI Studio.
-- Summary history: the video's link, title and channel, the prompt profile, a prompt without the transcript, and the time.
+- Summary history: the video's link, title and channel, the link to the channel's picture, the prompt profile, a prompt without the transcript, and the time.
   History is deleted after 30 days by default (configurable).
 - A cache of parsed summaries, kept for seven days and capped at 300 entries.
 - Summary, cache-hit and SponsorBlock counters, and per-day summary activity.
 - Direct API usage counters and a call log of video link, title, time, profile, outcome and error category.
-  The full prompt and response are kept only if you turn on full call logging.
+  The full prompt (which includes the transcript TL;DW sent) and Gemini's response are kept only if you turn on full call logging, which is off by default; the log keeps the last 200 calls, and you can clear it in TL;DW's Direct API settings.
 
-Short-lived hand-off state (the prompt waiting for a destination tab, open destination tabs) is kept in `chrome.storage.session` and cleared when Chrome closes.
-TL;DW never stores a video's full transcript.
+Short-lived hand-off state is kept in `chrome.storage.session`, which Chrome holds in memory and clears when it closes: the open destination tabs, and the prompt waiting for a destination tab.
+That prompt can include the transcript; TL;DW deletes it once the destination has it, and ignores one older than 10 minutes.
+Apart from those two cases, TL;DW does not store a video's transcript.
+TL;DW never downloads or stores a video's audio, video or images.
 Uninstalling TL;DW removes all of its storage from your Chrome profile.
 
 ## What TL;DW does not do
@@ -64,6 +66,12 @@ Uninstalling TL;DW removes all of its storage from your Chrome profile.
 - It does not collect watch time, engagement or ratings.
 - It does not sell data, or use it for advertising, profiling, creditworthiness or lending.
 - It runs no server that receives your data.
+- The example summary ("See an example summary" on the welcome page and in the popup) ships inside TL;DW and sends nothing.
+
+## Chrome Web Store User Data Policy
+
+TL;DW's use of the information it handles complies with the [Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies/), including its Limited Use requirements.
+It uses that information only to summarize the video you ask about and to show you your own history and settings, transfers it only to the AI service you choose (and SponsorBlock, if you turn it on) to do that, and never sends it to the developer.
 
 ## Permissions
 
