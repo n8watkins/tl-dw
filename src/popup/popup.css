@@ -162,6 +162,7 @@ header {
 }
 
 .first-run-link:hover { color: #ffffff; }
+.empty .first-run-link { display: inline-block; margin-top: 4px; font-size: 14px; font-style: normal; }
 
 .first-run-dismiss {
   flex: 0 0 auto;

@@ -79,6 +79,11 @@ export function WelcomeSection({ onDone }: { onDone: () => void }) {
             </p>
           </div>
         </div>
+        {!keyReady && (
+          <p className="welcome-fine welcome-example-link">
+            Want to see one first? <a href="#example">See an example summary</a>, no key needed.
+          </p>
+        )}
       </section>
 
       {keyReady ? (

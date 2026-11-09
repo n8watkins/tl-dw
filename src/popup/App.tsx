@@ -257,6 +257,11 @@ export function App() {
     window.close();
   }
 
+  function openExample() {
+    void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "example" });
+    window.close();
+  }
+
   function dismissFirstRun() {
     if (!settings) return;
     const next = { ...settings, firstRunNoticeSeen: true };
@@ -371,7 +376,17 @@ export function App() {
           <span className="video-btn-title">{linkedSearch.videoTitle ?? "YouTube video"}</span>
         </button>
       ) : (
-        <p className="empty">Open a YouTube video to use TL;DW.</p>
+        <p className="empty">
+          Open a YouTube video to use TL;DW.
+          {settings && !settings.geminiApiKey && (
+            <>
+              {" "}
+              <button type="button" className="first-run-link" onClick={openExample}>
+                See an example summary
+              </button>
+            </>
+          )}
+        </p>
       )}
 
       {failures.length > 0 && (

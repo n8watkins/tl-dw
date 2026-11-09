@@ -10,8 +10,9 @@ import { DirectApiSection } from "./sections/DirectApiSection";
 import { AboutSection } from "./sections/AboutSection";
 import { SupportSection } from "./sections/SupportSection";
 import { WelcomeSection } from "./sections/WelcomeSection";
+import { ExampleSection } from "./sections/ExampleSection";
 
-type NavItem = "welcome" | "setup" | "stats" | "profiles" | "history" | "channels" | "tags" | "settings" | "directapi" | "support" | "about";
+type NavItem = "welcome" | "example" | "setup" | "stats" | "profiles" | "history" | "channels" | "tags" | "settings" | "directapi" | "support" | "about";
 
 const NAV: { id: NavItem; label: string; icon: string }[] = [
   { id: "setup",     label: "Setup",      icon: "◎" },
@@ -29,8 +30,9 @@ const NAV: { id: NavItem; label: string; icon: string }[] = [
 const ICON_URL = chrome.runtime.getURL("icons/tl-dw-48.png");
 const VERSION = chrome.runtime.getManifest().version;
 
-// "welcome" (the first-install page) is reachable by URL but not in the sidebar.
-const NAV_IDS: NavItem[] = ["welcome", ...NAV.map((n) => n.id)];
+// "welcome" (the first-install page) and "example" (a bundled example summary)
+// are reachable by URL but not in the sidebar.
+const NAV_IDS: NavItem[] = ["welcome", "example", ...NAV.map((n) => n.id)];
 function hashToNav(): NavItem | null {
   const id = window.location.hash.replace(/^#/, "") as NavItem;
   return NAV_IDS.includes(id) ? id : null;
@@ -54,6 +56,14 @@ export function OptionsApp() {
   function navigate(id: NavItem) {
     setActive(id);
     if (window.location.hash !== `#${id}`) window.location.hash = id;
+  }
+
+  if (active === "example") {
+    return (
+      <main className="welcome-layout">
+        <ExampleSection onBack={() => (window.history.length > 1 ? window.history.back() : navigate("welcome"))} />
+      </main>
+    );
   }
 
   if (active === "welcome") {
