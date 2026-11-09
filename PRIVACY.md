@@ -48,7 +48,7 @@ TL;DW stores the following in `chrome.storage.local`, on your device only:
 - Settings, prompt profiles and tags.
 - Your Gemini API key, if you add one, with its name and whether it was verified.
   The key stays in this storage; anyone with access to your Chrome profile could read it, so you can delete it in TL;DW at any time and revoke it in Google AI Studio.
-- Summary history: the video's link, title and channel, the link to the channel's picture, the prompt profile, a prompt without the transcript, and the time.
+- Summary history: the video's link, title and channel, the link to the channel's picture, the prompt profile, the prompt that was sent with the transcript left out, and the time.
   History is deleted after 30 days by default (configurable).
 - A cache of parsed summaries, kept for seven days and capped at 300 entries.
 - Summary, cache-hit and SponsorBlock counters, and per-day summary activity.

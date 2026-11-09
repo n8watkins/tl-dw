@@ -2206,3 +2206,238 @@ test("details show as a list behind a real button, and the panel fits a narrow w
     await session.close();
   }
 });
+
+test("the auto-run confirmation describes the mode in use: a background Gemini tab without a key", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context);
+    await mockGemini(session.context, []);
+    await setStorage(session, { profiles: profiles(), settings: directSettings() });
+    const page = await openVideo(session.context, "fixture-confirm-copy");
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+    const overlay = page.locator("#tldw-autorun-overlay");
+
+    // With a key: each automatic summary uses it.
+    await page.getByRole("button", { name: "↻ Auto-summarize" }).click();
+    await expect(overlay).toContainText("Each summary uses your Gemini API key.");
+    await page.keyboard.press("Escape");
+
+    // The key is removed while the page is open: the dialog says what will really happen.
+    await session.worker.evaluate(async () => {
+      const r = await chrome.storage.local.get("settings");
+      await chrome.storage.local.set({ settings: { ...r.settings, geminiApiKey: "", useDirectApi: false } });
+    });
+    await page.getByRole("button", { name: "↻ Auto-summarize" }).click();
+    await expect(overlay).toContainText("each new video opens Gemini in a background tab");
+    await expect(overlay).not.toContainText("API key. Free-tier");
+    await expect(overlay.getByRole("button", { name: "Add a free API key instead →" })).toBeVisible();
+    await expect(overlay).not.toContainText("—");
+  } finally {
+    await session.close();
+  }
+});
+
+test("a sponsor skip shows a notice with Undo over the player, with no summary open", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context, sponsorFixture);
+    await session.context.route("https://sponsor.ajay.app/**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ segment: [10, 37], category: "sponsor" }]) });
+    });
+    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), useDirectApi: false, skipSponsors: true } });
+    const page = await session.context.newPage();
+    await page.goto("https://www.youtube.com/watch?v=fixture-sponsor-notice");
+    const playInto = () => page.evaluate(() => (window as unknown as { __playInto: () => Promise<number> }).__playInto());
+    await expect.poll(playInto, { timeout: 10_000 }).toBe(37);
+
+    await expect(page.locator("#tldw-summary")).toHaveCount(0);
+    const notice = page.locator("#movie_player #tldw-sponsor-toast");
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText("Skipped a sponsor (0:27)");
+
+    // Undo goes back to the sponsor's start and the notice goes away.
+    await notice.getByRole("button", { name: "Undo" }).click();
+    expect(await page.evaluate(() => document.querySelector("video")!.currentTime)).toBe(10);
+    await expect(notice).toHaveCount(0);
+  } finally {
+    await session.close();
+  }
+});
+
+test("a sponsor skip's notice leaves once the video plays on past its Undo window", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context, sponsorFixture);
+    await session.context.route("https://sponsor.ajay.app/**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ segment: [10, 20], category: "sponsor" }]) });
+    });
+    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), useDirectApi: false, skipSponsors: true } });
+    const page = await session.context.newPage();
+    await page.goto("https://www.youtube.com/watch?v=fixture-sponsor-expire");
+    const playInto = () => page.evaluate(() => (window as unknown as { __playInto: () => Promise<number> }).__playInto());
+    await expect.poll(playInto, { timeout: 10_000 }).toBe(20);
+    const notice = page.locator("#tldw-sponsor-toast");
+    await expect(notice).toBeVisible();
+    await page.evaluate(() => {
+      const v = document.querySelector("video")!;
+      v.currentTime = 30;
+      v.dispatchEvent(new Event("timeupdate"));
+    });
+    await expect(notice).toHaveCount(0);
+  } finally {
+    await session.close();
+  }
+});
+
+test("a no-key summary counts the video's length in Stats, and History keeps the prompt that was sent", async () => {
+  const session = await launchExtension();
+  try {
+    const transcript = `${modernSegment("0:01", "1 second", "The fixture transcript explains reliable extension testing.")}` +
+      `${modernSegment("0:05", "5 seconds", "It recommends prompt-aware caching and correct profile selection.")}`;
+    await routeYouTube(session.context, playerFixture({ lengthSeconds: 904, captions: true }, transcript));
+    await session.context.route("https://gemini.google.com/**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "text/html", body: hiddenAnswerGeminiFixture(false) });
+    });
+    await setStorage(session, {
+      profiles: profilesWithoutUrl(),
+      settings: { ...directSettings(), geminiApiKey: "", useDirectApi: false, temporaryChats: false, focusGeminiTab: false, saveHistoryOnSearch: true },
+    });
+    const page = await openVideo(session.context, "fixture-stats-length");
+    const geminiPage = session.context.waitForEvent("page");
+    await page.locator("#tldw-watch-btn").click();
+    const gemini = await geminiPage;
+    await gemini.goto("https://gemini.google.com/app");
+    await page.bringToFront();
+    await expect(page.locator("#tldw-summary")).toContainText("Hidden answers are read in full.", { timeout: 20_000 });
+    const sent = await gemini.evaluate(() => (window as unknown as { __sentPrompt: string }).__sentPrompt);
+    expect(sent).toContain("TRANSCRIPT START");
+
+    await expect.poll(async () => (await getStorage<{ durationSummarizedSeconds: number }>(session, "tldwStats"))?.durationSummarizedSeconds).toBe(904);
+    const options = await session.context.newPage();
+    await options.goto(`chrome-extension://${session.extensionId}/src/options/index.html#stats`);
+    await expect(options.getByText("15m of content distilled")).toBeVisible();
+
+    // History shows the transcript prompt that went to Gemini, not a link prompt,
+    // with only the transcript itself left out.
+    const history = await getStorage<Array<{ prompt: string }>>(session, "history");
+    const kept = history?.[0]?.prompt ?? "";
+    expect(kept).toContain("<<<TRANSCRIPT START>>>");
+    expect(kept).toMatch(/\[the video's transcript: [\d,]+ characters, sent but not kept in History\]/);
+    expect(kept).not.toContain("prompt-aware caching");
+    expect(kept).not.toContain("If you can't open the video itself");
+    // The stand-in composer's textContent drops line breaks, so compare without whitespace.
+    const outsideTranscript = (p: string) => p.replace(/<<<TRANSCRIPT START>>>[\s\S]*<<<TRANSCRIPT END>>>/, "").replace(/\s+/g, "");
+    expect(outsideTranscript(sent)).toBe(outsideTranscript(kept));
+  } finally {
+    await session.close();
+  }
+});
+
+test("a summary with a key keeps the transcript prompt it sent in History", async () => {
+  const session = await launchExtension();
+  try {
+    const prompts: string[] = [];
+    await routeYouTube(session.context);
+    await mockGemini(session.context, prompts);
+    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), saveHistoryOnSearch: true } });
+    const page = await openVideo(session.context, "fixture-history-key");
+    await page.locator("#tldw-watch-btn").click();
+    await expect(page.locator("#tldw-summary")).toContainText("Fixture summary.");
+    expect(prompts[0]).toContain("prompt-aware caching");
+    await expect.poll(async () => (await getStorage<Array<{ prompt: string }>>(session, "history"))?.[0]?.prompt ?? "").toContain("sent but not kept in History");
+    const kept = (await getStorage<Array<{ prompt: string }>>(session, "history"))![0]!.prompt;
+    expect(kept).not.toContain("prompt-aware caching");
+    expect(kept).not.toContain("If you can't open the video itself");
+  } finally {
+    await session.close();
+  }
+});
+
+test("the activity heatmap opens on today's column when the year doesn't fit", async () => {
+  const session = await launchExtension();
+  try {
+    const today = await session.worker.evaluate(() => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    });
+    await setStorage(session, {
+      profiles: profiles(),
+      settings: directSettings(),
+      tldwStats: { summaries: 1, cacheHits: 0, durationSummarizedSeconds: 600, sponsorSkips: 0, sponsorSecondsSaved: 0, activity: { [today]: 1 }, since: "2026-01-01T00:00:00.000Z" },
+    });
+    const options = await session.context.newPage();
+    await options.setViewportSize({ width: 900, height: 800 });
+    await options.goto(`chrome-extension://${session.extensionId}/src/options/index.html#stats`);
+    const scroller = options.getByTestId("stat-heatmap-scroll");
+    await expect(scroller).toBeVisible();
+    const { scrollLeft, max } = await scroller.evaluate((el) => ({ scrollLeft: el.scrollLeft, max: el.scrollWidth - el.clientWidth }));
+    expect(max).toBeGreaterThan(0);
+    expect(scrollLeft).toBeGreaterThanOrEqual(max - 1);
+  } finally {
+    await session.close();
+  }
+});
+
+/** A silent mono WAV `seconds` long, so a fixture <video> has a real duration. */
+function silentWav(seconds: number, rate = 3000): Buffer {
+  const data = Buffer.alloc(seconds * rate, 128);
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0); header.writeUInt32LE(36 + data.length, 4); header.write("WAVE", 8);
+  header.write("fmt ", 12); header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(rate, 24); header.writeUInt32LE(rate, 28); header.writeUInt16LE(1, 32); header.writeUInt16LE(8, 34);
+  header.write("data", 36); header.writeUInt32LE(data.length, 40);
+  return Buffer.concat([header, data]);
+}
+
+test("a sponsor segment that runs past the video's end is skipped and counted once", async () => {
+  const session = await launchExtension();
+  try {
+    await routeYouTube(session.context, sponsorFixture.replace(
+      '<video class="html5-main-video"></video>',
+      '<video class="html5-main-video" preload="auto" src="https://media.fixture.test/silence.wav"></video>',
+    ));
+    // Served with byte ranges, as media servers do, so the element can seek.
+    const wav = silentWav(30);
+    await session.context.route("https://media.fixture.test/**", async (route) => {
+      const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers()["range"] ?? "");
+      const start = range ? Number(range[1]) : 0;
+      const end = range?.[2] ? Number(range[2]) : wav.length - 1;
+      await route.fulfill({
+        status: range ? 206 : 200,
+        headers: {
+          "Content-Type": "audio/wav",
+          "Accept-Ranges": "bytes",
+          ...(range ? { "Content-Range": `bytes ${start}-${end}/${wav.length}` } : {}),
+        },
+        body: wav.subarray(start, end + 1),
+      });
+    });
+    // Submitted as 20-40 s, but the video is 30 s long.
+    await session.context.route("https://sponsor.ajay.app/**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ segment: [20, 40], category: "sponsor" }]) });
+    });
+    await setStorage(session, { profiles: profiles(), settings: { ...directSettings(), useDirectApi: false, skipSponsors: true } });
+    const page = await session.context.newPage();
+    await page.goto("https://www.youtube.com/watch?v=fixture-sponsor-outro");
+    await expect.poll(() => page.evaluate(() => document.querySelector("video")!.duration)).toBe(30);
+    const playInto = () => page.evaluate(async () => {
+      const v = document.querySelector("video")!;
+      v.currentTime = 19; v.dispatchEvent(new Event("timeupdate"));
+      await new Promise((r) => setTimeout(r, 50));
+      v.currentTime = 21; v.dispatchEvent(new Event("timeupdate"));
+      await new Promise((r) => setTimeout(r, 50));
+      return v.currentTime;
+    });
+    await expect.poll(playInto, { timeout: 10_000 }).toBe(30);
+    await expect(page.locator("#tldw-sponsor-toast")).toContainText("Skipped a sponsor (0:10)");
+    // More time updates at the end must not skip (or count) it again.
+    for (let i = 0; i < 3; i++) await page.evaluate(() => document.querySelector("video")!.dispatchEvent(new Event("timeupdate")));
+    await page.waitForTimeout(300);
+    const stats = await getStorage<{ sponsorSkips: number; sponsorSecondsSaved: number }>(session, "tldwStats");
+    expect(stats?.sponsorSkips).toBe(1);
+    expect(stats?.sponsorSecondsSaved).toBe(10);
+  } finally {
+    await session.close();
+  }
+});

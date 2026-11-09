@@ -31,6 +31,7 @@ import {
   stripSegmentTimeLabels,
 } from "../lib/youtubeTranscript";
 import { createKeyedSingleFlight } from "../lib/singleFlight";
+import { autoRunNote, usesOwnKey } from "../lib/autoRunNote";
 import { ADD_KEY_TO_WATCH, ADD_KEY_WHOLE_VIDEO } from "../lib/sendPlan";
 import {
   cachedSourceLabel,
@@ -1307,11 +1308,17 @@ function buildAutoToggle(
     const enabling = !currentAutoRunSummary;
     if (enabling) {
       busy = true;
-      showAutoRunConfirmOverlay(info, () => {
-        currentAutoRunSummary = true;
-        applyState(true);
-        void writeAutoRunChannel(info, true).finally(() => { busy = false; });
-      }, () => { busy = false; });
+      // Read the mode now: the key may have been added or removed since the page loaded.
+      void chrome.storage.local.get("settings").then(
+        (r) => usesOwnKey(r["settings"] as Record<string, unknown> | undefined),
+        () => currentDirectApiEnabled,
+      ).then((usesKey) => {
+        showAutoRunConfirmOverlay(info, usesKey, () => {
+          currentAutoRunSummary = true;
+          applyState(true);
+          void writeAutoRunChannel(info, true).finally(() => { busy = false; });
+        }, () => { busy = false; });
+      });
       return;
     }
     busy = true;
@@ -1408,8 +1415,8 @@ function secToClock(s: number): string {
 /**
  * Inline SponsorBlock widget for the panel header. Shows that auto-skip is on,
  * and for each sponsor a pair of YouTube-style clickable timestamps (start /
- * end) you can jump to. An Undo appears briefly right after an auto-skip (and
- * disappears once you've watched past the ad). Click "⏭" to collapse/expand.
+ * end) you can jump to. The Undo for an auto-skip lives in the notice
+ * sponsorblock.ts shows over the player. Click "⏭" to collapse/expand.
  */
 function buildSponsorWidget(t: ReturnType<typeof theme>): HTMLElement | null {
   const api = sponsorApi();
@@ -1470,17 +1477,6 @@ function buildSponsorWidget(t: ReturnType<typeof theme>): HTMLElement | null {
       stamp(secToClock(seg.end), () => api.jumpTo(seg.index, "end")),
     );
 
-    // Undo shows only in the window right after an auto-skip.
-    if (seg.undoable) {
-      const undo = document.createElement("button");
-      undo.textContent = "↩ Undo";
-      Object.assign(undo.style, {
-        background: "transparent", border: "none", color: "#1a73e8",
-        cursor: "pointer", fontWeight: "700", fontSize: "12px", padding: "0", marginLeft: "2px",
-      });
-      undo.addEventListener("click", (e) => { e.stopPropagation(); api.jumpTo(seg.index, "start"); });
-      group.append(undo);
-    }
     wrap.append(group);
   }
   return wrap;
@@ -2469,6 +2465,7 @@ function closeAutoRunOverlay(): void {
 /** Confirmation overlay shown before enabling auto-run for a channel. */
 function showAutoRunConfirmOverlay(
   info: ChannelInfo,
+  usesKey: boolean,
   onConfirm: () => void,
   onCancel: () => void,
 ): void {
@@ -2523,15 +2520,16 @@ function showAutoRunConfirmOverlay(
   Object.assign(chNameEl.style, { fontSize: "15px", color: t.text });
   nameLine.append(
     chNameEl,
-    document.createTextNode(" — Every new video from this channel will automatically get an AI summary."),
+    document.createTextNode(": every new video from this channel will automatically get an AI summary."),
   );
 
+  const { note, action } = autoRunNote(usesKey);
   const apiNote = document.createElement("div");
   Object.assign(apiNote.style, { marginBottom: "8px" });
-  apiNote.textContent = "Each summary uses your Gemini API key. Free-tier keys include a generous daily quota.";
+  apiNote.textContent = note;
 
   const usageBtn = document.createElement("button");
-  usageBtn.textContent = "View API usage →";
+  usageBtn.textContent = action.label;
   Object.assign(usageBtn.style, {
     background: "transparent", border: "none", padding: "0",
     color: "#1a73e8", cursor: "pointer", fontSize: "13px",
@@ -2539,7 +2537,8 @@ function showAutoRunConfirmOverlay(
   });
   usageBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    window.open("https://aistudio.google.com/apikey", "_blank");
+    if (action.target === "key-setup") void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS", section: "directapi" });
+    else window.open("https://aistudio.google.com/apikey", "_blank");
   });
 
   textBlock.append(nameLine, apiNote, usageBtn);
@@ -2676,7 +2675,7 @@ async function maybeStartDirectApiRun(
   // destination, read its answer back, inject it here) instead of a headless
   // Gemini call — "show UI here" is decoupled from "which backend is set".
   const s = r["settings"] as Record<string, unknown> | undefined;
-  currentDirectApiEnabled = !!(s?.useDirectApi as boolean) && !!(s?.geminiApiKey as string);
+  currentDirectApiEnabled = usesOwnKey(s);
 
   // YouTube may not have rendered channel info yet at t=1s on a fresh page load; retry briefly.
   if (!currentChannelInfo) {
