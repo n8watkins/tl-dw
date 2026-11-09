@@ -3,6 +3,8 @@ export type PromptProfile = {
   name: string;
   description?: string;
   promptTemplate: string;
+  /** What lands on the page (default "quick"). */
+  layout?: SummaryLayout;
   isDefault?: boolean;
   isCustomized?: boolean;
   createdAt: string;
@@ -50,12 +52,15 @@ export type OpenSearch = {
   cacheContext?: Omit<CachedSummary, "tldw" | "createdAt">;
   /** The video whose transcript went into the prompt, when one did. */
   transcriptVideoId?: string;
-  /** Label for the summary read back from this tab (e.g. part of the transcript). */
-  summaryLabel?: string;
-  /** The label instead, when the tab sent its signed-in prompt (Gemini read the captions). */
-  signedInLabel?: string;
   /** The video's length, counted in the "content distilled" stat once the answer comes back. */
   videoDurationSeconds?: number;
+  /** The profile's layout, to read the answer with. */
+  layout?: SummaryLayout;
+  /** What the prompt carried (the transcript, part of it, or the link). */
+  basis?: SummaryBasis;
+  profileName?: string;
+  /** Whether a Gemini key was set up, so the page doesn't offer one. */
+  hasKey?: boolean;
 };
 
 /**
@@ -250,7 +255,7 @@ export type Settings = {
   useDirectApi: boolean;
   /** Whether the user has acknowledged the first-run privacy notice (SponsorBlock). */
   firstRunNoticeSeen: boolean;
-  /** Profile to use for Direct API auto-runs; falls back to the default profile if unset. */
+  /** Retired in 1.4 (one default style, plus a style per channel); kept for older settings. */
   directApiProfileId?: string;
   /** Auto-skip in-video sponsored segments using the free SponsorBlock community data. */
   skipSponsors: boolean;
@@ -365,6 +370,8 @@ export type InjectResultMessage = {
   type: "INJECT_RESULT";
   site: string;
   ok: boolean;
+  /** Nothing was sent: the video has no transcript and Gemini is signed out. */
+  signInNeeded?: boolean;
   reason?: string;
   /** Set when the site kept only part of the prompt: the share it kept, in percent. */
   keptPercent?: number;
@@ -372,14 +379,58 @@ export type InjectResultMessage = {
   copied?: boolean;
 };
 
+/** How a profile's summary is laid out on the page (see summaryFormat.ts). */
+export type SummaryLayout = "quick" | "research" | "learning" | "tutorial";
+
+/** One point, claim, idea or step of a summary. */
+export type SummaryItem = {
+  text: string;
+  /** Seconds into the video; set only once the time passed the caption check. */
+  time?: number;
+  /** Learning: the idea's short name. */
+  term?: string;
+  /** Research: how the video backs the claim ("Shown", "Stated", "Opinion", "Check: ..."). */
+  tag?: string;
+  /** The words the model quoted for its time; used for the check, never stored or shown. */
+  quote?: string;
+};
+
+/** Where the summary's material came from, for its source line. */
+export type SummaryBasis =
+  /** The whole transcript TL;DW read. */
+  | "transcript"
+  /** The video's link: the Gemini API watched it, or the signed-in Gemini app read its captions. */
+  | "video"
+  /** Legacy: part of a long transcript (start and end). */
+  | "excerpt"
+  /** Legacy: public information about the video only. */
+  | "public";
+
 /** Compact structured data extracted from the AI response and injected onto the YouTube page. */
 export type TldwSummary = {
   /** One sentence stating the video's core conclusion or argument. */
   summary: string;
-  /** 1-2 sentences of supporting evidence or key context. */
+  /** Legacy (before 1.4): 1-2 sentences of supporting evidence or key context. */
   details?: string;
-  /** How the summary was made, shown with it (e.g. "Watched by Gemini (no transcript)"). */
+  /** Legacy: how the summary was made, now said by the source line instead. */
   label?: string;
+  /** Which layout drew it; absent on a legacy summary (summary + details). */
+  layout?: SummaryLayout;
+  items?: SummaryItem[];
+  /** Learning: questions to test yourself, with their answers. */
+  questions?: { question: string; answer: string }[];
+  /** Research "Not covered: ...", Tutorial "You'll need: ...". */
+  note?: string;
+  /** Whether any point kept a checked time. */
+  timed?: boolean;
+  basis?: SummaryBasis;
+  /** Profile that made it, for the panel header and the Style menu. */
+  profileId?: string;
+  profileName?: string;
+  /** How it ran: the Gemini API with the user's key, or the Gemini tab without one. */
+  via?: "api" | "tab";
+  /** The Gemini API model that answered (API only). */
+  model?: string;
 };
 
 /**
@@ -389,9 +440,13 @@ export type TldwSummary = {
 export type AiSummaryMessage = {
   type: "AI_SUMMARY";
   tldw: TldwSummary;
+  /** The answer as read, for the worker to parse with the profile's layout. */
+  raw?: string;
   sourceTabId: number;
-  /** The tab sent its signed-in prompt (see PendingData.signedInPrompt). */
+  /** Whether the Gemini page showed a signed-in account. */
   signedIn?: boolean;
+  /** Gemini answered CANNOT_ACCESS: it couldn't open the linked video. */
+  cannotAccess?: boolean;
   /**
    * False when no TL;DW block could be parsed and `tldw` is the answer's raw
    * text, shown so the user gets something, but never cached.
@@ -410,8 +465,10 @@ export type OpenOptionsMessage = { type: "OPEN_OPTIONS"; section?: string };
  */
 export type OpenOrFocusDestinationMessage = {
   type: "OPEN_OR_FOCUS_DESTINATION";
-  /** The video whose summary panel sent this (its "Open tab" action). */
+  /** The video whose summary panel sent this (its "Open in Gemini" action). */
   videoId?: string;
+  /** The style the panel shows, so the Gemini tab gets the same request. */
+  profileId?: string;
 };
 
 /** One sponsor segment from SponsorBlock: a [start, end] time range in seconds. */
@@ -460,7 +517,11 @@ export type SponsorSkippedMessage = {
 /** Worker's reply with the (possibly empty) list of segments to skip. */
 export type SponsorSegmentsResponse = { segments: SponsorSegment[] };
 
+/** The Gemini tab's progress through a long transcript's parts. */
+export type TabProgressMessage = { type: "TAB_PROGRESS"; step: string };
+
 export type RuntimeMessage =
+  | TabProgressMessage
   | GetPendingMessage
   | AskMessage
   | RebuildMenuMessage

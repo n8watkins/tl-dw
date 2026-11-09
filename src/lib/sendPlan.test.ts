@@ -1,30 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { excerptLabel, excerptNotice, noTranscriptLinkNotice, planSend, publicInfoLabel } from "./sendPlan";
+import { cannotAccessMessage, excerptNotice, linkNotice, MAX_TAB_PARTS, planSend, SIGN_IN_MESSAGE } from "./sendPlan";
 
-describe("planSend", () => {
-  it("uses the API with the whole transcript, or has Gemini watch the video when there is none", () => {
-    expect(planSend({ useApi: true, hasTranscript: true, transcriptFits: true })).toBe("api-transcript");
-    expect(planSend({ useApi: true, hasTranscript: false, transcriptFits: false })).toBe("api-video");
-    expect(planSend({ useApi: true, hasTranscript: true, transcriptFits: false })).toBe("api-too-long");
+describe("planSend: transcript first, the link only without one", () => {
+  it("with a key: the whole transcript, notes per part when it's too long for one request, or Gemini watches", () => {
+    expect(planSend({ useApi: true, hasTranscript: true, fitsOne: true })).toBe("api-transcript");
+    expect(planSend({ useApi: true, hasTranscript: true, fitsOne: false })).toBe("api-transcript-long");
+    expect(planSend({ useApi: true, hasTranscript: false, fitsOne: false })).toBe("api-video");
   });
 
-  it("sends the Gemini tab part of a long transcript, and the link only when there is no transcript", () => {
-    expect(planSend({ useApi: false, hasTranscript: true, transcriptFits: true })).toBe("tab-transcript");
-    expect(planSend({ useApi: false, hasTranscript: true, transcriptFits: false })).toBe("tab-excerpt");
-    expect(planSend({ useApi: false, hasTranscript: false, transcriptFits: false })).toBe("tab-link");
+  it("without a key: the transcript in one message, in parts, or (very long) its start and end", () => {
+    expect(planSend({ useApi: false, hasTranscript: true, fitsOne: true })).toBe("tab-transcript");
+    expect(planSend({ useApi: false, hasTranscript: true, fitsOne: false, partsNeeded: 3 })).toBe("tab-parts");
+    expect(planSend({ useApi: false, hasTranscript: true, fitsOne: false, partsNeeded: MAX_TAB_PARTS + 1 })).toBe("tab-excerpt");
   });
 
-  it("labels a summary honestly: never \"watched\" without the API, and key advice only without a key", () => {
-    expect(excerptLabel(false)).toBe(
-      "Summarized from part of the transcript (video is long). Add a free API key to summarize the whole video.",
-    );
-    expect(excerptLabel(true)).toBe("Summarized from part of the transcript (video is long).");
-    expect(publicInfoLabel(false)).toBe(
-      "No transcript, so Gemini summarized from public info about this video, not the video itself. Add a free API key so Gemini can watch it.",
-    );
-    expect(publicInfoLabel(true)).not.toContain("API key");
-    for (const text of [excerptLabel(false), publicInfoLabel(false), noTranscriptLinkNotice(false), excerptNotice("Gemini", false)]) {
+  it("without a key and without a transcript: the link", () => {
+    expect(planSend({ useApi: false, hasTranscript: false, fitsOne: false })).toBe("tab-link");
+  });
+});
+
+describe("what the page says", () => {
+  it("never claims Gemini watched anything without the API, and offers a key only without one", () => {
+    for (const text of [excerptNotice(false), linkNotice(false), cannotAccessMessage(false)]) {
       expect(text).not.toMatch(/\bwatched\b|will watch/i);
+      expect(text).toContain("Add a free API key");
     }
+    expect(linkNotice(true)).not.toContain("API key");
+  });
+
+  it("asks a signed-out user to sign in, in the owner's words", () => {
+    expect(SIGN_IN_MESSAGE).toBe("This video has no transcript. Sign in to Gemini to summarize it from the video.");
   });
 });

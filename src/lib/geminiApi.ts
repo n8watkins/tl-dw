@@ -102,7 +102,13 @@ export function geminiErrorForStatus(
  * (public videos only) at low media resolution, which keeps a long video's
  * token count down; the prompt then carries no transcript.
  */
-export type GeminiRequest = { prompt: string; videoUrl?: string };
+export type GeminiRequest = {
+  prompt: string;
+  videoUrl?: string;
+  /** Watch only this stretch of the video (seconds), for a video too long for one request. */
+  startSeconds?: number;
+  endSeconds?: number;
+};
 
 export type GeminiCallOptions = {
   fetcher?: typeof fetch;
@@ -111,8 +117,16 @@ export type GeminiCallOptions = {
 };
 
 export function geminiRequestBody(request: GeminiRequest): unknown {
+  const clip = request.startSeconds !== undefined || request.endSeconds !== undefined
+    ? {
+        videoMetadata: {
+          ...(request.startSeconds !== undefined ? { startOffset: `${Math.floor(request.startSeconds)}s` } : {}),
+          ...(request.endSeconds !== undefined ? { endOffset: `${Math.ceil(request.endSeconds)}s` } : {}),
+        },
+      }
+    : {};
   const parts: unknown[] = request.videoUrl
-    ? [{ fileData: { fileUri: request.videoUrl } }, { text: request.prompt }]
+    ? [{ fileData: { fileUri: request.videoUrl }, ...clip }, { text: request.prompt }]
     : [{ text: request.prompt }];
   return {
     contents: [{ parts }],

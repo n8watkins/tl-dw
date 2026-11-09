@@ -14,18 +14,18 @@ What leaves your device depends on how you summarize a video.
 ### Without a Gemini API key (the default)
 
 - TL;DW opens the Gemini web app (`gemini.google.com`) in a tab, under the Google account you are signed in with there, if any.
-- It types a prompt into Gemini's message box: your prompt profile's instructions, the video's title, channel and link, any question you typed, and the video's transcript.
-- When the transcript is too long for Gemini's message box, TL;DW sends its start and end with the middle marked as left out, and the summary is labeled so.
-- When there is no transcript, Gemini gets the video's link instead.
-  Without your API key Gemini does not watch the video: it can only look up public information about it, and the summary is labeled so.
-- If you are signed in to Gemini, TL;DW checks the Gemini page for your account button (it reads nothing else about the account) and, for a long video or one whose transcript it couldn't read, sends the video's link and asks Gemini to read the captions through YouTube instead of a shortened transcript.
+- It types a prompt into Gemini's message box: your profile's instructions, the video's title, channel and link, any question you typed, and the video's transcript, with the time each caption line starts.
+- When the transcript is too long for one message, TL;DW sends it in several messages, then the request.
+  Only a transcript longer than about six hours is sent as its start and end, with the middle marked as left out, and the summary is labeled so.
+- When there is no transcript, Gemini gets the video's link instead, which only a signed-in Gemini can read.
+  Before sending it, TL;DW checks the Gemini page for your account button or a sign-in link (it reads nothing else about the account); signed out, it sends nothing and asks you to sign in.
 - TL;DW then reads Gemini's answer in that tab to show the summary on the YouTube page.
 - Google's own terms and privacy policy for Gemini apply to what it receives.
 
 ### With your own Gemini API key (Direct API)
 
-- TL;DW sends the prompt and the video's full transcript to Google's Gemini API (`generativelanguage.googleapis.com`).
-- When a video has no transcript, it sends the video's YouTube link instead, and Gemini watches the video (public videos only).
+- TL;DW sends the prompt and the video's full transcript, with the time each caption line starts, to Google's Gemini API (`generativelanguage.googleapis.com`); a transcript too long for one request goes in parts.
+- When a video has no transcript, it sends the video's YouTube link instead, and Gemini watches the video (public videos only; a very long one in parts).
 - Your key is sent only to that API, in the `x-goog-api-key` request header; never in a URL, and never to the developer.
 - Checking a newly saved key reads the chosen model's details from the API; it does not send a prompt.
 - Google's [Gemini API terms](https://aistudio.google.com/docs/terms) apply.
@@ -53,9 +53,10 @@ TL;DW stores the following in `chrome.storage.local`, on your device only:
 - Direct API usage counters and a call log of video link, title, time, profile, outcome and error category.
   The full prompt (which includes the transcript TL;DW sent) and Gemini's response are kept only if you turn on full call logging, which is off by default; the log keeps the last 200 calls, and you can clear it in TL;DW's Direct API settings.
 
-Short-lived hand-off state is kept in `chrome.storage.session`, which Chrome holds in memory and clears when it closes: the open Gemini tabs TL;DW started, and the prompt waiting for a Gemini tab.
+Short-lived hand-off state is kept in `chrome.storage.session`, which Chrome holds in memory and clears when it closes: the open Gemini tabs TL;DW started, the prompt waiting for a Gemini tab, and the timed transcript a Gemini tab was given, kept only to check the times in its answer.
 That prompt can include the transcript; TL;DW deletes it once the Gemini tab has it, and ignores one older than 10 minutes.
-Apart from those two cases, TL;DW does not store a video's transcript.
+The timed transcript is deleted when that Gemini tab closes.
+Apart from those cases, TL;DW does not store a video's transcript.
 TL;DW never downloads or stores a video's audio, video or images.
 Uninstalling TL;DW removes all of its storage from your Chrome profile.
 

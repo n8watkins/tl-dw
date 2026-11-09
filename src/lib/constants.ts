@@ -178,6 +178,8 @@ export const CHANNEL_TAGS_KEY = "tldwChannelTags";
 /** chrome.storage.local key mapping videoId -> tag ids (Record<string, string[]>).
  *  Video tags are one-off; "apply to all future" promotes them into CHANNEL_TAGS_KEY. */
 export const VIDEO_TAGS_KEY = "tldwVideoTags";
+/** chrome.storage.local key mapping channel name -> the profile id it is summarized with. */
+export const CHANNEL_PROFILES_KEY = "tldwChannelProfiles";
 
 export const DEFAULT_SETTINGS: Settings = {
   autoSubmit: true,

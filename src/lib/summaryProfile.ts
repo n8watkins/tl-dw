@@ -1,30 +1,17 @@
-import type { PromptProfile, Settings, SummarySource } from "../types";
+import type { PromptProfile, Settings } from "../types";
 
 /**
- * Select the profile whose template will actually be sent for a summary run.
- * Keeping this decision in one place prevents prompt, history, logging, and
- * cache metadata from disagreeing about the active profile.
+ * The profile a summary run uses: the one the user picked for this run (the
+ * panel's Style menu, the popup or the right-click menu), else the channel's
+ * default style, else the default profile. One decision in one place keeps the
+ * prompt, history, call log and cache in agreement.
  */
 export function selectSummaryProfile(
   profiles: PromptProfile[],
   settings: Settings,
-  source: SummarySource,
   requestedProfileId: string | undefined,
-  willUseDirectApi: boolean,
+  channelProfileId?: string,
 ): PromptProfile | undefined {
-  let effectiveId = requestedProfileId;
-
-  if (source === "page") {
-    effectiveId = settings.defaultProfileId;
-  } else if (source === "auto" && willUseDirectApi) {
-    effectiveId = settings.directApiProfileId ?? settings.defaultProfileId;
-  } else if (source === "popup-inline") {
-    effectiveId = requestedProfileId ?? settings.defaultProfileId;
-  }
-
-  return (
-    profiles.find((profile) => profile.id === effectiveId) ??
-    profiles.find((profile) => profile.id === settings.defaultProfileId) ??
-    profiles[0]
-  );
+  const find = (id: string | undefined) => (id ? profiles.find((p) => p.id === id) : undefined);
+  return find(requestedProfileId) ?? find(channelProfileId) ?? find(settings.defaultProfileId) ?? profiles[0];
 }

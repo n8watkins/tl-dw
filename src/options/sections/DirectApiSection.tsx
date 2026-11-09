@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { GeminiCallEntry, GeminiUsage, PromptProfile, Settings } from "../../types";
+import type { GeminiCallEntry, GeminiUsage, Settings } from "../../types";
 import {
   AI_STUDIO_LINKS,
   DEFAULT_SETTINGS,
@@ -16,7 +16,6 @@ import {
   clearGeminiUsage,
   getGeminiCallLog,
   getGeminiUsage,
-  getProfiles,
   getSettings,
   setSettings,
 } from "../../lib/storage";
@@ -54,7 +53,6 @@ function dateGroupLabel(iso: string): string {
 
 export function DirectApiSection() {
   const [settings, setLocal] = useState<Settings | null>(null);
-  const [profiles, setProfiles] = useState<PromptProfile[]>([]);
   const [geminiUsage, setGeminiUsage] = useState<GeminiUsage>(emptyGeminiUsage());
   const [callLog, setCallLog] = useState<GeminiCallEntry[]>([]);
   const [saved, setSaved] = useState(false);
@@ -66,12 +64,11 @@ export function DirectApiSection() {
   const [historyDay, setHistoryDay] = useState(""); // yyyy-mm-dd, "" = all days
 
   useEffect(() => {
-    void Promise.all([getSettings(), getGeminiUsage(), getGeminiCallLog(), getProfiles()]).then(
-      ([s, u, log, p]) => {
+    void Promise.all([getSettings(), getGeminiUsage(), getGeminiCallLog()]).then(
+      ([s, u, log]) => {
         setLocal(s);
         setGeminiUsage(u);
         setCallLog(log);
-        setProfiles(p);
       },
     );
 
@@ -155,7 +152,7 @@ export function DirectApiSection() {
   return (
     <div>
       <div className="section-header">
-        <h1 className="section-title">Direct API</h1>
+        <h1 className="section-title">Your Gemini key</h1>
         <p className="section-desc">
           {saved ? (
             <span className="text-success">Saved.</span>
@@ -166,7 +163,7 @@ export function DirectApiSection() {
       </div>
 
       {/* Sub-nav: switches between separate views so nothing lives below the fold. */}
-      <div className="directapi-tabs" role="tablist" aria-label="Direct API">
+      <div className="directapi-tabs" role="tablist" aria-label="Your Gemini key">
         {DIRECT_API_TABS.map((tb) => (
           <button
             key={tb.id}
@@ -199,7 +196,7 @@ export function DirectApiSection() {
           </li>
           <li>
             <strong>Copy the key and paste it below.</strong> TL;DW saves it on this device, checks
-            it with Google (no summary is made), and turns on Direct API.
+            it with Google (no summary is made), and starts using it.
           </li>
         </ol>
         <div className="setting-sub" style={{ marginTop: 12 }}>
@@ -290,32 +287,6 @@ export function DirectApiSection() {
             ))}
           </div>
         </div>
-
-        {profiles.length > 0 && (
-          <div className="setting-row">
-            <div className="setting-info">
-              <div className="setting-label" id="directapi-profile-label">Profile for auto-runs</div>
-              <div className="setting-sub">
-                Which prompt profile to use when Direct API fires automatically on page load.
-                Defaults to your global default profile if not set.
-              </div>
-            </div>
-            <div className="setting-control">
-              <select
-                aria-labelledby="directapi-profile-label"
-                value={settings.directApiProfileId ?? ""}
-                onChange={(e) => void update({ directApiProfileId: e.target.value || undefined })}
-                disabled={!hasKey}
-                style={{ fontSize: 13, minWidth: 140 }}
-              >
-                <option value="">Default profile</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )}
 
         <div className="setting-row">
           <div className="setting-info">
@@ -579,7 +550,7 @@ export function DirectApiSection() {
       {confirmClearLog && (
         <ConfirmDialog
           title="Clear API call history?"
-          body={`This permanently removes all ${callLog.length} entries from the Direct API call log. Usage stats are not affected.`}
+          body={`This permanently removes all ${callLog.length} entries from the call log. Usage stats are not affected.`}
           confirmLabel="Clear History"
           onCancel={() => setConfirmClearLog(false)}
           onConfirm={() => void doClearLog()}

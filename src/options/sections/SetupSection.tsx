@@ -89,7 +89,7 @@ export function SetupSection() {
       <div className="mode-grid">
         <div className="card mode-card">
           <div className="mode-card-title">
-            <Icon name="sparkles" /> Open in a tab
+            <Icon name="sparkles" /> Gemini tab (no key)
           </div>
           <div className="mode-card-tag">No key · works now</div>
           <div className="card-desc">
@@ -97,16 +97,16 @@ export function SetupSection() {
             finished answer and puts the summary on the YouTube page. It uses the account you're already signed in with.
           </div>
           <div className="mode-card-note">
-            Long videos: signed in, Gemini reads the transcript through YouTube; signed out, it gets
-            part of the transcript, labeled so. Without a key Gemini
-            doesn't watch videos, so for one with no captions it can only summarize public info about it.
-            Reading the answer depends on Gemini's page layout, so it's a little more fragile than Direct API.
+            Gemini reads the video's transcript; a long one goes in several messages. A video with no
+            transcript goes as its link, which only works when you're signed in to Gemini (TL;DW asks you
+            to sign in when you aren't). Reading the answer depends on Gemini's page layout, so it's a little
+            more fragile than your own key.
           </div>
         </div>
 
         <div className="card mode-card">
           <div className="mode-card-title">
-            <Icon name="send" /> Direct API
+            <Icon name="send" /> Your Gemini key
           </div>
           <div className="mode-card-tag">Your free Gemini key · recommended</div>
           <div className="card-desc">
@@ -115,7 +115,7 @@ export function SetupSection() {
             and Gemini watches videos that have no captions. Getting a free key takes about two minutes.
           </div>
           <button className="btn btn-primary" style={{ marginTop: 4 }} onClick={goToDirectApi}>
-            Set up Direct API →
+            Add your Gemini key →
           </button>
         </div>
       </div>

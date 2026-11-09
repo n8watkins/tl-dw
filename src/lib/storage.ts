@@ -15,6 +15,7 @@ import type {
 } from "../types";
 import {
   AUTO_RUN_CHANNELS_KEY,
+  CHANNEL_PROFILES_KEY,
   CHANNEL_TAGS_KEY,
   DEFAULT_SETTINGS,
   DELIVERY_STATUS_KEY,
@@ -37,7 +38,8 @@ import {
   recordUsageAttempt,
   recordUsageOutcome,
 } from "./geminiUsage";
-import { migrateToGeminiOnly } from "./migrations";
+import { migrateProfiles, migrateToGeminiOnly } from "./migrations";
+import type { Segment } from "./timedTranscript";
 import {
   findCachedVariant,
   normalizeSummaryCache,
@@ -142,6 +144,11 @@ export async function getState(): Promise<StorageState> {
 export async function ensureSeeded(): Promise<void> {
   const migrated = migrateToGeminiOnly(await getSettings());
   if (migrated) await setSettings(migrated);
+  const profileMigration = migrateProfiles(await getProfiles(), await getSettings());
+  if (profileMigration) {
+    await setProfiles(profileMigration.profiles);
+    await setSettings(profileMigration.settings);
+  }
   const profiles = await getProfiles();
   if (profiles.length === 0) {
     const defaults = createDefaultProfiles();
@@ -167,13 +174,16 @@ export async function resolveProfile(
 // --- session-scoped prompt handoff, keyed by the destination tab id ---
 
 export type PendingData = {
+  /** The request itself: the last (or only) message. */
   prompt: string;
+  /** A long transcript's parts, each sent (and acknowledged) before the request. */
+  parts?: string[];
   /**
-   * A prompt to send instead when the user turns out to be signed in to the
-   * Gemini web app, which can then read a video's captions itself from its
-   * link (the injector checks the page before choosing).
+   * A link prompt for a video without a transcript: only a signed-in Gemini
+   * can read it, so the injector checks the account first and, signed out,
+   * reports that instead of sending.
    */
-  signedInPrompt?: string;
+  requireSignIn?: boolean;
   /** YouTube tab to send the AI response back to, if triggered from one. */
   sourceTabId?: number;
   /** ms timestamp the prompt was queued, so a stale one isn't re-delivered on a
@@ -270,8 +280,60 @@ export async function addOpenSearch(entry: OpenSearch): Promise<void> {
   });
 }
 
+// --- a default style per channel ---
+
+/** Channel name -> the profile its videos are summarized with. */
+export async function getChannelProfiles(): Promise<Record<string, string>> {
+  const r = await chrome.storage.local.get(CHANNEL_PROFILES_KEY);
+  return (r[CHANNEL_PROFILES_KEY] as Record<string, string> | undefined) ?? {};
+}
+
+/** Set (or, with no profile, clear) a channel's default style. */
+export async function setChannelProfile(channel: string, profileId: string | undefined): Promise<void> {
+  await withWriteLock(CHANNEL_PROFILES_KEY, async () => {
+    const all = await getChannelProfiles();
+    if (profileId) all[channel] = profileId;
+    else delete all[channel];
+    await chrome.storage.local.set({ [CHANNEL_PROFILES_KEY]: all });
+  });
+}
+
+// --- the timed transcript behind a Gemini tab's prompt, to check its times ---
+
+const TAB_SEGMENTS_KEY = "tldwTabSegments";
+
+/**
+ * Keep the timed transcript a Gemini tab was given, until its answer comes
+ * back, so the answer's times can be checked against it. Session storage only
+ * (memory, cleared when Chrome closes), and dropped when the tab closes.
+ */
+export async function setTabSegments(tabId: number, segments: Segment[]): Promise<void> {
+  await withWriteLock(TAB_SEGMENTS_KEY, async () => {
+    const r = await chrome.storage.session.get(TAB_SEGMENTS_KEY);
+    const all = (r[TAB_SEGMENTS_KEY] as Record<number, Segment[]>) ?? {};
+    all[tabId] = segments;
+    await chrome.storage.session.set({ [TAB_SEGMENTS_KEY]: all });
+  });
+}
+
+export async function getTabSegments(tabId: number): Promise<Segment[] | null> {
+  const r = await chrome.storage.session.get(TAB_SEGMENTS_KEY);
+  return ((r[TAB_SEGMENTS_KEY] as Record<number, Segment[]> | undefined) ?? {})[tabId] ?? null;
+}
+
+async function clearTabSegments(tabId: number): Promise<void> {
+  await withWriteLock(TAB_SEGMENTS_KEY, async () => {
+    const r = await chrome.storage.session.get(TAB_SEGMENTS_KEY);
+    const all = (r[TAB_SEGMENTS_KEY] as Record<number, Segment[]>) ?? {};
+    if (all[tabId] === undefined) return;
+    delete all[tabId];
+    await chrome.storage.session.set({ [TAB_SEGMENTS_KEY]: all });
+  });
+}
+
 /** Drop a search entry when its tab closes. */
 export async function pruneOpenSearch(tabId: number): Promise<void> {
+  await clearTabSegments(tabId);
   await withWriteLock(OPEN_SEARCHES_KEY, async () => {
     const existing = await readOpenSearches();
     const next = existing.filter((s) => s.tabId !== tabId);

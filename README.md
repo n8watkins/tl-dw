@@ -7,12 +7,14 @@ TL;DW works with Gemini only ([docs/DECISIONS.md](docs/DECISIONS.md)).
 ## Product
 
 - Works out of the box with no key: the TL;DW button under a video opens Gemini in a background tab and brings its answer back to the YouTube page.
-- With your own free Gemini API key (Direct API), the summary appears on the page in seconds with no tab: long videos are summarized from the full transcript, and videos without captions are watched by Gemini from their link.
-- Direct API uses Gemini 3.5 Flash-Lite and switches to Gemini 3.1 Flash-Lite by itself when Google reports a rate or quota limit; a model picker offers larger models for people who pay or want more depth.
-- TL;DW never cuts a transcript silently: when one is too long for the Gemini tab, Gemini gets its start and end and the summary says "Summarized from part of the transcript".
-- If you're signed in to Gemini, a long video (or one whose transcript TL;DW couldn't read) goes to the Gemini tab as its link instead, because signed-in Gemini reads a video's captions through YouTube; the summary says "Gemini read the video's transcript through YouTube".
-- Without a key, Gemini doesn't watch YouTube videos. For a video with no captions the Gemini tab gets the link and can only summarize public info about the video, and the summary says so; with a key, the Gemini API watches the video itself.
-- Prompt profiles, channel and video tags, and specific questions shape the summary.
+- With your own free Gemini key, the summary appears on the page in seconds with no tab, from the Gemini API.
+  It uses Gemini 3.5 Flash-Lite and switches to Gemini 3.1 Flash-Lite by itself when Google reports a rate or quota limit; a model picker offers larger models.
+- Transcript first: TL;DW sends the transcript it read itself, with the time each line starts, in both modes.
+  A long transcript goes whole, in several messages to the Gemini tab or in parts to the API, instead of being cut.
+- Only without a transcript does Gemini get the video's link: with a key it watches the video; without one, a signed-out user is asked to sign in to Gemini, which can then read the captions.
+- Four styles that look different on the page: Quick (the takeaway and three points), Research (claims and how the video backs each), Learning (key ideas as cards, and questions to test yourself) and Tutorial (numbered steps).
+  Pick one as your default, or switch from the panel's ⋯ menu.
+- Times appear only when they are checked: the model quotes the words it cites, and TL;DW shows the time only if those words are in the captions within 15 seconds of it. Click one to jump there.
 - Automatic summaries can run for chosen channels or for videos over a set length.
 - Optional SponsorBlock integration (off by default) skips community-reported sponsor segments.
 - Summary activity, history and usage are stored locally.

@@ -22,7 +22,7 @@ const NAV: { id: NavItem; label: string; icon: string }[] = [
   { id: "channels",  label: "Channels",   icon: "▦" },
   { id: "tags",      label: "Tags",       icon: "◆" },
   { id: "settings",  label: "Settings",   icon: "◧" },
-  { id: "directapi", label: "Direct API", icon: "⚡" },
+  { id: "directapi", label: "Your Gemini key", icon: "⚡" },
   { id: "support",   label: "Support",    icon: "♡" },
   { id: "about",     label: "About",      icon: "◉" },
 ];

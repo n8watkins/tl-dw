@@ -1,20 +1,28 @@
-import type { PromptProfile } from "../types";
+import { SUMMARY_LAYOUTS } from "./summaryFormat";
+import type { PromptProfile, SummaryLayout } from "../types";
 
 function now() {
   return new Date().toISOString();
 }
 
+/**
+ * The built-in profiles. Each has its own layout (see summaryFormat.ts), so
+ * switching profile visibly changes what lands on the page. The template is
+ * only the guidance; TL;DW appends the output format for the layout.
+ */
 export function createDefaultProfiles(): PromptProfile[] {
   const ts = now();
   const base = (
     id: string,
     name: string,
     description: string,
+    layout: SummaryLayout,
     promptTemplate: string,
   ): PromptProfile => ({
     id,
     name,
     description,
+    layout,
     promptTemplate: promptTemplate.trim(),
     isDefault: true,
     createdAt: ts,
@@ -24,107 +32,65 @@ export function createDefaultProfiles(): PromptProfile[] {
   return [
     base(
       "tldw",
-      "TL;DW",
-      "The too long; didn't watch version: a one-line summary and the key details.",
-      `You watched this YouTube video so I don't have to. Tell me what it actually concludes and the key details — not just what topics it covers.
+      "Quick",
+      "The takeaway and three key points.",
+      "quick",
+      `You watched this YouTube video so I don't have to. Tell me what it actually concludes and the points that carry it, not just the topics it covers.
 
 Video: {{title}}
 Channel: {{channel}}
+{{userCuriosity}}
 
-Respond with ONLY the structured block below — no introduction, no extra sections, no preamble. The SUMMARY is one sharp sentence stating the video's real conclusion or argument. DETAILS is 2-4 sentences on the key support, notable caveats, or what's skippable. Don't invent anything; if the transcript is thin, say what's uncertain.`,
+Don't invent anything; if the transcript is thin, say what's uncertain.`,
     ),
     base(
       "research",
-      "Research Mode",
-      "Fact-checking and research brief. Claims, evidence, what needs verification.",
-      `Analyze this YouTube video as a fact-checking and research brief.
+      "Research",
+      "Claims, how the video backs each one, and what it leaves out.",
+      "research",
+      `Read this YouTube video the way a careful fact-checker would.
 
 Video: {{title}}
 Channel: {{channel}}
-URL: {{url}}
 Date: {{date}}
 {{userCuriosity}}
 
-Your job is not just to summarize the video. Your job is to identify what the video claims, what evidence it gives, what is opinion or speculation, and what would need to be verified elsewhere.
-
-Write the response like a readable analyst note. Use short headers and natural paragraphs. Bullets are okay when listing specific claims or follow-up research questions, but avoid making the whole answer feel like a form.
-
-Explain the main claim or thesis, the strongest supporting points, the weak spots, and any missing context. Separate what seems factual from what seems interpretive, speculative, exaggerated, or unsupported. If the user gave a specific curiosity, focus the analysis around that question.
-
-End with a short section on what I should fact-check next and how much research value the video has.
-
-Do not invent sources, studies, quotes, timestamps, or external facts. If the video does not provide enough information to evaluate a claim, say so clearly.`,
+List the claims it makes, and for each say how the video backs it: it shows evidence, it only states it, it's an opinion, or it's worth checking elsewhere (say why, for example a figure that may be out of date). Then name the most important thing it leaves out. Don't invent sources, studies or facts.`,
     ),
     base(
       "learning",
-      "Learning Mode",
-      "Deep concept exploration. Mental models, definitions, examples, what to explore next.",
-      `Analyze this YouTube video as a learning and concept-exploration resource.
+      "Learning",
+      "The key ideas as cards, and two questions to test yourself.",
+      "learning",
+      `Help me understand the ideas in this YouTube video.
 
 Video: {{title}}
 Channel: {{channel}}
-URL: {{url}}
-Date: {{date}}
 {{userCuriosity}}
 
-Your job is to help me understand the ideas in the video more deeply. Focus on concepts, mental models, definitions, examples, and useful ways of thinking.
-
-Write the response like a smart teacher walking me through the interesting ideas. Use readable paragraphs and short section headers. Use bullets only when listing terms, related ideas, or memorable concepts.
-
-Explain the main concepts in simple language first, then go one level deeper. Point out any useful analogies, examples, or frameworks from the video. Include "quotable concepts" when helpful: clean, memorable paraphrases of the ideas. Only include exact quotes if they are clearly supported by the transcript.
-
-If the user gave a curiosity, use it as the lens for what to explain. End with related ideas I may want to explore next.
-
-Do not turn this into a fact-checking report or a step-by-step tutorial unless the video itself calls for it. The goal is understanding, not verification or execution.`,
+Pick the ideas the video builds on and explain each in plain words a beginner understands, using the video's own examples. Then write two questions that check whether I understood, each with its answer from the video.`,
     ),
     base(
       "tutorial",
-      "Tutorial Mode",
-      "Practical tutorial brief. What it teaches, prerequisites, tradeoffs, best next action.",
-      `Analyze this YouTube video as a practical tutorial and improvement plan.
+      "Tutorial",
+      "Numbered steps, and what you need first.",
+      "tutorial",
+      `Turn this YouTube video into steps I can follow.
 
 Video: {{title}}
 Channel: {{channel}}
-URL: {{url}}
-Date: {{date}}
 {{userCuriosity}}
 
-Your job is to figure out whether this video can help me actually do something better: improve a skill, build a habit, use a tool, make a decision, or execute a workflow.
-
-Write the response in a practical, readable style. Use steps only when there is a real sequence to follow. Do not force everything into a numbered list.
-
-Explain what the video teaches me to do, what prerequisites or tools are needed, and what I could realistically try first. Include the tradeoffs: time cost, complexity, likely payoff, opportunity cost, and alternative ways to get the same improvement.
-
-If the video is vague, motivational, repetitive, or not actually actionable, say that directly. End with the best next action I should take.
-
-Do not invent steps, tools, costs, or outcomes that are not supported by the video.`,
-    ),
-    base(
-      "moment-finder",
-      "Moment Finder",
-      "Find the 3-5 strongest moments worth watching. Timestamps when available.",
-      `Analyze this YouTube video and find the strongest moments worth watching or revisiting.
-
-Video: {{title}}
-Channel: {{channel}}
-URL: {{url}}
-Date: {{date}}
-{{userCuriosity}}
-
-Your job is to identify the highest-value parts of the video: the clearest explanation, strongest argument, most useful example, best quote, key turning point, surprising claim, or practical step.
-
-Do not frame this as repurposing someone else's content. This is not "clip ideas." This is about helping me jump to the parts that are actually worth my attention.
-
-Present each moment as a readable card-style section. Include the timestamp if it is available. If exact timestamps are not available, describe the section instead of inventing one. For each moment, explain what happens, why it matters, and whether it stands alone or needs context.
-
-When possible, include a clickable YouTube timestamp link using the video URL and timestamp. Include an exact quote only if clearly supported by the transcript. Otherwise, include a short "quotable concept" as a paraphrase.
-
-Keep the number of moments selective. Prefer 3 to 5 strong moments over a long list of weak ones. End by saying whether these moments capture the key substance or whether the full video adds materially more.
-
-Do not invent timestamps, quotes, or moments.`,
+List the steps in the order to do them, each an instruction that starts with a verb, using only what the video shows. Then say what I need first: tools, accounts or knowledge. If the video isn't really a how-to, give the closest practical steps it supports, and don't invent any.`,
     ),
   ];
 }
+
+/** The built-in profile ids, in order. */
+export const BUILT_IN_PROFILE_IDS = ["tldw", "research", "learning", "tutorial"] as const;
+
+/** The default profile: Quick. */
+export const DEFAULT_PROFILE_ID = "tldw";
 
 /** Returns the original template for a built-in profile id, for reset. */
 export function getOriginalTemplate(id: string): string | undefined {
@@ -184,6 +150,7 @@ export function mergeImportedProfiles(
       name: nextAvailableName(working, normalizeName(raw.name) || "Imported Profile"),
       description: typeof raw.description === "string" ? raw.description : "",
       promptTemplate: raw.promptTemplate,
+      ...(SUMMARY_LAYOUTS.some((l) => l.id === raw.layout) ? { layout: raw.layout as SummaryLayout } : {}),
       createdAt: timestamp,
       updatedAt: timestamp,
     });

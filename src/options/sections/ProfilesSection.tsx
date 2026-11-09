@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import type { PromptProfile, Settings } from "../../types";
 import { getProfiles, getSettings, setProfiles, setSettings } from "../../lib/storage";
 import {
+  createDefaultProfiles,
   getOriginalTemplate,
   mergeImportedProfiles,
   nextAvailableName,
   normalizeName,
 } from "../../lib/profiles";
+import { layoutOf, SUMMARY_LAYOUTS } from "../../lib/summaryFormat";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 
@@ -21,7 +23,8 @@ function newProfile(profiles: PromptProfile[]): PromptProfile {
     id: crypto.randomUUID(),
     name: nextAvailableName(profiles, "New Profile"),
     description: "",
-    promptTemplate: "Analyze this YouTube video: {{url}}\n\n",
+    layout: "quick",
+    promptTemplate: "Summarize this YouTube video.\n\nVideo: {{title}}\nChannel: {{channel}}\n{{userCuriosity}}",
     createdAt: now,
     updatedAt: now,
   };
@@ -57,11 +60,12 @@ export function ProfilesSection() {
     }
 
     const original = getOriginalTemplate(profile.id);
+    const originalLayout = createDefaultProfiles().find((p) => p.id === profile.id)?.layout;
     const updated: PromptProfile = {
       ...profile,
       name: cleanName,
       isCustomized: profile.isDefault
-        ? profile.promptTemplate !== original
+        ? profile.promptTemplate !== original || layoutOf(profile.layout) !== originalLayout
         : undefined,
       updatedAt: new Date().toISOString(),
     };
@@ -84,7 +88,8 @@ export function ProfilesSection() {
   async function resetTemplate(profile: PromptProfile) {
     const original = getOriginalTemplate(profile.id);
     if (!original) return;
-    const reset = { ...profile, promptTemplate: original, isCustomized: false, updatedAt: new Date().toISOString() };
+    const originalLayout = createDefaultProfiles().find((p) => p.id === profile.id)?.layout;
+    const reset = { ...profile, promptTemplate: original, layout: originalLayout, isCustomized: false, updatedAt: new Date().toISOString() };
     setDrafts((d) => ({ ...d, [profile.id]: reset }));
     await save(reset);
   }
@@ -331,6 +336,19 @@ export function ProfilesSection() {
                     </div>
 
                     <div className="field-group">
+                      <label className="field-label" htmlFor={`profile-${profile.id}-layout`}>What lands on the page</label>
+                      <select
+                        id={`profile-${profile.id}-layout`}
+                        value={layoutOf(d.layout)}
+                        onChange={(e) => updateDraft(profile.id, { layout: layoutOf(e.target.value) })}
+                      >
+                        {SUMMARY_LAYOUTS.map((l) => (
+                          <option key={l.id} value={l.id}>{l.label}: {l.description}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="field-group">
                       <label className="field-label" htmlFor={`profile-${profile.id}-template`}>Prompt Template</label>
                       <textarea
                         id={`profile-${profile.id}-template`}
@@ -346,6 +364,10 @@ export function ProfilesSection() {
                         <code>{"{{date}}"}</code>
                         <code>{"{{userCuriosity}}"}</code>
                         (optional — line removed if not provided)
+                      </p>
+                      <p className="var-hints mt-8">
+                        TL;DW adds the output format for the layout above, and asks for times when the
+                        transcript has them, so the template only needs to say what to look for.
                       </p>
                     </div>
                   </div>
@@ -366,8 +388,8 @@ export function ProfilesSection() {
           <em> Reset to Original</em> restores the default at any time.
         </p>
         <p>
-          The keyboard shortcut always sends to your default profile. Open any profile and click
-          <em> Set as Default</em> to change it.
+          New summaries use your default profile, unless you pick another style from the panel's
+          <em> ⋯</em> menu. Open any profile and click <em>Set as Default</em> to change it.
         </p>
       </div>
 
