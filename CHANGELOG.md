@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.4.0 - 2026-11-09
+
+Summaries you can trust at a glance: four styles that look different, times checked against the captions, long videos read in full, and a style per channel. TL;DW now works with Gemini only.
+
+### New
+
+- TL;DW now works with Gemini only, with or without your own key, and asks for fewer permissions; if you used ChatGPT, Claude or NotebookLM, your summaries now go to Gemini
+- A quieter panel, four styles that look different, and times only when they check out ([#52](https://github.com/n8watkins/tl-dw/pull/52))
+- Give a channel its own style, in place of tags ([#53](https://github.com/n8watkins/tl-dw/pull/53))
+
+### Fixed
+
+- Pressing TL;DW right after opening another video summarizes that video, not the previous one ([#50](https://github.com/n8watkins/tl-dw/pull/50))
+
 ## 1.3.0 - 2026-11-09
 
 ### New
