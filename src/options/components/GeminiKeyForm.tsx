@@ -14,11 +14,14 @@ export function GeminiKeyForm({
   settings,
   onSaved,
   idPrefix = "key",
+  compact = false,
 }: {
   settings: Settings;
   /** Called after a save or delete settles (verified or not). */
   onSaved?: (ok: boolean) => void;
   idPrefix?: string;
+  /** One row: the key field and Save, no name field (the welcome page). */
+  compact?: boolean;
 }) {
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
@@ -93,6 +96,35 @@ export function GeminiKeyForm({
             : "The key is hidden after saving. Delete it before adding a replacement."}
         </div>
       </div>
+    );
+  }
+
+  if (compact) {
+    return (
+      <form
+        className="key-form key-form-compact"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <label className="sr-only" htmlFor={`${idPrefix}-value`}>
+          Gemini API key
+        </label>
+        <input
+          id={`${idPrefix}-value`}
+          type="password"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Paste API key"
+          className="key-input"
+          autoComplete="new-password"
+          spellCheck={false}
+        />
+        <button className="btn btn-primary" type="submit" disabled={!value.trim() || verifying}>
+          {verifying ? "Verifying…" : "Save key"}
+        </button>
+      </form>
     );
   }
 
