@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import type { LifetimeStats, GeminiUsage, Tag, SearchHistoryEntry } from "../../types";
-import { getLifetimeStats, getGeminiUsage, getHistory, getTags } from "../../lib/storage";
+import type { LifetimeStats, GeminiUsage, SearchHistoryEntry } from "../../types";
+import { getChannelProfiles, getGeminiUsage, getHistory, getLifetimeStats, getProfiles } from "../../lib/storage";
 import { computeChannelStats, isSummaryEntry, type ChannelStats } from "../../lib/history";
 import {
-  CHANNEL_TAGS_KEY,
-  destinationLabel,
+  CHANNEL_PROFILES_KEY,
   GEMINI_USAGE_KEY,
   localDateKey,
   STORAGE_KEYS,
   TLDW_STATS_KEY,
-  VIDEO_TAGS_KEY,
 } from "../../lib/constants";
 
 // ---------------------------------------------------------------------------
@@ -156,33 +154,6 @@ function ChannelAv({ url }: { url?: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Most-used tags: tally how many channel/video assignments reference each tag,
-// resolve ids → labels, return the top N.
-// ---------------------------------------------------------------------------
-type TagUsage = { id: string; label: string; count: number };
-
-function computeTagUsage(
-  library: Tag[],
-  channelTags: Record<string, string[]>,
-  videoTags: Record<string, string[]>,
-  limit: number,
-): TagUsage[] {
-  const labelById = new Map(library.map((t) => [t.id, t.label]));
-  const counts = new Map<string, number>();
-  for (const ids of [...Object.values(channelTags), ...Object.values(videoTags)]) {
-    for (const id of ids) {
-      // Skip ids whose tag has been deleted from the library.
-      if (!labelById.has(id)) continue;
-      counts.set(id, (counts.get(id) ?? 0) + 1);
-    }
-  }
-  return [...counts.entries()]
-    .map(([id, count]) => ({ id, label: labelById.get(id)!, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, limit);
-}
-
-// ---------------------------------------------------------------------------
 // Usage distribution: count summaries grouped by some key → label, desc by count.
 // ---------------------------------------------------------------------------
 type Distribution = { key: string; label: string; count: number };
@@ -200,23 +171,6 @@ function computeProfileUsage(summaries: SearchHistoryEntry[], limit: number): Di
     .map(([key, v]) => ({ key, label: v.label, count: v.count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, limit);
-}
-
-/** Destination usage by summary count; ids → their labels, no id → Direct API. */
-function computeDestinationUsage(summaries: SearchHistoryEntry[]): Distribution[] {
-  const DIRECT = "__direct__";
-  const counts = new Map<string, number>();
-  for (const e of summaries) {
-    const key = e.destinationId || DIRECT;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([key, count]) => ({
-      key,
-      label: key === DIRECT ? "Your Gemini key" : destinationLabel(key),
-      count,
-    }))
-    .sort((a, b) => b.count - a.count);
 }
 
 /** A labelled proportion bar row, used by the profile + destination cards. */
@@ -270,30 +224,30 @@ export function StatsSection() {
   const [stats, setStats] = useState<LifetimeStats | null>(null);
   const [usage, setUsage] = useState<GeminiUsage | null>(null);
   const [topChannels, setTopChannels] = useState<ChannelStats[]>([]);
-  const [topTags, setTopTags] = useState<TagUsage[]>([]);
+  const [channelStyles, setChannelStyles] = useState<{ channel: string; style: string }[]>([]);
   const [topProfiles, setTopProfiles] = useState<Distribution[]>([]);
-  const [destinations, setDestinations] = useState<Distribution[]>([]);
 
   async function loadAll() {
-    const [s, u, h, library, channelMapRaw, videoMapRaw] = await Promise.all([
+    const [s, u, h, styles, profiles] = await Promise.all([
       getLifetimeStats(),
       getGeminiUsage(),
       getHistory(),
-      getTags(),
-      chrome.storage.local.get(CHANNEL_TAGS_KEY),
-      chrome.storage.local.get(VIDEO_TAGS_KEY),
+      getChannelProfiles(),
+      getProfiles(),
     ]);
     const summaries = h.filter(isSummaryEntry);
-    const channelTags = (channelMapRaw[CHANNEL_TAGS_KEY] as Record<string, string[]>) ?? {};
-    const videoTags = (videoMapRaw[VIDEO_TAGS_KEY] as Record<string, string[]>) ?? {};
+    const nameOf = new Map(profiles.map((p) => [p.id, p.name]));
 
     setStats(s);
     setUsage(u);
     // computeChannelStats already returns count-desc; take the top few.
     setTopChannels(computeChannelStats(summaries).slice(0, 8));
-    setTopTags(computeTagUsage(library, channelTags, videoTags, 8));
+    setChannelStyles(Object.entries(styles)
+      .filter(([, id]) => nameOf.has(id))
+      .map(([channel, id]) => ({ channel, style: nameOf.get(id)! }))
+      .sort((a, b) => a.channel.localeCompare(b.channel))
+      .slice(0, 8));
     setTopProfiles(computeProfileUsage(summaries, 6));
-    setDestinations(computeDestinationUsage(summaries));
   }
 
   useEffect(() => {
@@ -305,8 +259,7 @@ export function StatsSection() {
       TLDW_STATS_KEY,
       GEMINI_USAGE_KEY,
       STORAGE_KEYS.history,
-      CHANNEL_TAGS_KEY,
-      VIDEO_TAGS_KEY,
+      CHANNEL_PROFILES_KEY,
     ]);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
@@ -335,7 +288,6 @@ export function StatsSection() {
   const { weeks, monthLabels } = buildYearHeatmap(stats.activity);
   const yearTotal = weeks.reduce((sum, w) => sum + w.reduce((s, c) => s + (c.future ? 0 : c.count), 0), 0);
   const profileTotal = topProfiles.reduce((s, p) => s + p.count, 0);
-  const destTotal = destinations.reduce((s, d) => s + d.count, 0);
 
   // Heatmap geometry: keep cell+gap in sync with the .stat-heatmap-cell CSS
   // (11px cell, 3px gap) so the month strip lines up with its column.
@@ -445,7 +397,7 @@ export function StatsSection() {
         )}
       </div>
 
-      {/* ── Top channels + most-used tags ──────────────────────── */}
+      {/* ── Top channels + channels with their own style ─────────── */}
       <div className="stats-grid stats-mid-row">
 
         <div className="stat-card" style={{ "--ca": "#7c3aed", "--cg": "rgba(124,58,237,0.12)" } as React.CSSProperties}>
@@ -468,17 +420,17 @@ export function StatsSection() {
         </div>
 
         <div className="stat-card" style={{ "--ca": "#14b8a6", "--cg": "rgba(20,184,166,0.12)" } as React.CSSProperties}>
-          <div className="stat-card-label">Most-used tags</div>
-          {topTags.length === 0 ? (
-            <div className="stat-empty">No tags yet — tag a channel or video to see them here.</div>
+          <div className="stat-card-label">Channels with their own style</div>
+          {channelStyles.length === 0 ? (
+            <div className="stat-empty">
+              None yet. Pick a style for a channel in Channels, or from the ⋯ menu under one of its videos.
+            </div>
           ) : (
             <div>
-              {topTags.map((t) => (
-                <div key={t.id} className="stat-channel-row">
-                  <span className="stat-channel-name">{t.label}</span>
-                  <span className="stat-channel-meta">
-                    {t.count} {t.count === 1 ? "assignment" : "assignments"}
-                  </span>
+              {channelStyles.map((c) => (
+                <div key={c.channel} className="stat-channel-row">
+                  <span className="stat-channel-name">{c.channel}</span>
+                  <span className="stat-channel-meta">{c.style}</span>
                 </div>
               ))}
             </div>
@@ -486,30 +438,17 @@ export function StatsSection() {
         </div>
       </div>
 
-      {/* ── Top profiles + destination usage ───────────────────── */}
-      <div className="stats-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+      {/* ── Styles used ─────────────────────────────────────────── */}
+      <div className="stats-grid" style={{ gridTemplateColumns: "1fr" }}>
 
         <div className="stat-card" style={{ "--ca": "#8b5cf6", "--cg": "rgba(139,92,246,0.12)" } as React.CSSProperties}>
-          <div className="stat-card-label">Prompt profiles you use most</div>
+          <div className="stat-card-label">Styles you use most</div>
           {topProfiles.length === 0 ? (
             <div className="stat-empty">No summaries yet — your profile mix will appear here.</div>
           ) : (
             <div style={{ marginTop: 4 }}>
               {topProfiles.map((p) => (
                 <UsageBar key={p.key} label={p.label} count={p.count} total={profileTotal} color="#a78bfa" />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="stat-card" style={{ "--ca": "#06b6d4", "--cg": "rgba(6,182,212,0.12)" } as React.CSSProperties}>
-          <div className="stat-card-label">Where you send summaries</div>
-          {destinations.length === 0 ? (
-            <div className="stat-empty">No summaries yet — your destination mix will appear here.</div>
-          ) : (
-            <div style={{ marginTop: 4 }}>
-              {destinations.map((d) => (
-                <UsageBar key={d.key} label={d.label} count={d.count} total={destTotal} color="#22d3ee" />
               ))}
             </div>
           )}

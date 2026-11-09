@@ -135,6 +135,7 @@ export function pillButton(
 export type MenuEntry =
   | { kind: "item"; label: string; icon: string; detail?: string; title?: string; onClick: () => void }
   | { kind: "radio"; label: string; checked: boolean; onClick: () => void }
+  | { kind: "check"; label: string; checked: boolean; title?: string; onClick: () => void }
   | { kind: "heading"; label: string }
   | { kind: "separator" };
 
@@ -153,7 +154,9 @@ export function overflowMenu(t: PanelTheme, entries: () => MenuEntry[], cleanups
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", "TL;DW actions");
   Object.assign(menu.style, {
-    position: "absolute", top: "calc(100% + 4px)", right: "0", minWidth: "250px", maxWidth: "320px",
+    // Wide enough that "Use Tutorial for every <channel> video" fits on one line
+    // for most channel names; a long one wraps.
+    position: "absolute", top: "calc(100% + 4px)", right: "0", width: "max-content", minWidth: "260px", maxWidth: "min(380px, 90vw)",
     background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
     boxShadow: t.dark ? "0 8px 28px rgba(0,0,0,0.6)" : "0 8px 28px rgba(0,0,0,0.16)",
     padding: "6px 0", zIndex: "2147483000", display: "none", flexDirection: "column",
@@ -214,8 +217,9 @@ export function overflowMenu(t: PanelTheme, entries: () => MenuEntry[], cleanups
       const label = document.createElement("span");
       label.textContent = entry.label;
       label.style.flex = "1";
-      if (entry.kind === "radio") {
-        b.setAttribute("role", "menuitemradio");
+      if (entry.kind === "radio" || entry.kind === "check") {
+        b.setAttribute("role", entry.kind === "radio" ? "menuitemradio" : "menuitemcheckbox");
+        if (entry.kind === "check" && entry.title) b.title = entry.title;
         b.setAttribute("aria-checked", String(entry.checked));
         const mark = icon("check", 16);
         mark.style.visibility = entry.checked ? "visible" : "hidden";

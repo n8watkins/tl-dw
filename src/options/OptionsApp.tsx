@@ -4,7 +4,6 @@ import { StatsSection } from "./sections/StatsSection";
 import { ProfilesSection } from "./sections/ProfilesSection";
 import { HistorySection } from "./sections/HistorySection";
 import { ChannelsSection } from "./sections/ChannelsSection";
-import { TagsSection } from "./sections/TagsSection";
 import { SettingsSection } from "./sections/SettingsSection";
 import { DirectApiSection } from "./sections/DirectApiSection";
 import { AboutSection } from "./sections/AboutSection";
@@ -12,7 +11,7 @@ import { SupportSection } from "./sections/SupportSection";
 import { WelcomeSection } from "./sections/WelcomeSection";
 import { ExampleSection } from "./sections/ExampleSection";
 
-type NavItem = "welcome" | "example" | "setup" | "stats" | "profiles" | "history" | "channels" | "tags" | "settings" | "directapi" | "support" | "about";
+type NavItem = "welcome" | "example" | "setup" | "stats" | "profiles" | "history" | "channels" | "settings" | "directapi" | "support" | "about";
 
 const NAV: { id: NavItem; label: string; icon: string }[] = [
   { id: "setup",     label: "Setup",      icon: "◎" },
@@ -20,7 +19,6 @@ const NAV: { id: NavItem; label: string; icon: string }[] = [
   { id: "profiles",  label: "Profiles",   icon: "◈" },
   { id: "history",   label: "History",    icon: "◷" },
   { id: "channels",  label: "Channels",   icon: "▦" },
-  { id: "tags",      label: "Tags",       icon: "◆" },
   { id: "settings",  label: "Settings",   icon: "◧" },
   { id: "directapi", label: "Your Gemini key", icon: "⚡" },
   { id: "support",   label: "Support",    icon: "♡" },
@@ -125,7 +123,6 @@ export function OptionsApp() {
         {active === "profiles"  && <ProfilesSection />}
         {active === "history"   && <HistorySection />}
         {active === "channels"  && <ChannelsSection />}
-        {active === "tags"      && <TagsSection />}
         {active === "settings"  && <SettingsSection />}
         {active === "directapi" && <DirectApiSection />}
         {active === "support"   && <SupportSection />}

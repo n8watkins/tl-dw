@@ -2675,16 +2675,106 @@ for (const theme of ["light", "dark"] as const) {
 test("the popup and the options pages meet WCAG AA", async () => {
   const session = await launchExtension();
   try {
-    await setStorage(session, { profiles: profiles(), settings: { defaultProfileId: "global", retiredDestinationNotice: "Claude" } });
+    await setStorage(session, {
+      profiles: profiles(),
+      settings: { defaultProfileId: "global", retiredDestinationNotice: "Claude" },
+      // A channel with its own style and a label, so the Channels page shows both chips.
+      history: [{
+        id: "h1", videoUrl: "https://www.youtube.com/watch?v=c1", videoTitle: "Knife skills", channel: "Cooking Pro",
+        profileId: "global", profileName: "Global Profile", destinationId: "gemini", prompt: "x", createdAt: new Date().toISOString(),
+      }],
+      tldwChannelProfiles: { "Cooking Pro": "automatic" },
+      tldwTags: [{ id: "t1", label: "Weeknight", prompt: "" }],
+      tldwChannelTags: { "Cooking Pro": ["t1"] },
+    });
     const popup = await popupFor(session, { id: 1, url: "https://www.youtube.com/watch?v=x", title: "A video - YouTube" });
     await expect(popup.getByRole("note").first()).toBeVisible();
     expect(await axeViolations(popup, "body")).toEqual([]);
     const options = await session.context.newPage();
-    for (const section of ["welcome", "example", "profiles", "settings", "directapi"]) {
+    for (const section of ["welcome", "example", "profiles", "settings", "directapi", "channels", "stats"]) {
       await options.goto(`chrome-extension://${session.extensionId}/src/options/index.html#${section}`);
       await options.waitForTimeout(400);
       expect(await axeViolations(options, "body"), section).toEqual([]);
     }
+  } finally {
+    await session.close();
+  }
+});
+
+// --- 1.4: a default style per channel (it replaced tags) ----------------------
+
+function styledProfiles() {
+  const timestamp = "2026-07-20T00:00:00.000Z";
+  return [
+    { id: "tldw", name: "Quick", layout: "quick", promptTemplate: "QUICK {{url}}", createdAt: timestamp, updatedAt: timestamp },
+    { id: "tutorial", name: "Tutorial", layout: "tutorial", promptTemplate: "TUTORIAL {{url}}", createdAt: timestamp, updatedAt: timestamp },
+  ];
+}
+
+test("a channel's style, set from the menu, summarizes its next video that way", async () => {
+  const session = await launchExtension();
+  try {
+    const prompts: string[] = [];
+    await routeYouTube(session.context);
+    await mockGemini(session.context, prompts, 200, [], (prompt) => prompt.startsWith("TUTORIAL")
+      ? "---TLDW---\nSUMMARY: Follow these steps.\nPOINTS:\n- Do the first thing\n- Do the second thing\n---END TLDW---"
+      : QUICK_ANSWER);
+    await setStorage(session, { profiles: styledProfiles(), settings: { ...directSettings(), defaultProfileId: "tldw" } });
+    const page = await openVideo(session.context, "fixture-channel-1");
+    await page.locator("#tldw-watch-btn").click();
+    const panel = page.locator("#tldw-summary");
+    await expect(panel).toContainText("Quick · Your Gemini key");
+    await panel.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitemradio", { name: "Tutorial" }).click();
+    await expect(panel).toContainText("Tutorial · Your Gemini key");
+    await panel.getByRole("button", { name: "More actions" }).click();
+    const channelStyle = page.getByRole("menuitemcheckbox", { name: "Use Tutorial for every Fixture Channel video" });
+    await expect(channelStyle).toHaveAttribute("aria-checked", "false");
+    await channelStyle.click();
+    await expect.poll(() => getStorage<Record<string, string>>(session, "tldwChannelProfiles")).toEqual({ "Fixture Channel": "tutorial" });
+
+    // The channel's next video comes out as Tutorial without picking it.
+    const next = await openVideo(session.context, "fixture-channel-2");
+    await next.locator("#tldw-watch-btn").click();
+    await expect(next.locator("#tldw-summary")).toContainText("Tutorial · Your Gemini key");
+    expect(prompts.at(-1)).toMatch(/^TUTORIAL/);
+    await next.locator("#tldw-summary").getByRole("button", { name: "More actions" }).click();
+    await expect(next.getByRole("menuitemcheckbox", { name: "Use Tutorial for every Fixture Channel video" })).toHaveAttribute("aria-checked", "true");
+  } finally {
+    await session.close();
+  }
+});
+
+test("the Channels page sets a channel's style, and shows old tags as labels to search by", async () => {
+  const session = await launchExtension();
+  try {
+    await setStorage(session, {
+      profiles: styledProfiles(),
+      settings: { defaultProfileId: "tldw" },
+      history: [{
+        id: "h1", videoUrl: "https://www.youtube.com/watch?v=c1", videoTitle: "Knife skills", channel: "Cooking Pro",
+        profileId: "tldw", profileName: "Quick", destinationId: "gemini", prompt: "x", createdAt: new Date().toISOString(),
+      }, {
+        id: "h2", videoUrl: "https://www.youtube.com/watch?v=c2", videoTitle: "Lecture 1", channel: "MIT OCW",
+        profileId: "tldw", profileName: "Quick", destinationId: "gemini", prompt: "x", createdAt: new Date().toISOString(),
+      }],
+      tldwTags: [{ id: "t1", label: "Weeknight", prompt: "Note the total cooking time." }],
+      tldwChannelTags: { "Cooking Pro": ["t1"] },
+    });
+    const options = await session.context.newPage();
+    await options.goto(`chrome-extension://${session.extensionId}/src/options/index.html#channels`);
+    await expect(options.getByRole("button", { name: /Cooking Pro/ })).toContainText("Weeknight");
+    await options.getByLabel("Search channels by name, label or style").fill("weeknight");
+    await expect(options.getByRole("button", { name: /MIT OCW/ })).toHaveCount(0);
+    await options.getByLabel("Search channels by name, label or style").fill("");
+    await options.getByRole("button", { name: /Cooking Pro/ }).click();
+    await options.getByLabel("Summarize this channel as").first().selectOption("tutorial");
+    await expect.poll(() => getStorage<Record<string, string>>(session, "tldwChannelProfiles")).toEqual({ "Cooking Pro": "tutorial" });
+    await expect(options.getByRole("button", { name: /Cooking Pro/ })).toContainText("Tutorial");
+    // The old tag's prompt is kept but never sent; the Tags page is gone.
+    await expect(options.getByRole("link", { name: "Tags" })).toHaveCount(0);
+    await expect(options.getByRole("button", { name: "Tags" })).toHaveCount(0);
+    expect(await getStorage(session, "tldwTags")).toEqual([{ id: "t1", label: "Weeknight", prompt: "Note the total cooking time." }]);
   } finally {
     await session.close();
   }

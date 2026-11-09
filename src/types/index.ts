@@ -131,19 +131,15 @@ export type AutoRunChannel = {
 };
 
 /**
- * A reusable summary modifier the user attaches to channels (or one-off videos).
- * `prompt` is the instruction woven into the summary prompt (like userCuriosity),
- * so e.g. a "Citations" tag makes the summary surface the video's sources.
- *
- * Assignments live in two maps (see CHANNEL_TAGS_KEY / VIDEO_TAGS_KEY):
- * channel tags auto-apply to every video from that channel; video tags are
- * one-off. "Apply to all future videos of this channel" promotes a video tag
- * into the channel map.
+ * A label on a channel: before 1.4 a "tag" that added an instruction to the
+ * channel's prompts; since then only a label to find channels by on the
+ * Channels page (a channel's default style shapes its summaries instead).
  */
 export type Tag = {
   id: string;
-  label: string;   // shown on the widget chip + picker, e.g. "Citations"
-  prompt: string;  // e.g. "Include the specific sources/citations the video relies on."
+  label: string;
+  /** Before 1.4: the instruction it added to the prompt. Kept, no longer sent. */
+  prompt: string;
 };
 
 /** One prompt-aware summary variant stored in the local cache. */
@@ -234,6 +230,8 @@ export type Settings = {
   autoPauseOnSummarize: boolean;
   /** Always "gemini" since 1.4 (TL;DW is Gemini-only); kept for older settings. */
   destinationId: string;
+  /** Whether the 1.4 update already turned style-named tags into channel styles. */
+  tagStylesMigrated?: boolean;
   /**
    * The chat site a user had as their default before TL;DW became Gemini-only
    * ("ChatGPT"...), until the popup has told them once.

@@ -3,6 +3,20 @@
 Product decisions that shape TL;DW, newest first.
 Each says what was decided, by whom, and why, so later changes can be weighed against it.
 
+## 2026-11-09: A style per channel instead of tags
+
+Decided with the owner, who found the purpose of tags unclear and wanted channels tied to profiles.
+
+- A channel can have a default style: set it from the ⋯ menu under any of its videos ("Use Tutorial for every Joshua Weissman video") or on the Channels page.
+  A cooking channel comes out as Tutorial, a lecture channel as Learning, without picking each time.
+- The style for a run is, in order: the one picked for that run (the panel's Style menu, the popup, the right-click menu), the channel's default style, then the user's default profile.
+- Tags no longer change prompts, and the Tags page and the panel's tag row are gone.
+  A tag's instruction was a second way to steer a summary next to profiles, and the two overlapped; one concept is easier to understand.
+- Nothing is deleted: the tag library and the channel and video tag maps stay in storage.
+  Channel tags show as labels on the Channels page, where search still finds them.
+  On the update, a channel whose tag is named after a profile ("Tutorial", "Learning Mode") gets that profile as its style, once, unless it already has one or its tags name two different styles.
+- Someone who wants a tag's instruction back can put it in a profile of their own and set that as the channel's style.
+
 ## 2026-11-09: Transcript first, and times only when checked
 
 Decided by the owner, Nathan Watkins, after the timestamp study and the link-only experiment (9 Nov 2026).

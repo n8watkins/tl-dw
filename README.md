@@ -13,7 +13,7 @@ TL;DW works with Gemini only ([docs/DECISIONS.md](docs/DECISIONS.md)).
   A long transcript goes whole, in several messages to the Gemini tab or in parts to the API, instead of being cut.
 - Only without a transcript does Gemini get the video's link: with a key it watches the video; without one, a signed-out user is asked to sign in to Gemini, which can then read the captions.
 - Four styles that look different on the page: Quick (the takeaway and three points), Research (claims and how the video backs each), Learning (key ideas as cards, and questions to test yourself) and Tutorial (numbered steps).
-  Pick one as your default, or switch from the panel's ⋯ menu.
+  Pick one as your default, switch from the panel's ⋯ menu, or give a channel its own (a cooking channel as Tutorial).
 - Times appear only when they are checked: the model quotes the words it cites, and TL;DW shows the time only if those words are in the captions within 15 seconds of it. Click one to jump there.
 - Automatic summaries can run for chosen channels or for videos over a set length.
 - Optional SponsorBlock integration (off by default) skips community-reported sponsor segments.

@@ -30,7 +30,7 @@ export function AboutSection() {
           {keys.length > 0 && <> (or {keys.map((k, i) => <span key={i}>{i > 0 && "+"}<kbd>{k}</kbd></span>)})</>}.
           TL;DW reads the transcript and puts an AI summary right on the page: from the Gemini API
           with your own free key, or from Gemini in a background tab with no key at all. Shape it with
-          reusable profiles and tags, then decide what's worth your time.
+          a style that fits the video, then decide what's worth your time.
         </p>
       </div>
 
@@ -99,9 +99,10 @@ export function AboutSection() {
           <div className="about-card-icon" style={{background:"rgba(139,92,246,0.15)", color:"#c4b5fd"}}>
             <Icon name="duplicate" />
           </div>
-          <div className="about-card-title">Profiles &amp; tags</div>
+          <div className="about-card-title">Four styles, and one per channel</div>
           <div className="about-card-desc">
-            Reusable prompt templates — TL;DW, Research, Learning, Tutorial, or your own — plus tags that tweak the prompt for any channel or video.
+            Quick, Research, Learning and Tutorial each lay the summary out their own way, or write your own.
+            Give a channel its own style: a cooking channel as Tutorial, a lecture channel as Learning.
           </div>
         </div>
 

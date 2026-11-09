@@ -43,7 +43,7 @@ import {
   summaryBody,
 } from "./panelUi";
 import { formatClock, parseClock } from "../lib/timedTranscript";
-import { geminiModelLabel } from "../lib/constants";
+import { CHANNEL_PROFILES_KEY, geminiModelLabel } from "../lib/constants";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = (...args: unknown[]) => console.log("[TL;DW]", ...args);
@@ -1063,6 +1063,26 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes["profiles"]) refreshProfiles();
 });
 
+/** The current channel's default style (by channel name), or undefined. */
+let currentChannelProfileId: string | undefined;
+
+async function readChannelStyle(channel: string | undefined): Promise<void> {
+  currentChannelProfileId = undefined;
+  if (!channel) return;
+  const r = await chrome.storage.local.get(CHANNEL_PROFILES_KEY);
+  currentChannelProfileId = (r[CHANNEL_PROFILES_KEY] as Record<string, string> | undefined)?.[channel];
+}
+
+/** Set (or, with no profile, clear) a channel's default style. */
+async function setChannelStyle(channel: string, profileId: string | undefined): Promise<void> {
+  const r = await chrome.storage.local.get(CHANNEL_PROFILES_KEY);
+  const all = { ...((r[CHANNEL_PROFILES_KEY] as Record<string, string> | undefined) ?? {}) };
+  if (profileId) all[channel] = profileId;
+  else delete all[channel];
+  await chrome.storage.local.set({ [CHANNEL_PROFILES_KEY]: all });
+  currentChannelProfileId = profileId;
+}
+
 /** Turn the channel's auto-summarize on (after the confirmation) or off. */
 function toggleAutoRun(info: ChannelInfo): void {
   if (currentAutoRunSummary) {
@@ -1111,6 +1131,21 @@ function summaryMenu(tldw: TldwSummary, vid: string | null): MenuEntry[] {
   }
   entries.push({ kind: "separator" });
   const info = currentChannelInfo;
+  const style = knownProfiles.find((p) => p.id === tldw.profileId);
+  if (info && style) {
+    // A channel's default style (it replaced tags in 1.4): cooking videos as
+    // Tutorial, lectures as Learning, without picking each time.
+    const isChannelStyle = currentChannelProfileId === style.id;
+    entries.push({
+      kind: "check",
+      label: `Use ${style.name} for every ${info.name} video`,
+      checked: isChannelStyle,
+      title: isChannelStyle
+        ? `${info.name}'s videos are summarized as ${style.name}. Click to use your default style again.`
+        : `Summarize ${info.name}'s videos as ${style.name} from now on`,
+      onClick: () => void setChannelStyle(info.name, isChannelStyle ? undefined : style.id),
+    });
+  }
   if (info) {
     entries.push({
       kind: "item", label: `Auto-summarize ${info.name}`, icon: "auto",
@@ -1761,6 +1796,8 @@ async function maybeStartDirectApiRun(
   ensureWatchButton();
 
   const autoRunChannels = await readAutoRunChannels();
+  if (stale()) return;
+  await readChannelStyle(currentChannelInfo?.name);
   if (stale()) return;
   const channelEntry = currentChannelInfo
     ? autoRunChannels.find((c) => c.id === currentChannelInfo!.id || c.name === currentChannelInfo!.name)
