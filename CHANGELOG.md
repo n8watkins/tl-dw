@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.0 - 2026-11-09
+
+### New
+
+- The welcome page fits one screen, with two simple cards ([#47](https://github.com/n8watkins/tl-dw/pull/47))
+
+### Fixed
+
+- Honest auto-run copy, visible SponsorBlock skips, correct Stats and History ([#46](https://github.com/n8watkins/tl-dw/pull/46))
+
 ## 1.2.1 - 2026-11-09
 
 ### Fixed
