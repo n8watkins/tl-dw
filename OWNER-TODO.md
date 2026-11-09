@@ -5,7 +5,7 @@ Agents keep this list current; tick an item by changing `[ ]` to `[x]` and addin
 No secrets go in this file: keys live in pass-env, and this file names only the entries.
 The cross-project list of keys to rotate is `SECURITY-TODO.md` in the private [secret-handling-review](https://github.com/n8watkins/secret-handling-review/blob/main/SECURITY-TODO.md) repo.
 
-Last checked: 2026-11-02 (version 1.1.0).
+Last checked: 2026-11-09 (version 1.2.0).
 
 ## 1. Test the real Gemini API
 
@@ -37,7 +37,7 @@ Version 1.1.0 defaults to `gemini-3.5-flash-lite`, falls back to `gemini-3.1-fla
 All three were verified only against mocked responses, because no key was available on 2026-11-02.
 
 **Unblocks.**
-Confidence to submit 1.1.0 to the Chrome Web Store (item 3).
+Confidence in the Direct API path; the store submission (item 3) does not depend on it, because the no-key path and the example summary need no key.
 
 ## 2. Check the no-key flows in your signed-in Chrome
 
@@ -62,19 +62,23 @@ The decision whether the transcript reader needs more work before the store laun
 
 ## 3. Publish to the Chrome Web Store (Unlisted)
 
-- [ ] TL;DW 1.1.0 is submitted with Unlisted visibility.
+- [ ] TL;DW 1.2.0 is submitted with Unlisted visibility.
 
 **What.**
 Register as a Chrome Web Store developer and submit the extension.
 
 **Steps.**
 
-1. Register once at https://chrome.google.com/webstore/devconsole: pay the one-time $5 developer fee, turn on 2-Step Verification and verify the contact email.
-2. Add a new item and upload `web-store/tldw-1.1.0.zip` (built locally, not in git; if it is missing, ask Claude to rebuild it with `npx vite build`, `npm run package` and `npm run validate:package`).
-3. Fill in the listing, permission justifications, data-use declarations and reviewer notes from [docs/STORE_SUBMISSION.md](docs/STORE_SUBMISSION.md), with the images in `store-assets/`.
-4. Privacy policy URL: https://github.com/n8watkins/tl-dw/blob/master/PRIVACY.md
-5. Set visibility to **Unlisted** and submit.
-6. Send Claude the store link once it is approved.
+1. Pick the Google account that will own the listing; its email can never be changed later.
+2. Turn on 2-Step Verification on that account.
+3. Open https://chrome.google.com/webstore/devconsole, accept the developer agreement and pay the one-time $5 fee.
+4. In account settings, set the publisher name, then add and verify the contact email.
+5. Declare non-trader (a free personal project) or trader (published as a business; the store then shows your business contact details to EU users).
+6. Add a new item and upload `web-store/tldw-1.2.0.zip` (ask Claude to rebuild it from the `v1.2.0` tag if it is missing).
+7. Paste every field from [docs/STORE_SUBMISSION.md](docs/STORE_SUBMISSION.md) and upload the images in `store-assets/`.
+8. Privacy policy URL: https://n8builds.dev/privacy/tldw once it is live, else https://github.com/n8watkins/tl-dw/blob/master/PRIVACY.md
+9. Set visibility to **Unlisted** and submit.
+10. Send Claude the store link once it is approved, or the rejection email if it is rejected.
 
 **Why.**
 The publisher account, the fee and the submission need your Google account.
