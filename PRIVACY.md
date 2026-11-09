@@ -43,7 +43,7 @@ What leaves your device depends on how you summarize a video.
 
 TL;DW stores the following in `chrome.storage.local`, on your device only:
 
-- Settings, prompt profiles and tags.
+- Settings, prompt profiles, each channel's default style, and the labels (tags) from before version 1.4.
 - Your Gemini API key, if you add one, with its name and whether it was verified.
   The key stays in this storage; anyone with access to your Chrome profile could read it, so you can delete it in TL;DW at any time and revoke it in Google AI Studio.
 - Summary history: the video's link, title and channel, the link to the channel's picture, the prompt profile, the prompt that was sent with the transcript left out, and the time.

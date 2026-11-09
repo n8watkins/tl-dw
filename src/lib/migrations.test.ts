@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "./constants";
-import { migrateProfiles, migrateToGeminiOnly } from "./migrations";
+import { migrateProfiles, migrateToGeminiOnly, stylesFromTags } from "./migrations";
 import type { PromptProfile } from "../types";
 
 describe("migrateToGeminiOnly", () => {
@@ -59,5 +59,32 @@ describe("migrateProfiles", () => {
     expect(first.profiles.map((p) => p.id)).not.toContain("learning");
     expect(first.profiles.map((p) => p.id)).not.toContain("tutorial");
     expect(migrateProfiles(first.profiles, first.settings)).toBeNull();
+  });
+});
+
+describe("stylesFromTags", () => {
+  const ts = "2026-01-01T00:00:00.000Z";
+  const profiles: PromptProfile[] = [
+    { id: "tldw", name: "Quick", promptTemplate: "", createdAt: ts, updatedAt: ts },
+    { id: "tutorial", name: "Tutorial", promptTemplate: "", createdAt: ts, updatedAt: ts },
+    { id: "learning", name: "Learning", promptTemplate: "", createdAt: ts, updatedAt: ts },
+  ];
+  const library = [
+    { id: "t1", label: "Tutorial", prompt: "Frame it as steps" },
+    { id: "t2", label: "Citations", prompt: "Name the sources" },
+    { id: "t3", label: "Learning Mode", prompt: "" },
+  ];
+
+  it("gives a channel the style its tag is named after, including the old built-in names", () => {
+    expect(stylesFromTags(library, { "Cooking Pro": ["t1", "t2"], "MIT OCW": ["t3"] }, profiles, {})).toEqual({
+      "Cooking Pro": "tutorial",
+      "MIT OCW": "learning",
+    });
+  });
+
+  it("keeps a style already set, skips a channel whose tags name two styles, and ignores other tags", () => {
+    expect(stylesFromTags(library, { "Cooking Pro": ["t1"] }, profiles, { "Cooking Pro": "tldw" })).toBeNull();
+    expect(stylesFromTags(library, { Mixed: ["t1", "t3"] }, profiles, {})).toBeNull();
+    expect(stylesFromTags(library, { News: ["t2"] }, profiles, {})).toBeNull();
   });
 });

@@ -19,7 +19,6 @@ import {
   CHANNEL_TAGS_KEY,
   DEFAULT_SETTINGS,
   DELIVERY_STATUS_KEY,
-  extractVideoId,
   GEMINI_CALL_LOG_KEY,
   GEMINI_USAGE_KEY,
   MODEL_FALLBACK_KEY,
@@ -29,7 +28,6 @@ import {
   SUMMARY_CACHE_KEY,
   TAGS_KEY,
   TLDW_STATS_KEY,
-  VIDEO_TAGS_KEY,
 } from "./constants";
 import { createDefaultProfiles } from "./profiles";
 import {
@@ -38,7 +36,7 @@ import {
   recordUsageAttempt,
   recordUsageOutcome,
 } from "./geminiUsage";
-import { migrateProfiles, migrateToGeminiOnly } from "./migrations";
+import { migrateProfiles, migrateToGeminiOnly, stylesFromTags } from "./migrations";
 import type { Segment } from "./timedTranscript";
 import {
   findCachedVariant,
@@ -149,6 +147,7 @@ export async function ensureSeeded(): Promise<void> {
     await setProfiles(profileMigration.profiles);
     await setSettings(profileMigration.settings);
   }
+  await migrateTagsOnce();
   const profiles = await getProfiles();
   if (profiles.length === 0) {
     const defaults = createDefaultProfiles();
@@ -281,6 +280,24 @@ export async function addOpenSearch(entry: OpenSearch): Promise<void> {
 }
 
 // --- a default style per channel ---
+
+/**
+ * Once, on the update to 1.4: a channel whose old tag names a style ("Tutorial")
+ * gets that style as its default. Later changes on the Channels page stand.
+ */
+async function migrateTagsOnce(): Promise<void> {
+  const settings = await getSettings();
+  if (settings.tagStylesMigrated) return;
+  const [library, r, profiles, channelProfiles] = await Promise.all([
+    getTags(),
+    chrome.storage.local.get(CHANNEL_TAGS_KEY),
+    getProfiles(),
+    getChannelProfiles(),
+  ]);
+  const next = stylesFromTags(library, (r[CHANNEL_TAGS_KEY] as Record<string, string[]> | undefined) ?? {}, profiles, channelProfiles);
+  if (next) await chrome.storage.local.set({ [CHANNEL_PROFILES_KEY]: next });
+  await setSettings({ ...settings, tagStylesMigrated: true });
+}
 
 /** Channel name -> the profile its videos are summarized with. */
 export async function getChannelProfiles(): Promise<Record<string, string>> {
@@ -622,110 +639,29 @@ export async function removeAutoRunChannel(channelId: string): Promise<void> {
   });
 }
 
-// --- Tags (F6) --------------------------------------------------------------
-// A tag = { id, label, prompt }. Assignments live in two maps:
-//   CHANNEL_TAGS_KEY: channelKey -> tag ids   (auto-apply to the channel's videos)
-//   VIDEO_TAGS_KEY:   videoId    -> tag ids   (one-off for a single video)
-// The widget writes channel assignments under getChannelInfo().id (the /@Handle
-// href, falling back to the name). The background only reliably has the display
-// name, but it now also threads the channel id (VideoMeta.channelId), so
-// getActiveTags matches channel tags by id OR name — the same belt-and-suspenders
-// every other channel-scoped feature uses (auto-run, blocked). videoId =
-// extractVideoId(url).
-//
-// OWNERSHIP: the on-page widget (content script, youtube.ts) is the SOLE writer of
-// channel/video ASSIGNMENTS (via its own inline helpers). These storage helpers
-// cover only what runs in the extension realm: getActiveTags (background resolve)
-// and the tag-LIBRARY surface getTags/mutateTags/deleteTagEverywhere (options
-// page). Caveat: the widget's content-script writes and these extension-realm
-// writes use different lock scopes (Web Locks is per-origin), so a tag edited in
-// the options page concurrently with a widget write could race — rare and
-// low-stakes (a single dropped edit), accepted for now.
-
-type TagAssignments = Record<string, string[]>;
+// --- Labels (the tags of TL;DW before 1.4) -----------------------------------
+// Tags used to add instructions to a channel's or a video's prompts. Since 1.4
+// a channel gets a default style instead (CHANNEL_PROFILES_KEY), and the old
+// tags stay as plain labels on the Channels page, to find channels by. Nothing
+// writes them any more and nothing is deleted: TAGS_KEY (the library),
+// CHANNEL_TAGS_KEY (channel name -> tag ids) and VIDEO_TAGS_KEY are kept as
+// they were. See docs/DECISIONS.md.
 
 export async function getTags(): Promise<Tag[]> {
   const r = await chrome.storage.local.get(TAGS_KEY);
   return (r[TAGS_KEY] as Tag[]) ?? [];
 }
 
-/** Serialized read-modify-write of the tag library — use this for edits so a
- *  concurrent write (e.g. the widget's quick-create) isn't clobbered by a blind
- *  overwrite of a stale snapshot. */
-export async function mutateTags(fn: (tags: Tag[]) => Tag[]): Promise<void> {
-  await withWriteLock(TAGS_KEY, async () => {
-    const tags = await getTags();
-    await chrome.storage.local.set({ [TAGS_KEY]: fn(tags) });
-  });
-}
-
-async function readAssignments(key: string): Promise<TagAssignments> {
-  const r = await chrome.storage.local.get(key);
-  return (r[key] as TagAssignments) ?? {};
-}
-
-/**
- * The active tags for a video: (channel tags ∪ video tags), deduped, resolved
- * against the library and returned in library order. Channel tags are matched by
- * id OR name (the widget keys by id-with-name-fallback). Ids with no surviving
- * library entry (a deleted tag) are dropped.
- */
-export async function getActiveTags(args: {
-  channelId?: string;
-  channelName?: string;
-  videoId?: string;
-}): Promise<Tag[]> {
-  const [library, channelMap, videoMap] = await Promise.all([
-    getTags(),
-    readAssignments(CHANNEL_TAGS_KEY),
-    readAssignments(VIDEO_TAGS_KEY),
-  ]);
-  const ids = new Set<string>([
-    ...(args.channelId ? channelMap[args.channelId] ?? [] : []),
-    ...(args.channelName ? channelMap[args.channelName] ?? [] : []),
-    ...(args.videoId ? videoMap[args.videoId] ?? [] : []),
-  ]);
-  return library.filter((t) => ids.has(t.id));
-}
-
-/** Drop VIDEO-tag assignments whose video has aged out of history. Video tags are
- *  one-off per-video, so once the video leaves history the assignment is orphaned
- *  and unreachable — without this the VIDEO_TAGS_KEY map grows unbounded (one
- *  entry per ever-tagged video), the only storage key with no natural cap.
- *  CHANNEL tags are intentionally NOT swept: a channel stays valid (and taggable)
- *  even when nothing of its is currently in history. Runs from the startup sweep. */
-export async function pruneOrphanVideoTags(): Promise<void> {
-  await withWriteLock(VIDEO_TAGS_KEY, async () => {
-    const [history, map] = await Promise.all([getHistory(), readAssignments(VIDEO_TAGS_KEY)]);
-    if (Object.keys(map).length === 0) return;
-    const live = new Set(history.map((e) => extractVideoId(e.videoUrl)).filter(Boolean));
-    let changed = false;
-    for (const vid of Object.keys(map)) {
-      if (!live.has(vid)) { delete map[vid]; changed = true; }
-    }
-    if (changed) await chrome.storage.local.set({ [VIDEO_TAGS_KEY]: map });
-  });
-}
-
-/** Delete a tag from the library AND strip its id from every channel/video
- *  assignment, so no orphaned ids remain (the UI promises this on delete). */
-export async function deleteTagEverywhere(tagId: string): Promise<void> {
-  await mutateTags((tags) => tags.filter((t) => t.id !== tagId));
-  for (const key of [CHANNEL_TAGS_KEY, VIDEO_TAGS_KEY]) {
-    await withWriteLock(key, async () => {
-      const map = await readAssignments(key);
-      let changed = false;
-      for (const bucket of Object.keys(map)) {
-        const next = map[bucket]!.filter((id) => id !== tagId);
-        if (next.length !== map[bucket]!.length) {
-          changed = true;
-          if (next.length) map[bucket] = next;
-          else delete map[bucket];
-        }
-      }
-      if (changed) await chrome.storage.local.set({ [key]: map });
-    });
+/** Channel name -> the labels (old tags) on it. */
+export async function getChannelLabels(): Promise<Map<string, string[]>> {
+  const [library, r] = await Promise.all([getTags(), chrome.storage.local.get(CHANNEL_TAGS_KEY)]);
+  const byId = new Map(library.map((t) => [t.id, t.label]));
+  const out = new Map<string, string[]>();
+  for (const [channel, ids] of Object.entries((r[CHANNEL_TAGS_KEY] as Record<string, string[]> | undefined) ?? {})) {
+    const labels = ids.map((id) => byId.get(id)).filter((l): l is string => !!l);
+    if (labels.length) out.set(channel, labels);
   }
+  return out;
 }
 
 /** Open searches whose tabs are still open; prunes any that have closed. */

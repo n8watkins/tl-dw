@@ -52,7 +52,6 @@ import {
   bumpLifetimeStats,
   clearCachedSummaries,
   ensureSeeded,
-  getActiveTags,
   getCachedSummary,
   getCachedSummaryCount,
   getChannelProfiles,
@@ -64,7 +63,6 @@ import {
   getTabSegments,
   maintainSummaryCache,
   pruneOpenSearch,
-  pruneOrphanVideoTags,
   recordDeliveryStatus,
   finishGeminiCall,
   clearPendingPrompt,
@@ -143,9 +141,6 @@ async function startupStorageSweep(): Promise<void> {
     // One-time cleanup: the "block channel" feature was removed, so drop its
     // now-orphaned storage key for users who had blocked channels (no-op after).
     await chrome.storage.local.remove("tldwBlockedChannels");
-    // Sweep video-tag assignments whose video has left history — the one
-    // otherwise-unbounded storage map.
-    await pruneOrphanVideoTags();
   } catch {
     /* never let a maintenance sweep throw on startup */
   }
@@ -513,12 +508,7 @@ async function prepareAndSend({
   const timed = !!segments;
   const transcript = read ? (segments ? timedText(segments) : read.text) : null;
 
-  const activeTags = await getActiveTags({
-    channelId: video.channelId,
-    channelName: video.channel,
-    videoId: videoId ?? undefined,
-  });
-  const input: SummaryPromptInput = { profile, video, transcript, timed, durationSeconds, userCuriosity, tags: activeTags };
+  const input: SummaryPromptInput = { profile, video, transcript, timed, durationSeconds, userCuriosity };
 
   const single = buildSummaryPrompt(input);
   const maxChars = useApi ? DIRECT_API_MAX_PROMPT_CHARS : GEMINI_WEB_MAX_PROMPT_CHARS;

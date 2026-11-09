@@ -75,11 +75,10 @@ describe("buildSummaryPrompt", () => {
     expect(prompt).not.toContain(TRANSCRIPT_SHORTENED_NOTE);
   });
 
-  it("weaves in a question and tags, before the format", () => {
-    const tags = [{ id: "t1", label: "Citations", prompt: "Include the sources the video relies on." }];
-    const { prompt } = buildSummaryPrompt({ ...base, userCuriosity: "what about pricing?", tags });
+  it("weaves in a question", () => {
+    const { prompt } = buildSummaryPrompt({ ...base, userCuriosity: "what about pricing?" });
     expect(prompt).toContain("In particular, address this: what about pricing?");
-    expect(prompt.indexOf("Include the sources")).toBeLessThan(prompt.indexOf("---TLDW---"));
+    expect(prompt.indexOf("In particular")).toBeLessThan(prompt.indexOf("---TLDW---"));
     const withVar = buildSummaryPrompt({ ...base, profile: { ...profile, promptTemplate: "Q: {{userCuriosity}}" }, userCuriosity: "why?" });
     expect(withVar.prompt.startsWith("Q: why?")).toBe(true);
     expect(buildSummaryPrompt({ ...base, userCuriosity: "   " }).prompt).not.toContain("In particular");

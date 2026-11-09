@@ -1,7 +1,15 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import type { AutoRunChannel, SearchHistoryEntry, Tag } from "../../types";
-import { getHistory, getAutoRunChannels, setAutoRunChannels as persistAutoRunChannels, getTags } from "../../lib/storage";
-import { CHANNEL_TAGS_KEY } from "../../lib/constants";
+import type { AutoRunChannel, PromptProfile, SearchHistoryEntry } from "../../types";
+import {
+  getAutoRunChannels,
+  getChannelLabels,
+  getChannelProfiles,
+  getHistory,
+  getProfiles,
+  getSettings,
+  setAutoRunChannels as persistAutoRunChannels,
+  setChannelProfile,
+} from "../../lib/storage";
 import { computeChannelStats, isSummaryEntry, type ChannelStats } from "../../lib/history";
 import { VirtualList } from "../components/VirtualList";
 
@@ -42,20 +50,6 @@ function channelColor(name: string): string {
 type SortKey = "count" | "recent";
 type TabKey = "all" | "auto";
 
-/** Resolve the channel-tag map (channelName -> tagId[]) against the tag library
- *  into a name-keyed lookup of resolved Tag[]. The widget keys channel tags by
- *  display name (`channelTagKey`), which lines up directly with a
- *  ChannelStats.channel, so tag chips + tag search resolve for every channel. */
-function resolveChannelTags(map: Record<string, string[]>, library: Tag[]): Map<string, Tag[]> {
-  const byId = new Map(library.map((t) => [t.id, t]));
-  const out = new Map<string, Tag[]>();
-  for (const [key, ids] of Object.entries(map)) {
-    const tags = ids.map((id) => byId.get(id)).filter((t): t is Tag => t !== undefined);
-    if (tags.length) out.set(key, tags);
-  }
-  return out;
-}
-
 // ---- Avatar component -------------------------------------------------------
 
 function ChannelAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }) {
@@ -94,7 +88,7 @@ function ChannelAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }
   );
 }
 
-// ---- Tag chip (read-only, shown on channel cards / as filter pills) ---------
+// ---- Label chip (read-only: the tags of TL;DW before 1.4) -------------------
 
 function TagChip({ label, active, onClick }: { label: string; active?: boolean; onClick?: () => void }) {
   const interactive = !!onClick;
@@ -108,7 +102,8 @@ function TagChip({ label, active, onClick }: { label: string; active?: boolean; 
         borderRadius: 999,
         whiteSpace: "nowrap",
         border: "1px solid var(--border)",
-        background: active ? "var(--accent, #1a73e8)" : "var(--surface)",
+        // White on --primary (#7c3aed) is 5.7:1; on --accent it was 2.7:1.
+        background: active ? "var(--primary)" : "var(--surface)",
         color: active ? "#fff" : "var(--muted)",
         cursor: interactive ? "pointer" : "default",
         userSelect: "none",
@@ -236,14 +231,26 @@ function ChannelCard({
   stats,
   isAutoRun,
   onToggleAutoRun,
-  tags,
+  labels,
+  styleId,
+  profiles,
+  defaultName,
+  onChangeStyle,
 }: {
   stats: ChannelStats;
   isAutoRun: boolean;
   onToggleAutoRun: (stats: ChannelStats, enable: boolean) => void;
-  tags: Tag[];
+  labels: string[];
+  /** The channel's default style, if it has one. */
+  styleId?: string;
+  profiles: PromptProfile[];
+  /** The name of the user's default style, for the "Your default" choice. */
+  defaultName: string;
+  onChangeStyle: (channel: string, profileId: string | undefined) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const styleName = profiles.find((p) => p.id === styleId)?.name;
+  const styleSelectId = `channel-style-${stats.channel}`;
 
   return (
     <div
@@ -309,9 +316,11 @@ function ChannelCard({
               flexWrap: "wrap",
             }}
           >
-            {/* Channel tags */}
-            {tags.map((t) => (
-              <TagChip key={t.id} label={t.label} />
+            {/* The channel's style, when it has its own */}
+            {styleName && <TagChip label={styleName} active />}
+            {/* Labels (the tags of TL;DW before 1.4) */}
+            {labels.map((label) => (
+              <TagChip key={label} label={label} />
             ))}
             {/* Last watched */}
             {stats.lastWatched && (
@@ -379,6 +388,24 @@ function ChannelCard({
                 renderItem={(v) => <VideoRow entry={v} />}
               />
             )}
+            {/* The channel's default style */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 10, marginTop: 4, flexWrap: "wrap" }}>
+              <label htmlFor={styleSelectId} style={{ fontSize: 12, color: "var(--muted)" }}>
+                Summarize this channel as
+              </label>
+              <select
+                id={styleSelectId}
+                className="setting-select"
+                style={{ fontSize: 12 }}
+                value={styleId ?? ""}
+                onChange={(e) => onChangeStyle(stats.channel, e.target.value || undefined)}
+              >
+                <option value="">Your default ({defaultName})</option>
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
             {/* Auto-run toggle at the bottom of expanded card */}
             <div
               style={{
@@ -459,7 +486,10 @@ function TabButton({
 export function ChannelsSection() {
   const [channels, setChannels] = useState<ChannelStats[]>([]);
   const [autoRunChannels, setAutoRunChannels] = useState<AutoRunChannel[]>([]);
-  const [channelTags, setChannelTags] = useState<Map<string, Tag[]>>(new Map());
+  const [channelLabels, setChannelLabels] = useState<Map<string, string[]>>(new Map());
+  const [channelStyles, setChannelStyles] = useState<Record<string, string>>({});
+  const [profiles, setProfiles] = useState<PromptProfile[]>([]);
+  const [defaultName, setDefaultName] = useState("");
   const [totalVideos, setTotalVideos] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("count");
   const [loading, setLoading] = useState(true);
@@ -468,18 +498,22 @@ export function ChannelsSection() {
   const [search, setSearch] = useState("");
 
   const reload = useCallback(async () => {
-    const [history, autoRun, library, tagMapRaw] = await Promise.all([
+    const [history, autoRun, labels, styles, profileList, settings] = await Promise.all([
       getHistory(),
       getAutoRunChannels(),
-      getTags(),
-      chrome.storage.local.get(CHANNEL_TAGS_KEY),
+      getChannelLabels(),
+      getChannelProfiles(),
+      getProfiles(),
+      getSettings(),
     ]);
     const summaries = history.filter(isSummaryEntry);
     const stats = computeChannelStats(summaries);
-    const tagMap = (tagMapRaw[CHANNEL_TAGS_KEY] as Record<string, string[]>) ?? {};
     setChannels(stats);
     setAutoRunChannels(autoRun);
-    setChannelTags(resolveChannelTags(tagMap, library));
+    setChannelLabels(labels);
+    setChannelStyles(styles);
+    setProfiles(profileList);
+    setDefaultName((profileList.find((p) => p.id === settings.defaultProfileId) ?? profileList[0])?.name ?? "");
     setTotalVideos(summaries.filter((e) => !!e.channel).length);
     setLoading(false);
   }, []);
@@ -520,12 +554,21 @@ export function ChannelsSection() {
     [autoRunChannels],
   );
 
-  const tagsFor = useCallback(
-    (channelName: string): Tag[] => channelTags.get(channelName) ?? [],
-    [channelTags],
+  const labelsFor = useCallback(
+    (channelName: string): string[] => channelLabels.get(channelName) ?? [],
+    [channelLabels],
+  );
+  const styleNameFor = useCallback(
+    (channelName: string): string | undefined => profiles.find((p) => p.id === channelStyles[channelName])?.name,
+    [profiles, channelStyles],
   );
 
-  // ---- All-channels tab: sort, then filter by search (name OR tag label) ----
+  const handleChangeStyle = useCallback(async (channel: string, profileId: string | undefined) => {
+    await setChannelProfile(channel, profileId);
+    setChannelStyles(await getChannelProfiles());
+  }, []);
+
+  // ---- All-channels tab: sort, then filter by search (name, label or style) ----
   const sortedAll = useMemo(() => {
     return [...channels].sort((a, b) => {
       if (sortKey === "count") return b.count - a.count;
@@ -539,22 +582,23 @@ export function ChannelsSection() {
     if (!q) return sortedAll;
     return sortedAll.filter((ch) => {
       if (ch.channel.toLowerCase().includes(q)) return true;
-      const tags = tagsFor(ch.channel);
-      return tags.some((t) => t.label.toLowerCase().includes(q));
+      if (styleNameFor(ch.channel)?.toLowerCase().includes(q)) return true;
+      return labelsFor(ch.channel).some((label) => label.toLowerCase().includes(q));
     });
-  }, [sortedAll, q, tagsFor]);
+  }, [sortedAll, q, labelsFor, styleNameFor]);
 
   const visibleAuto = useMemo(() => {
     if (!q) return autoRunChannels;
     return autoRunChannels.filter((ch) => ch.name.toLowerCase().includes(q));
   }, [autoRunChannels, q]);
 
-  // Shared toolbar (search) — both tabs filter by name; All also filters tags.
+  // Shared toolbar (search) — both tabs filter by name; All also by label and style.
   const searchToolbar = (
     <div className="history-toolbar" style={{ marginBottom: 16 }}>
       <input
         type="text"
-        placeholder={activeTab === "all" ? "Search channels by name or tag…" : "Search auto-summarize channels…"}
+        aria-label={activeTab === "all" ? "Search channels by name, label or style" : "Search auto-summarize channels"}
+        placeholder={activeTab === "all" ? "Search channels by name, label or style…" : "Search auto-summarize channels…"}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
       />
@@ -600,7 +644,9 @@ export function ChannelsSection() {
         /* ---- All channels tab ---- */
         <div>
           <p className="section-desc" style={{ marginBottom: 12 }}>
-            Channels you've summarized with TL;DW. Expand a channel to see its videos and turn on auto-summarize.
+            Channels you've summarized with TL;DW. Expand a channel to see its videos, pick the style its
+            videos are summarized in (a cooking channel as Tutorial, a lecture channel as Learning), and
+            turn on auto-summarize.
           </p>
 
           {channels.length > 0 && (
@@ -616,6 +662,7 @@ export function ChannelsSection() {
                   <span style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" }}>Sort:</span>
                   <select
                     className="setting-select"
+                    aria-label="Sort channels"
                     value={sortKey}
                     onChange={(e) => setSortKey(e.target.value as SortKey)}
                     style={{ fontSize: 12 }}
@@ -647,7 +694,11 @@ export function ChannelsSection() {
                   stats={ch}
                   isAutoRun={autoRunNames.has(ch.channel)}
                   onToggleAutoRun={(stats, enable) => void handleToggleAutoRun(stats, enable)}
-                  tags={tagsFor(ch.channel)}
+                  labels={labelsFor(ch.channel)}
+                  styleId={channelStyles[ch.channel]}
+                  profiles={profiles}
+                  defaultName={defaultName}
+                  onChangeStyle={(channel, id) => void handleChangeStyle(channel, id)}
                 />
               )}
             />

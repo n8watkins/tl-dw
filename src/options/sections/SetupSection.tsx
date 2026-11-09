@@ -38,7 +38,7 @@ export function SetupSection() {
         <h1 className="section-title">Summarize any YouTube video.</h1>
         <p className="section-desc">
           TL;DW reads the video's transcript and puts an AI summary right under the video, shaped by
-          your profiles and tags, so you can decide whether a video is worth your time before you spend it.
+          the style you pick, so you can decide whether a video is worth your time before you spend it.
         </p>
       </div>
 

@@ -1,5 +1,5 @@
 import { formatInstructions, formatReminder, layoutOf } from "./summaryFormat";
-import type { PromptProfile, Tag, VideoContext } from "../types";
+import type { PromptProfile, VideoContext } from "../types";
 
 const FALLBACKS = {
   title: "Current YouTube video",
@@ -143,17 +143,6 @@ export function promptForHistory(sent: string): string {
     `${start}${transcriptPlaceholder(transcript)}${end}`);
 }
 
-/**
- * Append the user's active tag instructions (F6) — each tag's `prompt` fragment —
- * so the summary also addresses what they want from this channel/video (e.g.
- * citations, tutorial framing). Woven before the TLDW block, like curiosity.
- */
-export function appendTags(prompt: string, tags?: Tag[] | null): string {
-  if (!tags || tags.length === 0) return prompt;
-  const lines = tags.map((t) => `- ${t.prompt}`).join("\n");
-  return `${prompt}\n\nAlso specifically address each of the following, weaving them into the DETAILS:\n${lines}`;
-}
-
 /** What every summary prompt is built from. */
 export type SummaryPromptInput = {
   profile: PromptProfile;
@@ -164,10 +153,9 @@ export type SummaryPromptInput = {
   timed?: boolean;
   durationSeconds?: number;
   userCuriosity?: string | null;
-  tags?: Tag[] | null;
 };
 
-/** The profile's guidance with the question and tags woven in. */
+/** The profile's guidance with the question woven in. */
 function instructions(input: SummaryPromptInput): string {
   const { profile, video } = input;
   const curiosity = input.userCuriosity?.trim() || undefined;
@@ -175,8 +163,7 @@ function instructions(input: SummaryPromptInput): string {
   // Without a {{userCuriosity}} placeholder a typed question would be dropped:
   // append it, labeled.
   const hasCuriosityVar = /\{\{\s*userCuriosity\s*\}\}/.test(profile.promptTemplate);
-  const withCuriosity = curiosity && !hasCuriosityVar ? `${prompt}\n\nIn particular, address this: ${curiosity}` : prompt;
-  return appendTags(withCuriosity, input.tags);
+  return curiosity && !hasCuriosityVar ? `${prompt}\n\nIn particular, address this: ${curiosity}` : prompt;
 }
 
 function format(input: SummaryPromptInput, timed: boolean): string {

@@ -1,6 +1,6 @@
 import { destinationLabel } from "./constants";
 import { createDefaultProfiles, DEFAULT_PROFILE_ID } from "./profiles";
-import type { PromptProfile, Settings } from "../types";
+import type { PromptProfile, Settings, Tag } from "../types";
 
 /**
  * TL;DW became Gemini-only in 1.4 (docs/DECISIONS.md). A user whose default
@@ -81,4 +81,35 @@ export function migrateProfiles(
     changed = true;
   }
   return changed ? { profiles: next, settings: nextSettings } : null;
+}
+
+/**
+ * Tags became labels in 1.4, and a channel got a default style instead. A
+ * channel whose tag is named after a profile ("Tutorial", "research") gets
+ * that profile as its style, unless it has one already or its tags name two
+ * different profiles. Returns the new channel -> profile map, or null when
+ * nothing changes.
+ */
+export function stylesFromTags(
+  library: Tag[],
+  channelTags: Record<string, string[]>,
+  profiles: PromptProfile[],
+  channelProfiles: Record<string, string>,
+): Record<string, string> | null {
+  const byName = new Map(profiles.map((p) => [p.name.trim().toLowerCase(), p.id]));
+  // The old built-in names point at their profiles too ("Tutorial Mode" -> Tutorial).
+  for (const [id, old] of Object.entries(OLD_BUILT_IN_NAMES)) {
+    if (profiles.some((p) => p.id === id)) byName.set(old.toLowerCase(), id);
+  }
+  const labelById = new Map(library.map((t) => [t.id, t.label.trim().toLowerCase()]));
+  const next = { ...channelProfiles };
+  let changed = false;
+  for (const [channel, ids] of Object.entries(channelTags)) {
+    if (next[channel]) continue;
+    const matches = new Set(ids.map((id) => byName.get(labelById.get(id) ?? "")).filter((id): id is string => !!id));
+    if (matches.size !== 1) continue;
+    next[channel] = [...matches][0]!;
+    changed = true;
+  }
+  return changed ? next : null;
 }

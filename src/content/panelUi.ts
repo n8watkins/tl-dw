@@ -135,6 +135,7 @@ export function pillButton(
 export type MenuEntry =
   | { kind: "item"; label: string; icon: string; detail?: string; title?: string; onClick: () => void }
   | { kind: "radio"; label: string; checked: boolean; onClick: () => void }
+  | { kind: "check"; label: string; checked: boolean; title?: string; onClick: () => void }
   | { kind: "heading"; label: string }
   | { kind: "separator" };
 
@@ -214,8 +215,9 @@ export function overflowMenu(t: PanelTheme, entries: () => MenuEntry[], cleanups
       const label = document.createElement("span");
       label.textContent = entry.label;
       label.style.flex = "1";
-      if (entry.kind === "radio") {
-        b.setAttribute("role", "menuitemradio");
+      if (entry.kind === "radio" || entry.kind === "check") {
+        b.setAttribute("role", entry.kind === "radio" ? "menuitemradio" : "menuitemcheckbox");
+        if (entry.kind === "check" && entry.title) b.title = entry.title;
         b.setAttribute("aria-checked", String(entry.checked));
         const mark = icon("check", 16);
         mark.style.visibility = entry.checked ? "visible" : "hidden";

@@ -1320,7 +1320,7 @@ textarea { min-height: 176px; font-family: "JetBrains Mono", "Fira Code", ui-mon
 }
 
 .stats-mid-row {
-  grid-template-columns: 1fr 1.6fr;
+  grid-template-columns: 1fr 1fr;
 }
 
 .stats-small-row {
