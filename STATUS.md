@@ -1,23 +1,23 @@
 # TL;DW Extension Status
 
-**Version:** 1.1.3
-**Last updated:** November 2, 2026
+**Version:** 1.4.0
+**Last updated:** November 9, 2026
 
-TL;DW 1.0 is being prepared as an Unlisted Chrome Web Store soft launch centered on bring-your-own-key Gemini access.
+TL;DW is being prepared as an Unlisted Chrome Web Store soft launch: Gemini only, with your own free key or with no key at all.
 
 ## Implemented
 
-- Direct API summaries default to Gemini 3.5 Flash-Lite and retry once on Gemini 3.1 Flash-Lite after a 429; a model picker offers larger models.
-- TL;DW decides how to send a video before sending it: the API gets the whole transcript, or watches a video without one (API video input).
-  Without a key, a transcript too long for the Gemini tab goes as its start and end and a video without a transcript goes as its link, each labeled on the summary (signed-out Gemini doesn't watch videos, so it uses public info); ChatGPT and Claude ask before a long transcript is shortened.
-- Signed in to Gemini, a long or unread-but-captioned video goes to the Gemini tab as its link, and Gemini reads the captions through YouTube (labeled so).
-- The no-key Gemini tab is read back even while it stays in the background (1.1.1).
 - TL;DW is Gemini-only since 1.4 (docs/DECISIONS.md): the Gemini API with your own key, or the Gemini tab without one.
+- With a key, summaries default to Gemini 3.5 Flash-Lite and retry once on Gemini 3.1 Flash-Lite after a 429; a model picker offers larger models.
+- Transcript first in both modes (docs/DECISIONS.md): the transcript goes as one "[m:ss] text" line per caption.
+  A long one goes whole: in up to 12 messages to the Gemini tab, or as notes per part with the API; only beyond about six hours in the tab is it sent as its start and end, labeled so.
+- Without a transcript: with a key the API watches the video (in two-hour stretches when longer than 2.5 hours); without one the Gemini tab gets the link only when signed in, and signed out the page asks the user to sign in.
+- The no-key Gemini tab is read back even while it stays in the background.
+- Four built-in profiles with their own layouts: Quick, Research, Learning, Tutorial. Moment Finder is gone; custom profiles pick a layout.
+- A time is shown only when the model's quoted words are in the captions within 15 seconds of it; a link-based summary never shows times.
+- The panel: header with the style and mode, a ⋯ menu (Regenerate, Copy, Open in Gemini, Style, the channel's style, Auto-summarize, Settings) and a quiet source line.
+- The style for a run: the one picked for it, then the channel's default style, then the default profile. Tags are labels on the Channels page and no longer change prompts.
 - A first install opens a welcome page with the free-key steps; SponsorBlock is the one optional host permission and is off by default.
-- Automatic Direct API runs use the configured Direct API profile.
-- Popup inline runs preserve the popup-selected profile.
-- Manual on-page runs use the global default profile.
-- Prompt construction, history, call metadata, and cache context use the same resolved profile.
 - Summary caching is prompt-aware and owned by the background worker.
 - Cache variants include the video, SHA-256 prompt fingerprint, parsed summary, profile, model or destination, and timestamp.
 - Passive navigation shows the newest cached variant and identifies its profile.
@@ -35,23 +35,19 @@ TL;DW 1.0 is being prepared as an Unlisted Chrome Web Store soft launch centered
 
 ## Product scope
 
-TL;DW produces SUMMARY and DETAILS shaped by profiles, tags, and optional questions.
+TL;DW produces a takeaway and the points its profile's layout asks for, shaped by the profile and an optional question.
 It does not track watch time or engagement and does not produce a built-in rating or WATCH/SKIM/SKIP verdict.
 Summary-centric history and activity remain local.
 SponsorBlock skipping remains optional and off by default; turning it on asks for the `sponsor.ajay.app` permission.
 
 ## Verification status
 
-- A clean `npm ci` passes on Node 20.19 or newer.
 - Typecheck and ESLint pass.
-- All 87 unit tests pass.
-- All nine built-extension Playwright scenarios pass.
-- The non-bumping Vite production build passes.
-- Full `npm audit` reports zero vulnerabilities.
-- Store package validation passes for `web-store/tldw-1.0.0.zip`.
-- The packaged root manifest reports version 1.0.0.
-- The required 1280 by 800 screenshot and 440 by 280 promotional tile exist in `store-assets/`.
-- Real-key verification passed for the current 1.0.0 candidate using the saved local key; it remains an environment-specific manual check because no secret key is committed to the repository.
+- All 177 unit tests and all 73 built-extension Playwright scenarios pass, including axe WCAG AA checks of the panel (light and dark), the popup and the options pages.
+- Real YouTube, signed-out Gemini, no key: all four styles on 3Blue1Brown, a 1-hour talk sent whole in 3 parts, and the sign-in message for a video without captions (9 Nov 2026).
+- `npm audit --omit=dev` reports zero vulnerabilities; seven moderate dev-only findings come from minimatch under typescript-eslint and wait for its next release.
+- Store package validation passes for `web-store/tldw-1.4.0.zip` (manifest 1.4.0, permissions storage, contextMenus and clipboardWrite).
+- Real-key verification remains an environment-specific manual check because no secret key is committed to the repository.
 - Chrome Web Store upload and Unlisted submission remain manual because they require the publisher account.
 
 ## Known follow-up
