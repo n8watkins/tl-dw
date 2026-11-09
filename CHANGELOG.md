@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1 - 2026-11-09
+
+### Fixed
+
+- The Chrome Web Store name says what TL;DW does, and "Hire me" goes to Tech for Pros ([#44](https://github.com/n8watkins/tl-dw/pull/44))
+
 ## 1.2.0 - 2026-11-09
 
 ### New

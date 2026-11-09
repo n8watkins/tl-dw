@@ -206,7 +206,7 @@ Each step is `action → expected result` and is grounded in the actual code._
       new tab:
   - [ ] **Buy me a Ko-fi** → `ko-fi.com/n8watkins`
   - [ ] **n8builds.dev** → `n8builds.dev`
-  - [ ] **Hire me — Appturnity** → `appturnity.com`
+  - [ ] **Hire me: Tech for Pros** → `techforpros.com`
   - [ ] **GitHub repo** and **Report an issue** (existing).
 - [ ] 🔴 **No version number** anywhere on the Support page (it moved to the sidebar
       logo + About).
