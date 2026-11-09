@@ -154,7 +154,9 @@ export function overflowMenu(t: PanelTheme, entries: () => MenuEntry[], cleanups
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", "TL;DW actions");
   Object.assign(menu.style, {
-    position: "absolute", top: "calc(100% + 4px)", right: "0", minWidth: "250px", maxWidth: "320px",
+    // Wide enough that "Use Tutorial for every <channel> video" fits on one line
+    // for most channel names; a long one wraps.
+    position: "absolute", top: "calc(100% + 4px)", right: "0", width: "max-content", minWidth: "260px", maxWidth: "min(380px, 90vw)",
     background: t.bg, border: `1px solid ${t.border}`, borderRadius: "12px",
     boxShadow: t.dark ? "0 8px 28px rgba(0,0,0,0.6)" : "0 8px 28px rgba(0,0,0,0.16)",
     padding: "6px 0", zIndex: "2147483000", display: "none", flexDirection: "column",
