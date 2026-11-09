@@ -2,8 +2,9 @@
  * SponsorBlock auto-skip. On every YouTube watch-page navigation it asks the
  * background worker for this video's sponsor segments (the free, key-less
  * SponsorBlock community API), then watches the player and seeks past each
- * sponsored segment as playback reaches it. The TL;DW panel (youtube.ts) shows
- * the segment timestamps and a per-segment Undo, fed by the window bridge below.
+ * sponsored segment as playback reaches it. Every skip shows a small notice
+ * with Undo over the player, whether or not a summary is open; the TL;DW panel
+ * (youtube.ts) also lists the segment timestamps, fed by the window bridge below.
  *
  * Design notes (see LESSONS_LEARNED.md):
  *  - Runs as its own content script so the skip engine is independent of the
@@ -122,7 +123,73 @@ function segmentState(): SponsorPanelSegment[] {
 }
 
 function notifyPanel(): void {
+  syncSkipNotice();
   window.dispatchEvent(new CustomEvent("tldw-sponsor-update"));
+}
+
+// --- skip notice over the player ---------------------------------------------
+// A skip is never silent: while its Undo window is open, a small notice sits
+// over the player's bottom-left corner (above the controls, also in fullscreen)
+// with the skipped length and an Undo. It is independent of the summary panel.
+
+const NOTICE_ID = "tldw-sponsor-toast";
+
+/** Seconds → m:ss. */
+function clock(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** The text of the notice for a skipped segment, e.g. "Skipped a sponsor (0:27)". */
+function skipNoticeText(seg: { start: number; end: number }): string {
+  return `Skipped a sponsor (${clock(seg.end - seg.start)})`;
+}
+
+function removeSkipNotice(): void {
+  document.getElementById(NOTICE_ID)?.remove();
+}
+
+/** Show the notice for the newest skip still inside its Undo window, or remove it. */
+function syncSkipNotice(): void {
+  let latest: SponsorSegment | undefined;
+  for (const seg of undoableUntil.keys()) latest = seg;
+  const index = latest ? segments.indexOf(latest) : -1;
+  const player = document.getElementById("movie_player");
+  if (!enabled || !latest || index < 0 || !player) {
+    removeSkipNotice();
+    return;
+  }
+  let notice = document.getElementById(NOTICE_ID);
+  if (notice?.dataset.segment === String(index) && notice.parentElement === player) return;
+  notice?.remove();
+  notice = document.createElement("div");
+  notice.id = NOTICE_ID;
+  notice.dataset.segment = String(index);
+  notice.setAttribute("role", "status");
+  Object.assign(notice.style, {
+    position: "absolute", left: "12px", bottom: "64px", zIndex: "60",
+    display: "flex", alignItems: "center", gap: "12px",
+    padding: "8px 8px 8px 14px", borderRadius: "8px",
+    background: "rgba(28, 28, 28, 0.9)", color: "#fff",
+    font: "500 13px/1.3 Roboto, Arial, sans-serif",
+    boxShadow: "0 2px 8px rgba(0, 0, 0, 0.35)", pointerEvents: "auto",
+  });
+  const label = document.createElement("span");
+  label.textContent = skipNoticeText({ start: latest.start, end: segmentEnd(latest) });
+  const undo = document.createElement("button");
+  undo.type = "button";
+  undo.textContent = "Undo";
+  undo.title = "Go back and watch it";
+  Object.assign(undo.style, {
+    background: "transparent", border: "none", borderRadius: "4px", cursor: "pointer",
+    color: "#3ea6ff", font: "500 13px/1 Roboto, Arial, sans-serif", padding: "6px 8px",
+  });
+  undo.addEventListener("click", (e) => {
+    e.stopPropagation();
+    jumpTo(index, "start");
+  });
+  notice.append(label, undo);
+  player.append(notice);
 }
 
 /** Seek to a segment's start/end and take manual control (don't auto-skip it
@@ -144,6 +211,16 @@ function jumpTo(index: number, edge: "start" | "end"): void {
   jumpTo,
 };
 
+/**
+ * Where a segment really ends. One can be submitted running past the video's
+ * end (an outro sponsor): a seek to it lands on the end, still "inside" it,
+ * and would skip, and count, again. So the video's end caps it.
+ */
+function segmentEnd(seg: SponsorSegment): number {
+  const duration = video?.duration ?? NaN;
+  return Number.isFinite(duration) && duration > 0 ? Math.min(seg.end, duration) : seg.end;
+}
+
 function onTimeUpdate(): void {
   if (!enabled || !video || segments.length === 0) return;
   const t = video.currentTime;
@@ -163,16 +240,17 @@ function onTimeUpdate(): void {
     if (disabled.has(seg)) continue;
     // Only skip when we cross into the segment via normal playback (we were
     // before it a tick ago) — not when the user scrubbed into its middle.
-    if (t >= seg.start && t < seg.end - 0.4 && lastTime < seg.end) {
+    const end = segmentEnd(seg);
+    if (t >= seg.start && t < end - 0.4 && lastTime < end) {
       skipped.add(seg);
-      undoableUntil.set(seg, seg.end + UNDO_GRACE); // Undo available briefly
+      undoableUntil.set(seg, end + UNDO_GRACE); // Undo available briefly
       programmaticSeek = true;
-      video.currentTime = seg.end;
+      video.currentTime = end;
       notifyPanel();
       // Fire-and-forget: tell the background to tally lifetime sponsor stats.
       chrome.runtime.sendMessage({
         type: "SPONSOR_SKIPPED",
-        secondsSaved: seg.end - seg.start,
+        secondsSaved: end - seg.start,
         category: seg.category,
       }).catch(() => {});
       break;
@@ -225,6 +303,7 @@ function detach(): void {
   skipped.clear();
   disabled.clear();
   undoableUntil.clear();
+  removeSkipNotice();
 }
 
 let navPollTimer: number | undefined;
