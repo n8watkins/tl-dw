@@ -1732,14 +1732,6 @@ async function recordTabCreates(session: ExtensionSession): Promise<() => Promis
   return () => session.worker.evaluate(() => (globalThis as unknown as { __created: chrome.tabs.CreateProperties[] }).__created);
 }
 
-async function pendingPrompt(session: ExtensionSession): Promise<string> {
-  return session.worker.evaluate(async () => {
-    const r = await chrome.storage.session.get("pendingPrompts");
-    const all = Object.values((r.pendingPrompts ?? {}) as Record<string, { prompt: string }>);
-    return all.at(-1)?.prompt ?? "";
-  });
-}
-
 type ChatSite = "gemini";
 
 /**
