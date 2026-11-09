@@ -37,7 +37,7 @@ TL;DW 1.0 is being prepared as an Unlisted Chrome Web Store soft launch centered
 TL;DW produces SUMMARY and DETAILS shaped by profiles, tags, and optional questions.
 It does not track watch time or engagement and does not produce a built-in rating or WATCH/SKIM/SKIP verdict.
 Summary-centric history and activity remain local.
-SponsorBlock remains optional and on by default after the first-run disclosure.
+SponsorBlock skipping remains optional and off by default; turning it on asks for the `sponsor.ajay.app` permission.
 
 ## Verification status
 
