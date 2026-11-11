@@ -45,7 +45,7 @@
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.7",
-    "release-kit": "github:n8watkins/release-kit#v2.9.0",
+    "release-kit": "github:n8watkins/release-kit#v2.10.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.72.1",
     "vite": "7.3.7",
