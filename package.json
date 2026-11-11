@@ -28,27 +28,27 @@
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.25",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",
-    "@crxjs/vite-plugin": "2.7.1",
-    "@eslint/js": "9.39.5",
+    "@crxjs/vite-plugin": "3.0.0",
+    "@eslint/js": "10.0.1",
     "@playwright/test": "1.64.1",
     "@types/chrome": "^0.3.7",
-    "@types/node": "^24.19.2",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "5.1.1",
-    "eslint": "9.39.5",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "6.2.1",
+    "eslint": "10.14.0",
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.7",
     "release-kit": "github:n8watkins/release-kit#v2.10.1",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "typescript-eslint": "8.72.1",
-    "vite": "7.3.7",
-    "vitest": "4.1.12"
+    "vite": "8.3.5",
+    "vitest": "5.1.0"
   }
 }
